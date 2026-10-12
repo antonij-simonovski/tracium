@@ -1,0 +1,64 @@
+name: Bug report
+description: Something in Tracium is broken or behaves unexpectedly
+labels: [bug]
+body:
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - collector
+        - api
+        - dashboard
+        - spec
+        - deploy
+        - not sure
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Tracium version
+      description: Release tag or commit SHA
+      placeholder: 1.0.4
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment
+      options:
+        - Docker Compose (release images)
+        - Docker Compose (built from source)
+        - Helm / Kubernetes
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant collector, api or browser console output. Remove API keys, tokens and prompt content first.
+      render: shell
+  - type: textarea
+    id: instrumentation
+    attributes:
+      label: Instrumentation
+      description: SDK or library sending the spans and its version, if the bug is about ingested data

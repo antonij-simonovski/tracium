@@ -36,3 +36,9 @@ with no version pins.
 
 Keep PRs focused. Include tests (unit tests use mocks, never a real DB). CI runs
 the affected component's tests and checks that generated code is in sync.
+
+## Conduct and reporting
+
+Participation is covered by the [Code of Conduct](CODE_OF_CONDUCT.md). Report
+bugs and request features through the issue templates; report vulnerabilities
+privately per [SECURITY.md](SECURITY.md).
