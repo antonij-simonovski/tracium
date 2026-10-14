@@ -221,27 +221,25 @@ func (r *ClickHouseRepository) CostSeries(ctx context.Context, f MetricsFilter) 
 	}
 	bucketMs := f.Bucket.Milliseconds()
 
-	// Workflow-scoped cost must use per-call spans (the metric relation carries no
-	// workflow identity) and roll up to traces so the workflow filter can apply. The
-	// unfiltered path reconciles both relations instead.
-	if f.Workflow != "" {
+	// Workflow- or version-scoped cost must use per-call spans (the metric relation
+	// carries no workflow identity) and roll up to traces so the filter can apply.
+	// The unfiltered path reconciles both relations instead.
+	if f.Workflow != "" || f.Version != "" {
 		clause, args := window(f.UserID, f.WorkspaceIDs, f.Start.UnixMilli(), f.End.UnixMilli())
+		scopeCols, scopeWhere, scopeArgs := traceScope(f)
 		q := fmt.Sprintf(`
 SELECT intDiv(ts, ?) * ? AS bucket_ms, sum(cost) AS value
 FROM (
     SELECT
         min(start_time_ms) AS ts,
-        sum(cost_usd)      AS cost,
-        %s AS name
+        sum(cost_usd)      AS cost%s
     FROM %s
     WHERE %s
     GROUP BY trace_id
-)
-WHERE name = ?
-GROUP BY bucket_ms`, workflowExpr, tableCalls, clause)
+)%s
+GROUP BY bucket_ms`, scopeCols, tableCalls, clause, scopeWhere)
 		qArgs := append([]any{bucketMs, bucketMs}, args...)
-		qArgs = append(qArgs, f.Workflow)
-		points, err := bucketSeries(ctx, r.db, f, q, qArgs, scanCostBucket, costPoint)
+		points, err := bucketSeries(ctx, r.db, f, q, append(qArgs, scopeArgs...), scanCostBucket, costPoint)
 		if err != nil {
 			return nil, fmt.Errorf("clickhouse: cost series (workflow): %w", err)
 		}
@@ -287,6 +285,7 @@ func (r *ClickHouseRepository) LatencySeries(ctx context.Context, f MetricsFilte
 		return latencySeriesEmpty(f), nil
 	}
 	clause, args := window(f.UserID, f.WorkspaceIDs, f.Start.UnixMilli(), f.End.UnixMilli())
+	scopeCols, scopeWhere, scopeArgs := traceScope(f)
 	base, bucketMs, n := bucketAxis(f)
 	q := fmt.Sprintf(`
 SELECT
@@ -302,13 +301,10 @@ FROM (
     WHERE %s
     GROUP BY trace_id
 )%s
-GROUP BY bucket_ms`, workflowNameCol(f.Workflow), clause, workflowNameFilter(f.Workflow))
+GROUP BY bucket_ms`, scopeCols, clause, scopeWhere)
 
 	qArgs := append([]any{bucketMs, bucketMs}, args...)
-	if f.Workflow != "" {
-		qArgs = append(qArgs, f.Workflow)
-	}
-	rows, err := r.db.QueryContext(ctx, q, qArgs...)
+	rows, err := r.db.QueryContext(ctx, q, append(qArgs, scopeArgs...)...)
 	if err != nil {
 		return nil, fmt.Errorf("clickhouse: latency series: %w", err)
 	}
@@ -352,6 +348,7 @@ func (r *ClickHouseRepository) ErrorSeries(ctx context.Context, f MetricsFilter)
 		return r.errorSeriesRollup(ctx, f)
 	}
 	clause, args := window(f.UserID, f.WorkspaceIDs, f.Start.UnixMilli(), f.End.UnixMilli())
+	scopeCols, scopeWhere, scopeArgs := traceScope(f)
 	bucketMs := f.Bucket.Milliseconds()
 	q := fmt.Sprintf(`
 SELECT
@@ -366,13 +363,10 @@ FROM (
     WHERE %s
     GROUP BY trace_id
 )%s
-GROUP BY bucket_ms`, workflowNameCol(f.Workflow), clause, workflowNameFilter(f.Workflow))
+GROUP BY bucket_ms`, scopeCols, clause, scopeWhere)
 
 	qArgs := append([]any{bucketMs, bucketMs}, args...)
-	if f.Workflow != "" {
-		qArgs = append(qArgs, f.Workflow)
-	}
-	points, err := bucketSeries(ctx, r.db, f, q, qArgs, scanErrorBucket, errorPoint)
+	points, err := bucketSeries(ctx, r.db, f, q, append(qArgs, scopeArgs...), scanErrorBucket, errorPoint)
 	if err != nil {
 		return nil, fmt.Errorf("clickhouse: error series: %w", err)
 	}
@@ -389,21 +383,30 @@ const workflowExpr = `coalesce(` +
 	`nullIf(argMinIf(service_name, start_time_ms, service_name != ''), ''), ` +
 	`argMin(name, start_time_ms))`
 
-// workflowNameCol / workflowNameFilter add an optional single-workflow filter to a
-// series query whose inner subquery groups by trace_id. Both are empty when no
-// workflow is set; otherwise the filter binds the workflow name after the window args.
-func workflowNameCol(workflow string) string {
-	if workflow == "" {
-		return ""
-	}
-	return ",\n        " + workflowExpr + " AS name"
-}
+// versionExpr and versionSourceExpr take a trace's version from its root span,
+// else its earliest versioned span: false sorts first, so root spans win.
+const (
+	versionExpr       = `argMinIf(workflow_version, (parent_span_id != '', start_time_ms), workflow_version != '')`
+	versionSourceExpr = `argMinIf(version_source, (parent_span_id != '', start_time_ms), workflow_version != '')`
+)
 
-func workflowNameFilter(workflow string) string {
-	if workflow == "" {
-		return ""
+// traceScope returns the inner columns, outer WHERE and args for the workflow and version filters.
+func traceScope(f MetricsFilter) (cols, where string, args []any) {
+	var conds []string
+	if f.Workflow != "" {
+		cols += ",\n        " + workflowExpr + " AS name"
+		conds = append(conds, "name = ?")
+		args = append(args, f.Workflow)
 	}
-	return "\nWHERE name = ?"
+	if f.Version != "" {
+		cols += ",\n        " + versionExpr + " AS version"
+		conds = append(conds, "version = ?")
+		args = append(args, f.Version)
+	}
+	if len(conds) > 0 {
+		where = "\nWHERE " + strings.Join(conds, " AND ")
+	}
+	return cols, where, args
 }
 
 // TopWorkflows returns the highest-spending workflows in the window. A workflow is the
@@ -548,8 +551,8 @@ SETTINGS use_query_cache = 1, query_cache_ttl = 60`, workflowExpr, clause)
 }
 
 // WorkflowDetail returns one workflow's headline metrics for the detail page (f.Workflow
-// names it), plus its current tool surface. Span-backed only: there is no
-// workflow-config store, so runtime params are not served. The window is bounded
+// names it), plus its current version and tool surface. Span-backed only: there
+// is no workflow-config store, so runtime params are not served. The window is bounded
 // like every other metric; callers keep it off the rollup (the handler rejects
 // rollup ranges) because per-workflow latency can't come from the daily rollup.
 // Returns ErrNotFound when the workflow has no runs in the window.
@@ -572,11 +575,15 @@ SELECT
     toInt64(sum(in_tok))             AS input_tokens,
     toInt64(sum(out_tok))            AS output_tokens,
     topKIf(1)(model, model != '')[1] AS model,
-    argMax(trace_id, ts)             AS last_trace_id
+    argMax(trace_id, ts)             AS last_trace_id,
+    argMaxIf(version, ts, version != '') AS current_version,
+    argMaxIf(src, ts, version != '')     AS current_version_source
 FROM (
     SELECT
         trace_id,
         %s AS name,
+        %s AS version,
+        %s AS src,
         argMin(%s, start_time_ms) AS model,
         sum(cost_usd)        AS cost,
         `+traceDurationExpr+` AS dur,
@@ -588,7 +595,7 @@ FROM (
     WHERE %s
     GROUP BY trace_id
 )
-WHERE name = ?`, workflowExpr, modelExpr, clause)
+WHERE name = ?`, workflowExpr, versionExpr, versionSourceExpr, modelExpr, clause)
 
 	var (
 		d         model.WorkflowDetail
@@ -598,7 +605,7 @@ WHERE name = ?`, workflowExpr, modelExpr, clause)
 	)
 	err := r.db.QueryRowContext(ctx, q, append(args, f.Workflow)...).Scan(
 		&d.Calls, &d.Cost, &d.AvgLatencyMs, &p95, &d.ErrorRate,
-		&d.InputTokens, &d.OutputTokens, &modelName, &lastTrace)
+		&d.InputTokens, &d.OutputTokens, &modelName, &lastTrace, &d.CurrentVersion, &d.CurrentVersionSource)
 	if err != nil {
 		return model.WorkflowDetail{}, fmt.Errorf("clickhouse: workflow detail: %w", err)
 	}

@@ -2,6 +2,7 @@ package clickhousespanexporter
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"go.opentelemetry.io/collector/pdata/pcommon"
@@ -144,6 +145,51 @@ func TestWorkflowName_DerivationPriority(t *testing.T) {
 					tt.service, tt.genaiAgent, tt.traceloopWorkflow, tt.traceloopEntity, tt.spanName, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestFromOTLP_WorkflowVersionPriority(t *testing.T) {
+	tests := []struct {
+		name            string
+		span, resource  map[string]string
+		version, source string
+	}{
+		{"span version wins over everything", map[string]string{"tracium.workflow.version": "v12", "traceloop.prompt.version": "3"}, map[string]string{"tracium.workflow.version": "v11", "service.version": "1.4.0"}, "v12", "explicit"},
+		{"resource version when the span has none", nil, map[string]string{"tracium.workflow.version": "v11", "service.version": "1.4.0"}, "v11", "explicit"},
+		{"prompt version with its key", map[string]string{"traceloop.prompt.key": "summarize", "traceloop.prompt.version": "3"}, map[string]string{"service.version": "1.4.0"}, "summarize@3", "prompt"},
+		{"prompt version without a key", map[string]string{"traceloop.prompt.version": "3"}, nil, "3", "prompt"},
+		{"prompt key alone is no version", map[string]string{"traceloop.prompt.key": "summarize"}, map[string]string{"service.version": "1.4.0"}, "1.4.0", "service"},
+		{"service.version before the vcs revision", nil, map[string]string{"service.version": "1.4.0", "vcs.ref.head.revision": "9f2c1ab"}, "1.4.0", "service"},
+		{"vcs revision as the last resort", nil, map[string]string{"vcs.ref.head.revision": "9f2c1ab"}, "9f2c1ab", "service"},
+		{"blank values are skipped", map[string]string{"tracium.workflow.version": "  "}, map[string]string{"service.version": "1.4.0"}, "1.4.0", "service"},
+		{"no version", nil, nil, "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := ptrace.NewSpan()
+			for k, v := range tt.span {
+				s.Attributes().PutStr(k, v)
+			}
+			resource := pcommon.NewMap()
+			for k, v := range tt.resource {
+				resource.PutStr(k, v)
+			}
+			row := fromOTLP(s, "", resource)
+			if row.WorkflowVersion != tt.version || row.VersionSource != tt.source {
+				t.Errorf("version = (%q, %q), want (%q, %q)", row.WorkflowVersion, row.VersionSource, tt.version, tt.source)
+			}
+		})
+	}
+}
+
+func TestFromOTLP_SanitizesWorkflowVersion(t *testing.T) {
+	s := ptrace.NewSpan()
+	s.Attributes().PutStr("tracium.workflow.version", "v1\n"+strings.Repeat("x", 200))
+
+	row := fromOTLP(s, "", pcommon.NewMap())
+
+	if strings.Contains(row.WorkflowVersion, "\n") || len(row.WorkflowVersion) != 128 {
+		t.Errorf("version = %q (%d bytes), want control characters dropped and 128 bytes", row.WorkflowVersion, len(row.WorkflowVersion))
 	}
 }
 

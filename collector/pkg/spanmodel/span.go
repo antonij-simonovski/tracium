@@ -41,6 +41,11 @@ type Span struct {
 	// ServiceName is the resource service.name; "unknown_service*" is stored as empty.
 	ServiceName string
 
+	// WorkflowVersion is the version the span ran under; VersionSource says where
+	// it came from: explicit, prompt or service.
+	WorkflowVersion string
+	VersionSource   string
+
 	// Source is "span" for a per-call span or "metric" for a row synthesised from
 	// an OTLP token-usage metric. Empty is persisted as "span".
 	Source string

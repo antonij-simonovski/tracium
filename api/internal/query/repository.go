@@ -27,6 +27,11 @@ type MetricsRepository interface {
 	// WorkflowDetail serves one workflow's detail page (f.Workflow names it). Returns
 	// ErrNotFound when that workflow has no runs in the window.
 	WorkflowDetail(ctx context.Context, f MetricsFilter) (model.WorkflowDetail, error)
+	// WorkflowVersions lists the versions of f.Workflow that ran in the window.
+	WorkflowVersions(ctx context.Context, f MetricsFilter, limit int) ([]model.WorkflowVersion, error)
+	// CompareVersions compares two versions of f.Workflow over the window.
+	// Returns ErrNotFound when either version has no runs in it.
+	CompareVersions(ctx context.Context, f MetricsFilter, base, candidate string) (model.VersionComparison, error)
 	Failures(ctx context.Context, f MetricsFilter, limit int) ([]model.Failure, int64, error)
 	ModelCosts(ctx context.Context, f MetricsFilter, limit int) ([]model.ModelCost, error)
 	UserUsage(ctx context.Context, f MetricsFilter, limit int) ([]model.UserUsage, error)

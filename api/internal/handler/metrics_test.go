@@ -357,20 +357,106 @@ func TestMetricsRejectsWorkflowOnUnscopedEndpoints(t *testing.T) {
 		"/v1/metrics/usage-users":    h.UserUsage,
 		"/v1/metrics/attribute-keys": h.AttributeKeys,
 	} {
-		rr := httptest.NewRecorder()
-		serveAuthed(hf, rr, httptest.NewRequest(http.MethodGet, path+"?range=7d&workflow=planner", nil))
-		if rr.Code != http.StatusBadRequest {
-			t.Errorf("%s: status = %d, want 400", path, rr.Code)
+		for _, param := range []string{"workflow=planner", "version=v2"} {
+			rr := httptest.NewRecorder()
+			serveAuthed(hf, rr, httptest.NewRequest(http.MethodGet, path+"?range=7d&"+param, nil))
+			if rr.Code != http.StatusBadRequest {
+				t.Errorf("%s?%s: status = %d, want 400", path, param, rr.Code)
+			}
 		}
 	}
 }
 
-func TestMetricsSeriesAcceptsWorkflow(t *testing.T) {
+func TestMetricsSeriesAcceptsWorkflowAndVersion(t *testing.T) {
 	h := newMetricsHandler(&mocks.MockMetricsRepository{})
+	for _, q := range []string{"workflow=planner", "version=v2", "workflow=planner&version=v2"} {
+		rr := httptest.NewRecorder()
+		serveAuthed(h.ErrorSeries, rr, httptest.NewRequest(http.MethodGet, "/v1/metrics/error-series?range=7d&"+q, nil))
+		if rr.Code != http.StatusOK {
+			t.Errorf("%s: status = %d, want 200", q, rr.Code)
+		}
+	}
+}
+
+func TestMetricsSeriesVersionRejectsRollupRange(t *testing.T) {
+	h := newMetricsHandler(&mocks.MockMetricsRepository{})
+
 	rr := httptest.NewRecorder()
-	serveAuthed(h.ErrorSeries, rr, httptest.NewRequest(http.MethodGet, "/v1/metrics/error-series?range=7d&workflow=planner", nil))
+	serveAuthed(h.LatencySeries, rr, httptest.NewRequest(http.MethodGet, "/v1/metrics/latency-series?range=90d&version=v2", nil))
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rr.Code)
+	}
+}
+
+func TestMetricsWorkflowVersions(t *testing.T) {
+	repo := &mocks.MockMetricsRepository{
+		Versions: []model.WorkflowVersion{
+			{Version: "v12", Source: "explicit", Calls: 40, Cost: 2, CostPerRun: 0.05},
+			{Version: "", Calls: 3},
+		},
+	}
+	h := newMetricsHandler(repo)
+
+	rr := httptest.NewRecorder()
+	serveAuthed(h.WorkflowVersions, rr, workflowDetailRequest("planner", "range=1y"))
+
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	var got struct {
+		Items []model.WorkflowVersion `json:"items"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got.Items) != 2 || got.Items[0].Version != "v12" || got.Items[0].Source != "explicit" {
+		t.Errorf("items = %+v, want v12 (explicit) first of 2", got.Items)
+	}
+}
+
+func TestMetricsCompareVersions(t *testing.T) {
+	repo := &mocks.MockMetricsRepository{
+		Comparison: model.VersionComparison{
+			Base:       model.WorkflowVersion{Version: "v11"},
+			Candidate:  model.WorkflowVersion{Version: "v12"},
+			CostPerRun: model.KPI{Value: 0.07, Delta: 0.4, DeltaType: "bad"},
+		},
+	}
+	h := newMetricsHandler(repo)
+
+	rr := httptest.NewRecorder()
+	serveAuthed(h.CompareVersions, rr, workflowDetailRequest("planner", "range=7d&base=v11&candidate=v12"))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	var got model.VersionComparison
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.Candidate.Version != "v12" || got.CostPerRun.DeltaType != "bad" {
+		t.Errorf("comparison = %+v, want v12 with a bad cost-per-run delta", got)
+	}
+}
+
+func TestMetricsCompareVersionsErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name, query string
+		err         error
+		status      int
+	}{
+		{"missing candidate", "range=7d&base=v11", nil, http.StatusBadRequest},
+		{"unknown version", "range=7d&base=v11&candidate=v99", query.ErrNotFound, http.StatusNotFound},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newMetricsHandler(&mocks.MockMetricsRepository{Err: tc.err})
+			rr := httptest.NewRecorder()
+			serveAuthed(h.CompareVersions, rr, workflowDetailRequest("planner", tc.query))
+			if rr.Code != tc.status {
+				t.Fatalf("status = %d, want %d", rr.Code, tc.status)
+			}
+		})
 	}
 }
 

@@ -7,6 +7,20 @@ Breaking changes require a `schema_version` bump. Additive changes do not.
 
 ## [Unreleased]
 
+### Added
+- Workflow versions. A span's version is `tracium.workflow.version` (span, then resource), else the Traceloop managed prompt version (`traceloop.prompt.key@traceloop.prompt.version`), else the resource `service.version` or `vcs.ref.head.revision`. It is stored in the new `tracium.spans.workflow_version` and `version_source` (`explicit`, `prompt` or `service`) columns and added to the `metrics_daily` key (migration 015)
+- `Trace.workflow_version` and `Trace.version_source`: the root span's version, else the earliest versioned span's
+- `GET /v1/metrics/workflows/{name}/versions` lists a workflow's versions with runs, cost per run, p95 latency, error rate and tokens per run
+- `GET /v1/metrics/workflows/{name}/versions/compare?base=&candidate=` compares two versions
+- `version` filter on `GET /v1/traces` and the series endpoints
+- `WorkflowDetail.current_version` and `current_version_source`: the version of the workflow's most recent versioned run
+- `span.json` lists `workflow_version` and `version_source`
+- The examples set `tracium.workflow.version`, and the demo seed ships two or three releases per workflow, versioned through each source, with one unversioned workflow
+- The smoke test checks versions end to end, and the upgrade test runs migration 015 on a 1.0.4 rollup
+
+### Changed
+- Migration 015 rebuilds `metrics_daily` with the version columns in its sorting key and keeps the original as `metrics_daily_pre_version`. Stop ingestion while it runs; existing rollup rows read as unversioned. Ranges longer than 30d read the version per span, leaving out unversioned spans without a model, so they match the per-run numbers only when every span carries it, as with a resource attribute
+
 ---
 
 ## [1.0.4] - 2026-10-09

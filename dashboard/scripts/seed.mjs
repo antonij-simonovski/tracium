@@ -17,6 +17,11 @@
 //
 // The collector prices spans, captures content (capture_content: true), derives
 // agents/kinds/tools, and writes to ClickHouse; the dashboard then reads it.
+//
+// Workflows ship releases over the history (see WORKFLOWS[].versions), each
+// version sent the way real apps send one: tracium.workflow.version on the
+// resource, the resource service.version, or a Traceloop managed prompt version
+// on the LLM spans. research-assistant sends none.
 
 const OTLP = process.env.OTLP_ENDPOINT || "http://localhost:4318/v1/traces";
 const WORKSPACE_ID = process.env.WORKSPACE_ID || "c4ef3026-f040-4221-ad58-d6345dd4570c";
@@ -48,6 +53,8 @@ export const WORKSPACES = [
 ];
 const NS = 1_000_000_000n;
 const MS = 1_000_000n;
+const DAY_NS = 86400n * NS;
+const NOW_NS = BigInt(Date.now()) * MS;
 
 // ---- PRNG (mulberry32). Random each run so re-seeding adds fresh, distinct
 // data; set SEED=<n> for a reproducible run. -----------------------------------
@@ -525,14 +532,38 @@ function wfResearch(T, root, seq) {
   return null;
 }
 
+// versions: { source, releases: [[version, released days ago, token factor?]] },
+// oldest first. The token factor makes a release cheaper or costlier per run so
+// comparing versions shows a real difference.
 const WORKFLOWS = [
-  { workflow: "support-ticket-resolver", team: "support", feature: "ticket-triage", cost_center: "CC-1001", weight: 20, build: wfSupport },
-  { workflow: "invoice-extractor", team: "finance", feature: "invoice-ocr", cost_center: "CC-2100", weight: 14, build: wfInvoice },
-  { workflow: "code-review-bot", team: "engineering", feature: "pr-review", cost_center: "CC-3050", weight: 12, build: wfCodeReview },
-  { workflow: "semantic-search", team: "growth", feature: "kb-search", cost_center: "CC-4200", weight: 14, build: wfSearch },
-  { workflow: "content-moderation", team: "trust-safety", feature: "auto-moderation", cost_center: "CC-5500", weight: 30, build: wfModeration },
+  {
+    workflow: "support-ticket-resolver", team: "support", feature: "ticket-triage", cost_center: "CC-1001", weight: 20, build: wfSupport,
+    versions: { source: "explicit", releases: [["v2.1.0", 42], ["v2.2.0", 18, 0.85], ["v2.3.0", 6, 1.3]] },
+  },
+  {
+    workflow: "invoice-extractor", team: "finance", feature: "invoice-ocr", cost_center: "CC-2100", weight: 14, build: wfInvoice,
+    versions: { source: "service", releases: [["1.8.3", 42], ["1.9.0", 11, 0.9]] },
+  },
+  {
+    workflow: "code-review-bot", team: "engineering", feature: "pr-review", cost_center: "CC-3050", weight: 12, build: wfCodeReview,
+    versions: { source: "explicit", releases: [["3f9c2e1", 42], ["a71d04b", 20], ["c5e88f2", 8, 0.8]] },
+  },
+  {
+    workflow: "semantic-search", team: "growth", feature: "kb-search", cost_center: "CC-4200", weight: 14, build: wfSearch,
+    versions: { source: "prompt", releases: [["3", 42], ["4", 14, 1.15]] },
+  },
+  {
+    workflow: "content-moderation", team: "trust-safety", feature: "auto-moderation", cost_center: "CC-5500", weight: 30, build: wfModeration,
+    versions: { source: "explicit", releases: [["2026.09.1", 42], ["2026.10.0", 13]] },
+  },
   { workflow: "research-assistant", team: "research", feature: "deep-research", cost_center: "CC-6300", weight: 10, build: wfResearch },
 ];
+
+// releaseAt returns the release a workflow was running startNs, or undefined.
+function releaseAt(wf, startNs) {
+  const daysAgo = Number((NOW_NS - startNs) / DAY_NS);
+  return wf.versions?.releases.filter(([, since]) => since >= daysAgo).at(-1);
+}
 
 // makeTrace builds one trace starting at startNs. forceWf pins the workflow (for
 // injected per-agent anomalies); omitted, it is chosen by weight as normal.
@@ -555,6 +586,9 @@ function makeTrace(startNs, forceWf) {
   const seq = () => cursor;
   wf.build(T, root, seq);
 
+  const release = releaseAt(wf, startNs);
+  const [version, , tokenFactor = 1] = release || [];
+
   // finalize root: envelope + entity content the builder recorded
   T.setEnd(root, T.maxEnd + BigInt(randint(10, 90)) * MS);
   if (root.opts_in !== undefined) root.sp.attributes.push(kv("traceloop.entity.input", sv(root.opts_in)));
@@ -575,12 +609,23 @@ function makeTrace(startNs, forceWf) {
     kv("priority", sv(priority)),
     kv("deployment.environment", sv(env)),
   ];
-  return {
+  if (version && wf.versions.source === "explicit") resourceAttrs.push(kv("tracium.workflow.version", sv(version)));
+  if (version && wf.versions.source === "service") resourceAttrs.push(kv("service.version", sv(version)));
+  if (version && wf.versions.source === "prompt") {
+    for (const sp of T.spans) {
+      if (sp.attributes.some((a) => a.key === "gen_ai.request.model")) {
+        sp.attributes.push(kv("traceloop.prompt.key", sv(wf.workflow)), kv("traceloop.prompt.version", sv(version)));
+      }
+    }
+  }
+  const trace = {
     resource: { attributes: resourceAttrs },
     scopeSpans: [{ scope: { name: "tracium.seed" }, spans: T.spans }],
     _spanCount: T.spans.length,
     _workspaceId: ws.id,
   };
+  if (tokenFactor !== 1) scaleTokens(trace, tokenFactor);
+  return trace;
 }
 
 // ---- ingest-key provisioning -------------------------------------------------
@@ -683,14 +728,13 @@ function forceError(trace, type, message) {
 // dayStartNs returns the UTC-midnight-ish start (ns) of the bucket `daysAgo` days
 // before now; a random within-day offset is added by the caller.
 function dayStartNs(nowNs, daysAgo) {
-  const dayNs = 86400n * NS;
-  return ((nowNs / dayNs) - BigInt(daysAgo)) * dayNs;
+  return ((nowNs / DAY_NS) - BigInt(daysAgo)) * DAY_NS;
 }
 // withinDay adds a random hour/minute offset so a day's traces spread across it.
 const withinDay = () => BigInt(randint(0, 23 * 3600 + 3540)) * NS;
 
 async function main() {
-  const nowNs = BigInt(Date.now()) * MS;
+  const nowNs = NOW_NS;
   // History spans HISTORY_DAYS so the 28-day detection baseline is fully
   // populated with real, active days before the recent display window.
   const HISTORY_DAYS = 42;
@@ -760,6 +804,7 @@ async function main() {
   await flush();
   console.log(`done: ${sent} traces, ${spans} spans (avg ${(spans / sent).toFixed(1)} spans/trace).`);
   console.log("Injected: cost spike (support-ticket-resolver, 2d ago), error cluster (code-review-bot, 3d ago), volume surge (yesterday).");
+  console.log("Versions: support-ticket-resolver v2.3.0 (6d ago) costs more per run than v2.2.0 and carries the cost spike; research-assistant sends no version.");
   console.log("Give the collector a few seconds to flush, then refresh the dashboard.");
 }
 

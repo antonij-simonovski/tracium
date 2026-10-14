@@ -28,6 +28,8 @@ import (
 //   - workflow identity: the span's collector-derived workflow_name column, not the
 //     per-trace argMin fallback used on the raw path; for the resource
 //     service.name (the common case) these agree.
+//   - workflow version: likewise the span's own, which matches versionExpr only
+//     when every span carries the version (e.g. set as a resource attribute).
 
 const dateFmt = "2006-01-02"
 

@@ -57,10 +57,11 @@ func (h *MetricsHandler) baseFilter(w http.ResponseWriter, r *http.Request) (que
 	return f, true
 }
 
-// filter is baseFilter for endpoints that cannot narrow to one workflow.
+// filter is baseFilter for endpoints that cannot narrow to one workflow or version.
 func (h *MetricsHandler) filter(w http.ResponseWriter, r *http.Request) (query.MetricsFilter, bool) {
-	if r.URL.Query().Get("workflow") != "" {
-		respondError(w, http.StatusBadRequest, "BAD_REQUEST", "workflow filtering is only supported by the series endpoints")
+	q := r.URL.Query()
+	if q.Get("workflow") != "" || q.Get("version") != "" {
+		respondError(w, http.StatusBadRequest, "BAD_REQUEST", "workflow and version filtering are only supported by the series endpoints")
 		return query.MetricsFilter{}, false
 	}
 	return h.baseFilter(w, r)
@@ -76,19 +77,33 @@ func (h *MetricsHandler) rawFilter(w http.ResponseWriter, r *http.Request) (quer
 	return f, ok
 }
 
-// seriesFilter is baseFilter plus the optional workflow param. Per-workflow
-// series can't come from the daily rollup, so workflow requires a raw range.
+// seriesFilter is baseFilter plus the optional workflow and version params, which need a raw range.
 func (h *MetricsHandler) seriesFilter(w http.ResponseWriter, r *http.Request) (query.MetricsFilter, bool) {
 	f, ok := h.baseFilter(w, r)
 	if !ok {
 		return f, false
 	}
 	f.Workflow = r.URL.Query().Get("workflow")
-	if f.Workflow != "" && f.UseRollup() {
-		respondError(w, http.StatusBadRequest, "BAD_REQUEST", "workflow filtering is available for ranges up to 30d")
+	f.Version = r.URL.Query().Get("version")
+	if (f.Workflow != "" || f.Version != "") && f.UseRollup() {
+		respondError(w, http.StatusBadRequest, "BAD_REQUEST", "workflow and version filtering are available for ranges up to 30d")
 		return query.MetricsFilter{}, false
 	}
 	return f, true
+}
+
+// workflowFilter is filter plus the {name} path param, naming the workflow.
+func workflowFilter(filter filterFunc) filterFunc {
+	return func(w http.ResponseWriter, r *http.Request) (query.MetricsFilter, bool) {
+		name := chi.URLParam(r, "name")
+		if name == "" {
+			respondError(w, http.StatusBadRequest, "BAD_REQUEST", "workflow name is required")
+			return query.MetricsFilter{}, false
+		}
+		f, ok := filter(w, r)
+		f.Workflow = name
+		return f, ok
+	}
 }
 
 func serveList[T any](w http.ResponseWriter, r *http.Request, filter filterFunc, what string, load func(context.Context, query.MetricsFilter) ([]T, error)) {
@@ -192,16 +207,10 @@ func (h *MetricsHandler) Workflows(w http.ResponseWriter, r *http.Request) {
 
 // WorkflowDetail handles GET /v1/metrics/workflows/{name}.
 func (h *MetricsHandler) WorkflowDetail(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
-	if name == "" {
-		respondError(w, http.StatusBadRequest, "BAD_REQUEST", "workflow name is required")
-		return
-	}
-	f, ok := h.rawFilter(w, r)
+	f, ok := workflowFilter(h.rawFilter)(w, r)
 	if !ok {
 		return
 	}
-	f.Workflow = name
 	detail, err := h.repo.WorkflowDetail(r.Context(), f)
 	if err != nil {
 		if errors.Is(err, query.ErrNotFound) {
@@ -212,6 +221,34 @@ func (h *MetricsHandler) WorkflowDetail(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	respondJSON(w, http.StatusOK, detail)
+}
+
+// WorkflowVersions handles GET /v1/metrics/workflows/{name}/versions.
+func (h *MetricsHandler) WorkflowVersions(w http.ResponseWriter, r *http.Request) {
+	serveList(w, r, workflowFilter(h.filter), "workflow versions", withLimit(h.repo.WorkflowVersions, workflowsLimit))
+}
+
+// CompareVersions handles GET /v1/metrics/workflows/{name}/versions/compare?base=v1&candidate=v2.
+func (h *MetricsHandler) CompareVersions(w http.ResponseWriter, r *http.Request) {
+	base, candidate := r.URL.Query().Get("base"), r.URL.Query().Get("candidate")
+	if base == "" || candidate == "" {
+		respondError(w, http.StatusBadRequest, "BAD_REQUEST", "the 'base' and 'candidate' query parameters are required")
+		return
+	}
+	f, ok := workflowFilter(h.filter)(w, r)
+	if !ok {
+		return
+	}
+	comparison, err := h.repo.CompareVersions(r.Context(), f, base, candidate)
+	if err != nil {
+		if errors.Is(err, query.ErrNotFound) {
+			respondError(w, http.StatusNotFound, "VERSION_NOT_FOUND", "version not found")
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "INTERNAL", "failed to compare versions")
+		return
+	}
+	respondJSON(w, http.StatusOK, comparison)
 }
 
 // Failures handles GET /v1/metrics/failures. Total counts every failed run in

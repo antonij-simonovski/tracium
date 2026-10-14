@@ -29,15 +29,21 @@ else
   if [ "$spans_has_legacy" != "0" ]; then
     ch_query "ALTER TABLE tracium.spans RENAME COLUMN agent_name TO workflow_name"
   fi
+  # The rollup DDL reads the columns migration 015 adds.
+  ch_query "ALTER TABLE tracium.spans
+    ADD COLUMN IF NOT EXISTS workflow_version LowCardinality(String) DEFAULT '',
+    ADD COLUMN IF NOT EXISTS version_source LowCardinality(String) DEFAULT ''"
 
   if [ "$rollup_has_legacy" != "0" ]; then
     # Preserve the old rollup intact, recreate it with the renamed sort-key
-    # column, then copy every aggregate state across positionally. Column order
-    # is identical between the two layouts, so SELECT * lines the states up.
+    # column, then copy every aggregate state across.
     ch_query "RENAME TABLE tracium.metrics_daily TO tracium.metrics_daily_pre_workflow_rename"
     ch_query "$(cat "$MIGRATIONS_DIR/002_create_metrics_daily.sql")"
     ch_query "TRUNCATE TABLE tracium.metrics_daily"
-    ch_query "INSERT INTO tracium.metrics_daily SELECT * FROM tracium.metrics_daily_pre_workflow_rename"
+    ch_query "INSERT INTO tracium.metrics_daily
+      (bucket_date, user_id, workspace_id, workflow_name, model,
+       cost, input_tokens, output_tokens, span_count, runs, error_runs)
+      SELECT * FROM tracium.metrics_daily_pre_workflow_rename"
     echo "  metrics_daily rebuilt with workflow_name; original retained as metrics_daily_pre_workflow_rename (safe to drop once verified)."
   fi
 

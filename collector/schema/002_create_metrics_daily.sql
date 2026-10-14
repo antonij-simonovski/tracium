@@ -2,7 +2,7 @@
 --
 -- Long-horizon dashboards (90d, 1y, …) cannot afford to scan raw spans: a
 -- year-wide query would read every span in the year. This pre-aggregated table
--- collapses spans to one row per (day, user, workflow, model), so a long-range
+-- collapses spans to one row per (day, user, workflow, version, model), so a long-range
 -- query reads ~(days × dimension cardinality) rows instead of N spans — its size
 -- tracks cardinality, not span volume. Raw spans keep their short TTL for
 -- drill-down; this table is tiny and is retained for years.
@@ -28,6 +28,8 @@ CREATE TABLE IF NOT EXISTS tracium.metrics_daily (
     user_id      String,
     workspace_id String,
     workflow_name  LowCardinality(String),
+    workflow_version LowCardinality(String),
+    version_source LowCardinality(String),
     model          LowCardinality(String),
     cost           SimpleAggregateFunction(sum, Float64),
     input_tokens   SimpleAggregateFunction(sum, UInt64),
@@ -37,4 +39,4 @@ CREATE TABLE IF NOT EXISTS tracium.metrics_daily (
     error_runs     AggregateFunction(uniqIf, String, UInt8)
 ) ENGINE = AggregatingMergeTree()
 PARTITION BY toYYYYMM(bucket_date)
-ORDER BY (bucket_date, user_id, workspace_id, workflow_name, model);
+ORDER BY (bucket_date, user_id, workspace_id, workflow_name, workflow_version, version_source, model);

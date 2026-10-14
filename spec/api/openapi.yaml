@@ -43,6 +43,11 @@ paths:
           description: Filter to traces belonging to a single workflow (the trace root name), which powers a workflow's recent runs.
           schema:
             type: string
+        - name: version
+          in: query
+          description: Filter to traces that ran under this workflow version (see Trace.workflow_version).
+          schema:
+            type: string
         - name: has_error
           in: query
           description: Filter to traces that have at least one error span.
@@ -217,6 +222,7 @@ paths:
         - $ref: "#/components/parameters/UserFilter"
         - $ref: "#/components/parameters/WorkspaceFilter"
         - $ref: "#/components/parameters/WorkflowFilter"
+        - $ref: "#/components/parameters/VersionFilter"
       responses:
         "200":
           description: Cost buckets ordered by bucket_ms ascending.
@@ -243,6 +249,7 @@ paths:
         - $ref: "#/components/parameters/UserFilter"
         - $ref: "#/components/parameters/WorkspaceFilter"
         - $ref: "#/components/parameters/WorkflowFilter"
+        - $ref: "#/components/parameters/VersionFilter"
       responses:
         "200":
           description: Latency buckets ordered by bucket_ms ascending.
@@ -269,6 +276,7 @@ paths:
         - $ref: "#/components/parameters/UserFilter"
         - $ref: "#/components/parameters/WorkspaceFilter"
         - $ref: "#/components/parameters/WorkflowFilter"
+        - $ref: "#/components/parameters/VersionFilter"
       responses:
         "200":
           description: Error buckets ordered by bucket_ms ascending.
@@ -344,20 +352,15 @@ paths:
       summary: Workflow detail
       description: >
         One workflow's detail-page payload: its headline metrics over the range
-        plus the tool surface from its most recent run. Span-backed only; there
-        is no workflow-config store, so runtime params (temperature, retries,
-        version, owner, …) are not served. A raw-window feature: ranges longer
+        plus the version and tool surface of its most recent run. Span-backed
+        only; there is no workflow-config store, so runtime params (temperature,
+        retries, owner, …) are not served. A raw-window feature: ranges longer
         than 30d (90d, 1y) are rejected with a 400, since per-workflow latency
         cannot be derived from the daily rollup.
       tags:
         - Metrics
       parameters:
-        - name: name
-          in: path
-          required: true
-          description: The workflow name (the trace root span name).
-          schema:
-            type: string
+        - $ref: "#/components/parameters/WorkflowName"
         - $ref: "#/components/parameters/Range"
         - $ref: "#/components/parameters/UserFilter"
         - $ref: "#/components/parameters/WorkspaceFilter"
@@ -376,6 +379,86 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "404":
           description: No workflow with that name has runs in the window.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/metrics/workflows/{name}/versions:
+    get:
+      operationId: listWorkflowVersions
+      summary: Workflow versions
+      description: >
+        The versions of one workflow that ran in the range, with each version's
+        runs, cost, latency, error rate and token use, most recently seen first.
+        Runs without a version are listed as version "". Ranges up to 30d read
+        each run's version per trace; longer ranges read the daily rollup, which
+        keys versions per span, leaves out unversioned spans without a model,
+        and has no latency (p95_latency_ms is null). The two agree when the
+        version is set on every span, e.g. as a resource attribute.
+      tags:
+        - Metrics
+      parameters:
+        - $ref: "#/components/parameters/WorkflowName"
+        - $ref: "#/components/parameters/Range"
+        - $ref: "#/components/parameters/UserFilter"
+        - $ref: "#/components/parameters/WorkspaceFilter"
+      responses:
+        "200":
+          description: Versions ordered by last_seen_ms descending.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedWorkflowVersionResponse"
+        "400":
+          description: Invalid range.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/metrics/workflows/{name}/versions/compare:
+    get:
+      operationId: compareWorkflowVersions
+      summary: Compare two workflow versions
+      description: >
+        Two versions of one workflow side by side over the same range, with the
+        candidate's change from the base on cost per run, p95 latency, error
+        rate and tokens per run. Reads the same data as the versions list.
+      tags:
+        - Metrics
+      parameters:
+        - $ref: "#/components/parameters/WorkflowName"
+        - name: base
+          in: query
+          required: true
+          description: The version to compare against.
+          schema:
+            type: string
+        - name: candidate
+          in: query
+          required: true
+          description: The version compared to base.
+          schema:
+            type: string
+        - $ref: "#/components/parameters/Range"
+        - $ref: "#/components/parameters/UserFilter"
+        - $ref: "#/components/parameters/WorkspaceFilter"
+      responses:
+        "200":
+          description: The comparison.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VersionComparison"
+        "400":
+          description: Invalid range, or base or candidate missing.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: base or candidate has no runs in the window.
           content:
             application/json:
               schema:
@@ -1346,6 +1429,13 @@ components:
       description: JWT or opaque bearer token issued by the Tracium auth service.
 
   parameters:
+    WorkflowName:
+      name: name
+      in: path
+      required: true
+      description: The workflow name (the trace root span name).
+      schema:
+        type: string
     Range:
       name: range
       in: query
@@ -1384,6 +1474,15 @@ components:
         series are a raw-window feature; ranges longer than 30d (90d, 1y) are
         rejected with a 400, since per-workflow latency cannot be derived from the
         daily rollup.
+      schema:
+        type: string
+    VersionFilter:
+      name: version
+      in: query
+      description: >-
+        Optional: restrict the metric to the runs of one workflow version (see
+        Trace.workflow_version), alone or together with workflow. Accepted and
+        limited to ranges up to 30d exactly like workflow.
       schema:
         type: string
 
@@ -1729,6 +1828,13 @@ components:
         name:
           type: string
           description: Human-readable name for the trace.
+        workflow_version:
+          type: string
+          description: >-
+            The workflow version the trace ran under: the root span's version,
+            else the earliest versioned span's. Empty when no span has one.
+        version_source:
+          $ref: "#/components/schemas/VersionSource"
         start_time_ms:
           type: integer
           description: Unix epoch milliseconds when the trace started.
@@ -2045,6 +2151,8 @@ components:
         - provider
         - tools
         - last_trace_id
+        - current_version
+        - current_version_source
       properties:
         name:
           type: string
@@ -2097,6 +2205,99 @@ components:
         last_trace_id:
           type: string
           description: The workflow's most recent trace in the window, for deep-linking.
+        current_version:
+          type: string
+          description: The version of the workflow's most recent versioned run in the window; empty when no run has one.
+        current_version_source:
+          $ref: "#/components/schemas/VersionSource"
+
+    WorkflowVersion:
+      type: object
+      required:
+        - version
+        - source
+        - first_seen_ms
+        - last_seen_ms
+        - calls
+        - cost
+        - cost_per_run
+        - p95_latency_ms
+        - error_rate
+        - tokens_per_run
+      properties:
+        version:
+          type: string
+          description: The workflow version; empty for the runs that carry none.
+        source:
+          $ref: "#/components/schemas/VersionSource"
+        first_seen_ms:
+          type: integer
+          description: Start of the version's first run in the window (the day's start over ranges longer than 30d).
+        last_seen_ms:
+          type: integer
+          description: Start of the version's latest run in the window (the day's start over ranges longer than 30d).
+        calls:
+          type: integer
+          minimum: 0
+          description: Number of runs (traces) of this version over the window.
+        cost:
+          type: number
+          minimum: 0
+          description: Total cost in USD of this version's runs.
+        cost_per_run:
+          type: number
+          minimum: 0
+          description: Mean cost in USD per run.
+        p95_latency_ms:
+          type: number
+          nullable: true
+          minimum: 0
+          description: p95 end-to-end run duration in milliseconds; null over ranges longer than 30d.
+        error_rate:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Fraction of this version's runs that errored (0–1).
+        tokens_per_run:
+          type: number
+          minimum: 0
+          description: Mean input plus output tokens per run.
+
+    VersionComparison:
+      type: object
+      required:
+        - base
+        - candidate
+        - cost_per_run
+        - p95_latency_ms
+        - error_rate
+        - tokens_per_run
+      properties:
+        base:
+          $ref: "#/components/schemas/WorkflowVersion"
+        candidate:
+          $ref: "#/components/schemas/WorkflowVersion"
+        cost_per_run:
+          $ref: "#/components/schemas/Kpi"
+        p95_latency_ms:
+          $ref: "#/components/schemas/Kpi"
+        error_rate:
+          $ref: "#/components/schemas/Kpi"
+        tokens_per_run:
+          $ref: "#/components/schemas/Kpi"
+      description: >-
+        Each Kpi holds the candidate's value and its change from the base; a
+        rise is bad for all four. p95_latency_ms is a neutral 0 over ranges
+        longer than 30d.
+
+    VersionSource:
+      type: string
+      enum: ["", explicit, prompt, service]
+      description: >-
+        Where a workflow version came from: explicit (tracium.workflow.version),
+        prompt (the Traceloop managed prompt version), service (the resource
+        service.version or vcs.ref.head.revision, which version the service
+        rather than the workflow), or empty when there is no version.
 
     Failure:
       type: object
@@ -2188,6 +2389,21 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Workflow"
+        total:
+          type: integer
+        page:
+          type: integer
+        page_size:
+          type: integer
+
+    PaginatedWorkflowVersionResponse:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowVersion"
         total:
           type: integer
         page:

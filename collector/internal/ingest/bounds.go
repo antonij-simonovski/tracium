@@ -25,6 +25,9 @@ const (
 	// MaxUserIDBytes caps the user label, likewise a LowCardinality grouping key
 	// in metrics_daily.
 	MaxUserIDBytes = 128
+
+	// MaxVersionBytes caps the workflow version, also a metrics_daily key.
+	MaxVersionBytes = 128
 )
 
 // TokensInRange reports whether a token count is within the accepted bounds: not

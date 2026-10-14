@@ -193,9 +193,49 @@ export interface paths {
         };
         /**
          * Workflow detail
-         * @description One workflow's detail-page payload: its headline metrics over the range plus the tool surface from its most recent run. Span-backed only; there is no workflow-config store, so runtime params (temperature, retries, version, owner, …) are not served. A raw-window feature: ranges longer than 30d (90d, 1y) are rejected with a 400, since per-workflow latency cannot be derived from the daily rollup.
+         * @description One workflow's detail-page payload: its headline metrics over the range plus the version and tool surface of its most recent run. Span-backed only; there is no workflow-config store, so runtime params (temperature, retries, owner, …) are not served. A raw-window feature: ranges longer than 30d (90d, 1y) are rejected with a 400, since per-workflow latency cannot be derived from the daily rollup.
          */
         get: operations["getWorkflowDetail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/metrics/workflows/{name}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Workflow versions
+         * @description The versions of one workflow that ran in the range, with each version's runs, cost, latency, error rate and token use, most recently seen first. Runs without a version are listed as version "". Ranges up to 30d read each run's version per trace; longer ranges read the daily rollup, which keys versions per span, leaves out unversioned spans without a model, and has no latency (p95_latency_ms is null). The two agree when the version is set on every span, e.g. as a resource attribute.
+         */
+        get: operations["listWorkflowVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/metrics/workflows/{name}/versions/compare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Compare two workflow versions
+         * @description Two versions of one workflow side by side over the same range, with the candidate's change from the base on cost per run, p95 latency, error rate and tokens per run. Reads the same data as the versions list.
+         */
+        get: operations["compareWorkflowVersions"];
         put?: never;
         post?: never;
         delete?: never;
@@ -904,6 +944,9 @@ export interface components {
             trace_id: string;
             /** @description Human-readable name for the trace. */
             name?: string;
+            /** @description The workflow version the trace ran under: the root span's version, else the earliest versioned span's. Empty when no span has one. */
+            workflow_version?: string;
+            version_source?: components["schemas"]["VersionSource"];
             /** @description Unix epoch milliseconds when the trace started. */
             start_time_ms?: number;
             /** @description Unix epoch milliseconds when the trace ended. */
@@ -1057,7 +1100,45 @@ export interface components {
             tools: components["schemas"]["AvailableTool"][];
             /** @description The workflow's most recent trace in the window, for deep-linking. */
             last_trace_id: string;
+            /** @description The version of the workflow's most recent versioned run in the window; empty when no run has one. */
+            current_version: string;
+            current_version_source: components["schemas"]["VersionSource"];
         };
+        WorkflowVersion: {
+            /** @description The workflow version; empty for the runs that carry none. */
+            version: string;
+            source: components["schemas"]["VersionSource"];
+            /** @description Start of the version's first run in the window (the day's start over ranges longer than 30d). */
+            first_seen_ms: number;
+            /** @description Start of the version's latest run in the window (the day's start over ranges longer than 30d). */
+            last_seen_ms: number;
+            /** @description Number of runs (traces) of this version over the window. */
+            calls: number;
+            /** @description Total cost in USD of this version's runs. */
+            cost: number;
+            /** @description Mean cost in USD per run. */
+            cost_per_run: number;
+            /** @description p95 end-to-end run duration in milliseconds; null over ranges longer than 30d. */
+            p95_latency_ms: number | null;
+            /** @description Fraction of this version's runs that errored (0–1). */
+            error_rate: number;
+            /** @description Mean input plus output tokens per run. */
+            tokens_per_run: number;
+        };
+        /** @description Each Kpi holds the candidate's value and its change from the base; a rise is bad for all four. p95_latency_ms is a neutral 0 over ranges longer than 30d. */
+        VersionComparison: {
+            base: components["schemas"]["WorkflowVersion"];
+            candidate: components["schemas"]["WorkflowVersion"];
+            cost_per_run: components["schemas"]["Kpi"];
+            p95_latency_ms: components["schemas"]["Kpi"];
+            error_rate: components["schemas"]["Kpi"];
+            tokens_per_run: components["schemas"]["Kpi"];
+        };
+        /**
+         * @description Where a workflow version came from: explicit (tracium.workflow.version), prompt (the Traceloop managed prompt version), service (the resource service.version or vcs.ref.head.revision, which version the service rather than the workflow), or empty when there is no version.
+         * @enum {string}
+         */
+        VersionSource: "" | "explicit" | "prompt" | "service";
         Failure: {
             /** @description Workflow name (the trace root span name). */
             workflow: string;
@@ -1094,6 +1175,12 @@ export interface components {
         };
         PaginatedWorkflowResponse: {
             items: components["schemas"]["Workflow"][];
+            total: number;
+            page: number;
+            page_size: number;
+        };
+        PaginatedWorkflowVersionResponse: {
+            items: components["schemas"]["WorkflowVersion"][];
             total: number;
             page: number;
             page_size: number;
@@ -1257,6 +1344,8 @@ export interface components {
     };
     responses: never;
     parameters: {
+        /** @description The workflow name (the trace root span name). */
+        WorkflowName: string;
         /** @description Time window for the metric. Defaults to 7d. 24h is bucketed hourly; 7d/30d/90d/1y daily. Ranges longer than 30d (90d, 1y) are served from the daily rollup, so latency percentiles are not available for them. */
         Range: "24h" | "7d" | "30d" | "90d" | "1y";
         /** @description Optional business filter (the operator's end-client). Empty means all clients. */
@@ -1265,6 +1354,8 @@ export interface components {
         WorkspaceFilter: string;
         /** @description Optional: restrict the metric to a single workflow (the trace root name), powering the workflow detail page's charts. Only the series endpoints accept it; other metrics endpoints reject it with a 400. Workflow-scoped series are a raw-window feature; ranges longer than 30d (90d, 1y) are rejected with a 400, since per-workflow latency cannot be derived from the daily rollup. */
         WorkflowFilter: string;
+        /** @description Optional: restrict the metric to the runs of one workflow version (see Trace.workflow_version), alone or together with workflow. Accepted and limited to ranges up to 30d exactly like workflow. */
+        VersionFilter: string;
     };
     requestBodies: never;
     headers: never;
@@ -1283,6 +1374,8 @@ export interface operations {
                 model?: string;
                 /** @description Filter to traces belonging to a single workflow (the trace root name), which powers a workflow's recent runs. */
                 workflow?: string;
+                /** @description Filter to traces that ran under this workflow version (see Trace.workflow_version). */
+                version?: string;
                 /** @description Filter to traces that have at least one error span. */
                 has_error?: boolean;
                 /** @description Return traces whose start_time_ms is after this ISO 8601 date-time. */
@@ -1500,6 +1593,8 @@ export interface operations {
                 workspace_id?: components["parameters"]["WorkspaceFilter"];
                 /** @description Optional: restrict the metric to a single workflow (the trace root name), powering the workflow detail page's charts. Only the series endpoints accept it; other metrics endpoints reject it with a 400. Workflow-scoped series are a raw-window feature; ranges longer than 30d (90d, 1y) are rejected with a 400, since per-workflow latency cannot be derived from the daily rollup. */
                 workflow?: components["parameters"]["WorkflowFilter"];
+                /** @description Optional: restrict the metric to the runs of one workflow version (see Trace.workflow_version), alone or together with workflow. Accepted and limited to ranges up to 30d exactly like workflow. */
+                version?: components["parameters"]["VersionFilter"];
             };
             header?: never;
             path?: never;
@@ -1538,6 +1633,8 @@ export interface operations {
                 workspace_id?: components["parameters"]["WorkspaceFilter"];
                 /** @description Optional: restrict the metric to a single workflow (the trace root name), powering the workflow detail page's charts. Only the series endpoints accept it; other metrics endpoints reject it with a 400. Workflow-scoped series are a raw-window feature; ranges longer than 30d (90d, 1y) are rejected with a 400, since per-workflow latency cannot be derived from the daily rollup. */
                 workflow?: components["parameters"]["WorkflowFilter"];
+                /** @description Optional: restrict the metric to the runs of one workflow version (see Trace.workflow_version), alone or together with workflow. Accepted and limited to ranges up to 30d exactly like workflow. */
+                version?: components["parameters"]["VersionFilter"];
             };
             header?: never;
             path?: never;
@@ -1576,6 +1673,8 @@ export interface operations {
                 workspace_id?: components["parameters"]["WorkspaceFilter"];
                 /** @description Optional: restrict the metric to a single workflow (the trace root name), powering the workflow detail page's charts. Only the series endpoints accept it; other metrics endpoints reject it with a 400. Workflow-scoped series are a raw-window feature; ranges longer than 30d (90d, 1y) are rejected with a 400, since per-workflow latency cannot be derived from the daily rollup. */
                 workflow?: components["parameters"]["WorkflowFilter"];
+                /** @description Optional: restrict the metric to the runs of one workflow version (see Trace.workflow_version), alone or together with workflow. Accepted and limited to ranges up to 30d exactly like workflow. */
+                version?: components["parameters"]["VersionFilter"];
             };
             header?: never;
             path?: never;
@@ -1688,7 +1787,7 @@ export interface operations {
             header?: never;
             path: {
                 /** @description The workflow name (the trace root span name). */
-                name: string;
+                name: components["parameters"]["WorkflowName"];
             };
             cookie?: never;
         };
@@ -1713,6 +1812,97 @@ export interface operations {
                 };
             };
             /** @description No workflow with that name has runs in the window. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listWorkflowVersions: {
+        parameters: {
+            query?: {
+                /** @description Time window for the metric. Defaults to 7d. 24h is bucketed hourly; 7d/30d/90d/1y daily. Ranges longer than 30d (90d, 1y) are served from the daily rollup, so latency percentiles are not available for them. */
+                range?: components["parameters"]["Range"];
+                /** @description Optional business filter (the operator's end-client). Empty means all clients. */
+                user_id?: components["parameters"]["UserFilter"];
+                /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
+                workspace_id?: components["parameters"]["WorkspaceFilter"];
+            };
+            header?: never;
+            path: {
+                /** @description The workflow name (the trace root span name). */
+                name: components["parameters"]["WorkflowName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Versions ordered by last_seen_ms descending. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedWorkflowVersionResponse"];
+                };
+            };
+            /** @description Invalid range. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    compareWorkflowVersions: {
+        parameters: {
+            query: {
+                /** @description The version to compare against. */
+                base: string;
+                /** @description The version compared to base. */
+                candidate: string;
+                /** @description Time window for the metric. Defaults to 7d. 24h is bucketed hourly; 7d/30d/90d/1y daily. Ranges longer than 30d (90d, 1y) are served from the daily rollup, so latency percentiles are not available for them. */
+                range?: components["parameters"]["Range"];
+                /** @description Optional business filter (the operator's end-client). Empty means all clients. */
+                user_id?: components["parameters"]["UserFilter"];
+                /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
+                workspace_id?: components["parameters"]["WorkspaceFilter"];
+            };
+            header?: never;
+            path: {
+                /** @description The workflow name (the trace root span name). */
+                name: components["parameters"]["WorkflowName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The comparison. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionComparison"];
+                };
+            };
+            /** @description Invalid range, or base or candidate missing. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description base or candidate has no runs in the window. */
             404: {
                 headers: {
                     [name: string]: unknown;
