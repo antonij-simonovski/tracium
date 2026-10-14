@@ -18,11 +18,9 @@
 // The collector prices spans, captures content (capture_content: true), derives
 // agents/kinds/tools, and writes to ClickHouse; the dashboard then reads it.
 //
-// Workflows ship releases over the history (see WORKFLOWS[].versions), each
-// version sent the way real apps send one: tracium.workflow.version on the
-// resource, the resource service.version, or a Traceloop managed prompt version
-// on the LLM spans. research-assistant only starts sending one 24 days ago, so
-// its older runs stay unversioned.
+// Workflows ship releases over the history (see WORKFLOWS[].releases), each sent
+// as tracium.workflow.version on the resource. research-assistant only starts
+// sending one 24 days ago, so its older runs stay unversioned.
 
 const OTLP = process.env.OTLP_ENDPOINT || "http://localhost:4318/v1/traces";
 const WORKSPACE_ID = process.env.WORKSPACE_ID || "c4ef3026-f040-4221-ad58-d6345dd4570c";
@@ -533,40 +531,40 @@ function wfResearch(T, root, seq) {
   return null;
 }
 
-// versions: { source, releases: [[version, released days ago, token factor?]] },
-// oldest first. The token factor makes a release cheaper or costlier per run so
-// comparing versions shows a real difference.
+// releases: [[version, released days ago, token factor?]], oldest first. The
+// token factor makes a release cheaper or costlier per run so comparing versions
+// shows a real difference.
 const WORKFLOWS = [
   {
     workflow: "support-ticket-resolver", team: "support", feature: "ticket-triage", cost_center: "CC-1001", weight: 20, build: wfSupport,
-    versions: { source: "explicit", releases: [["v2.0.0", 42], ["v2.1.0", 30, 1.1], ["v2.2.0", 18, 0.85], ["v2.3.0", 6, 1.3]] },
+    releases: [["v2.0.0", 42], ["v2.1.0", 30, 1.1], ["v2.2.0", 18, 0.85], ["v2.3.0", 6, 1.3]],
   },
   {
     workflow: "invoice-extractor", team: "finance", feature: "invoice-ocr", cost_center: "CC-2100", weight: 14, build: wfInvoice,
-    versions: { source: "service", releases: [["1.8.3", 42], ["1.8.4", 27], ["1.9.0", 11, 0.9], ["1.9.1", 3, 0.95]] },
+    releases: [["1.8.3", 42], ["1.8.4", 27], ["1.9.0", 11, 0.9], ["1.9.1", 3, 0.95]],
   },
   {
     workflow: "code-review-bot", team: "engineering", feature: "pr-review", cost_center: "CC-3050", weight: 12, build: wfCodeReview,
-    versions: { source: "explicit", releases: [["3f9c2e1", 42], ["9b14d6a", 31, 1.15], ["a71d04b", 20], ["c5e88f2", 8, 0.8]] },
+    releases: [["3f9c2e1", 42], ["9b14d6a", 31, 1.15], ["a71d04b", 20], ["c5e88f2", 8, 0.8]],
   },
   {
     workflow: "semantic-search", team: "growth", feature: "kb-search", cost_center: "CC-4200", weight: 14, build: wfSearch,
-    versions: { source: "prompt", releases: [["2", 42], ["3", 28, 0.9], ["4", 14, 1.15], ["5", 4, 0.95]] },
+    releases: [["2", 42], ["3", 28, 0.9], ["4", 14, 1.15], ["5", 4, 0.95]],
   },
   {
     workflow: "content-moderation", team: "trust-safety", feature: "auto-moderation", cost_center: "CC-5500", weight: 30, build: wfModeration,
-    versions: { source: "explicit", releases: [["v1.4.0", 42], ["v1.5.0", 25, 1.1], ["v1.5.1", 13], ["v1.6.0", 5, 0.9]] },
+    releases: [["v1.4.0", 42], ["v1.5.0", 25, 1.1], ["v1.5.1", 13], ["v1.6.0", 5, 0.9]],
   },
   {
     workflow: "research-assistant", team: "research", feature: "deep-research", cost_center: "CC-6300", weight: 10, build: wfResearch,
-    versions: { source: "explicit", releases: [["v0.8.0", 24], ["v0.9.0", 15, 1.2], ["v1.0.0", 5, 0.85]] },
+    releases: [["v0.8.0", 24], ["v0.9.0", 15, 1.2], ["v1.0.0", 5, 0.85]],
   },
 ];
 
 // releaseAt returns the release a workflow was running startNs, or undefined.
 function releaseAt(wf, startNs) {
   const daysAgo = Number((NOW_NS - startNs) / DAY_NS);
-  return wf.versions?.releases.filter(([, since]) => since >= daysAgo).at(-1);
+  return wf.releases.filter(([, since]) => since >= daysAgo).at(-1);
 }
 
 // makeTrace builds one trace starting at startNs. forceWf pins the workflow (for
@@ -613,15 +611,7 @@ function makeTrace(startNs, forceWf) {
     kv("priority", sv(priority)),
     kv("deployment.environment", sv(env)),
   ];
-  if (version && wf.versions.source === "explicit") resourceAttrs.push(kv("tracium.workflow.version", sv(version)));
-  if (version && wf.versions.source === "service") resourceAttrs.push(kv("service.version", sv(version)));
-  if (version && wf.versions.source === "prompt") {
-    for (const sp of T.spans) {
-      if (sp.attributes.some((a) => a.key === "gen_ai.request.model")) {
-        sp.attributes.push(kv("traceloop.prompt.key", sv(wf.workflow)), kv("traceloop.prompt.version", sv(version)));
-      }
-    }
-  }
+  if (version) resourceAttrs.push(kv("tracium.workflow.version", sv(version)));
   const trace = {
     resource: { attributes: resourceAttrs },
     scopeSpans: [{ scope: { name: "tracium.seed" }, spans: T.spans }],
@@ -808,7 +798,7 @@ async function main() {
   await flush();
   console.log(`done: ${sent} traces, ${spans} spans (avg ${(spans / sent).toFixed(1)} spans/trace).`);
   console.log("Injected: cost spike (support-ticket-resolver, 2d ago), error cluster (code-review-bot, 3d ago), volume surge (yesterday).");
-  console.log("Versions: support-ticket-resolver v2.3.0 (6d ago) costs more per run than v2.2.0 and carries the cost spike; research-assistant sends no version.");
+  console.log("Versions: support-ticket-resolver v2.3.0 (6d ago) costs more per run than v2.2.0 and carries the cost spike; research-assistant is unversioned before 24d ago.");
   console.log("Give the collector a few seconds to flush, then refresh the dashboard.");
 }
 

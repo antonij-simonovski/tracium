@@ -2,13 +2,13 @@ export { buildCostSeries, buildLatencySeries, buildErrorSeries, buildRuns } from
 export { deriveRunOutcomes, ERR_BAD, ERR_WARN } from './outcomes';
 export {
   UNVERSIONED,
-  SOURCE_COLOR,
   versionLabel,
   fmtSeen,
   fmtRunCost,
   deltaColor,
   change,
   fmtPts,
+  ptsColor,
   comparable,
   previousVersion,
   defaultPair,

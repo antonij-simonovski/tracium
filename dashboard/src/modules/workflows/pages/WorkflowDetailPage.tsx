@@ -16,17 +16,15 @@ import {
 import type { MetaRowProps, RunRow, StatTone } from '../../../common';
 import type { CostPoint, LatencyPoint, ErrorPoint, ChartMarker } from '../../../common/interfaces';
 import hover from '../../../common/styles/hover.module.css';
-import { VersionMenu } from '../components/VersionMenu';
-import { VersionTag } from '../components/VersionTag';
+import { VersionDropdown } from '../components/VersionDropdown';
 import { VersionsTable } from '../components/VersionsTable';
-import type { VersionSource, WorkflowVersion } from '../interfaces';
+import type { WorkflowVersion } from '../interfaces';
 import { ERR_BAD, ERR_WARN, fmtRunCost } from '../utils';
 import styles from './WorkflowDetailPage.module.css';
 
 export interface WorkflowDetailPageProps {
   name: string;
   version?: string;
-  versionSource?: VersionSource;
   versionSince?: string;
   description?: string;
   range: string;
@@ -70,7 +68,7 @@ const linkButton = {
 
 export function WorkflowDetailPage(props: WorkflowDetailPageProps) {
   const {
-    name, version, versionSource = '', versionSince, description, range, scope,
+    name, version, versionSince, description, range, scope,
     calls, completed, failed, cost, p95Ms, errorRate,
     configRows, costSeries, latencySeries, errorSeries, runs, markers = [], loadErrors = {},
     versions, versionFilter = null, onVersionFilter, onCompare, defaultCompare, costAlert,
@@ -95,9 +93,6 @@ export function WorkflowDetailPage(props: WorkflowDetailPageProps) {
             {version && (
               <span
                 style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 8,
                   fontSize: 12.5,
                   padding: '3px 9px',
                   borderRadius: 6,
@@ -108,7 +103,6 @@ export function WorkflowDetailPage(props: WorkflowDetailPageProps) {
                 }}
               >
                 {version}
-                <VersionTag source={versionSource} />
               </span>
             )}
             {version && versionSince && <span style={{ fontSize: 13, color: 'var(--muted)' }}>current since {versionSince}</span>}
@@ -121,7 +115,23 @@ export function WorkflowDetailPage(props: WorkflowDetailPageProps) {
         </div>
         {versions && versions.length > 0 && onVersionFilter && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <VersionMenu versions={versions} value={versionFilter} onChange={onVersionFilter} />
+            <VersionDropdown
+              label="Filter by version"
+              value={versionFilter}
+              options={[
+                { id: null, label: 'All versions', calls: versions.reduce((s, v) => s + v.calls, 0) },
+                ...versions.filter((v) => v.version).map((v) => ({ id: v.version, label: v.version, calls: v.calls })),
+              ]}
+              onChange={onVersionFilter}
+              trigger={
+                <>
+                  <span>Version</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5, color: 'var(--foreground)' }}>{versionFilter ?? 'All versions'}</span>
+                </>
+              }
+              triggerStyle={{ gap: 8, padding: '6px 10px', background: 'var(--surface-alt)', border: '1px solid var(--border)', fontSize: 13 }}
+              popoverStyle={{ top: 'calc(100% + 6px)', right: 0 }}
+            />
             {onCompare && defaultCompare && (
               <button
                 onClick={() => onCompare(...defaultCompare)}

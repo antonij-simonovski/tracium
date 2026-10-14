@@ -240,6 +240,10 @@ func (h *MetricsHandler) CompareVersions(w http.ResponseWriter, r *http.Request)
 		respondError(w, http.StatusBadRequest, "BAD_REQUEST", "the 'base' and 'candidate' query parameters are required")
 		return
 	}
+	if base == candidate {
+		respondError(w, http.StatusBadRequest, "BAD_REQUEST", "'base' and 'candidate' must name different versions")
+		return
+	}
 	f, ok := workflowFilter(h.filter)(w, r)
 	if !ok {
 		return

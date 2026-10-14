@@ -423,8 +423,7 @@ paths:
         runs, cost, latency, error rate and token use, most recently seen first.
         Runs without a version are listed as version "". Ranges up to 30d read
         each run's version per trace; longer ranges read the daily rollup, which
-        keys versions per span, leaves out unversioned spans without a model,
-        and has no latency (p95_latency_ms is null). The two agree when the
+        keys versions per span and has no latency (p95_latency_ms is null). The two agree when the
         version is set on every span, e.g. as a resource attribute.
       tags:
         - Metrics
@@ -1863,8 +1862,6 @@ components:
           description: >-
             The workflow version the trace ran under: the root span's version,
             else the earliest versioned span's. Empty when no span has one.
-        version_source:
-          $ref: "#/components/schemas/VersionSource"
         start_time_ms:
           type: integer
           description: Unix epoch milliseconds when the trace started.
@@ -2201,7 +2198,6 @@ components:
         - tools
         - last_trace_id
         - current_version
-        - current_version_source
       properties:
         name:
           type: string
@@ -2257,14 +2253,11 @@ components:
         current_version:
           type: string
           description: The version of the workflow's most recent versioned run in the window; empty when no run has one.
-        current_version_source:
-          $ref: "#/components/schemas/VersionSource"
 
     WorkflowVersion:
       type: object
       required:
         - version
-        - source
         - first_seen_ms
         - last_seen_ms
         - calls
@@ -2277,8 +2270,6 @@ components:
         version:
           type: string
           description: The workflow version; empty for the runs that carry none.
-        source:
-          $ref: "#/components/schemas/VersionSource"
         first_seen_ms:
           type: integer
           description: Start of the version's first run in the window (the day's start over ranges longer than 30d).
@@ -2338,15 +2329,6 @@ components:
         Each Kpi holds the candidate's value and its change from the base; a
         rise is bad for all four. p95_latency_ms is a neutral 0 over ranges
         longer than 30d.
-
-    VersionSource:
-      type: string
-      enum: ["", explicit, prompt, service]
-      description: >-
-        Where a workflow version came from: explicit (tracium.workflow.version),
-        prompt (the Traceloop managed prompt version), service (the resource
-        service.version or vcs.ref.head.revision, which version the service
-        rather than the workflow), or empty when there is no version.
 
     Failure:
       type: object

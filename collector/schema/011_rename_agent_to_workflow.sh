@@ -29,10 +29,8 @@ else
   if [ "$spans_has_legacy" != "0" ]; then
     ch_query "ALTER TABLE tracium.spans RENAME COLUMN agent_name TO workflow_name"
   fi
-  # The rollup DDL reads the columns migration 015 adds.
-  ch_query "ALTER TABLE tracium.spans
-    ADD COLUMN IF NOT EXISTS workflow_version LowCardinality(String) DEFAULT '',
-    ADD COLUMN IF NOT EXISTS version_source LowCardinality(String) DEFAULT ''"
+  # The rollup DDL reads the column migration 014 adds.
+  ch_query "ALTER TABLE tracium.spans ADD COLUMN IF NOT EXISTS workflow_version LowCardinality(String) DEFAULT ''"
 
   if [ "$rollup_has_legacy" != "0" ]; then
     # Preserve the old rollup intact, recreate it with the renamed sort-key

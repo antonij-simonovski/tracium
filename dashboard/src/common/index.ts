@@ -8,5 +8,6 @@ export { SEVERITY_META } from './utils/severity';
 export { handleDialogKeyDown } from './utils/dialog';
 export type { Severity } from './utils/severity';
 export { useResize } from './hooks/useResize';
+export { useClickOutside } from './hooks/useClickOutside';
 export { useMaxWidth, BREAKPOINTS } from './hooks/useMediaQuery';
 export { useCopy } from './hooks/useCopy';

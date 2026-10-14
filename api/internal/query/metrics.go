@@ -241,7 +241,7 @@ GROUP BY bucket_ms`, scopeCols, tableCalls, clause, scopeWhere)
 		qArgs := append([]any{bucketMs, bucketMs}, args...)
 		points, err := bucketSeries(ctx, r.db, f, q, append(qArgs, scopeArgs...), scanCostBucket, costPoint)
 		if err != nil {
-			return nil, fmt.Errorf("clickhouse: cost series (workflow): %w", err)
+			return nil, fmt.Errorf("clickhouse: cost series (scoped): %w", err)
 		}
 		return points, nil
 	}
@@ -422,12 +422,9 @@ const workflowExpr = `coalesce(` +
 	`nullIf(argMinIf(service_name, start_time_ms, service_name != ''), ''), ` +
 	`argMin(name, start_time_ms))`
 
-// versionExpr and versionSourceExpr take a trace's version from its root span,
-// else its earliest versioned span: false sorts first, so root spans win.
-const (
-	versionExpr       = `argMinIf(workflow_version, (parent_span_id != '', start_time_ms), workflow_version != '')`
-	versionSourceExpr = `argMinIf(version_source, (parent_span_id != '', start_time_ms), workflow_version != '')`
-)
+// versionExpr takes a trace's version from its root span, else its earliest
+// versioned span: false sorts first, so root spans win.
+const versionExpr = `argMinIf(workflow_version, (parent_span_id != '', start_time_ms), workflow_version != '')`
 
 // traceScope returns the inner columns, outer WHERE and args for the workflow and version filters.
 func traceScope(f MetricsFilter) (cols, where string, args []any) {
@@ -615,14 +612,12 @@ SELECT
     toInt64(sum(out_tok))            AS output_tokens,
     topKIf(1)(model, model != '')[1] AS model,
     argMax(trace_id, ts)             AS last_trace_id,
-    argMaxIf(version, ts, version != '') AS current_version,
-    argMaxIf(src, ts, version != '')     AS current_version_source
+    argMaxIf(version, ts, version != '') AS current_version
 FROM (
     SELECT
         trace_id,
         %s AS name,
         %s AS version,
-        %s AS src,
         argMin(%s, start_time_ms) AS model,
         sum(cost_usd)        AS cost,
         `+traceDurationExpr+` AS dur,
@@ -634,7 +629,7 @@ FROM (
     WHERE %s
     GROUP BY trace_id
 )
-WHERE name = ?`, workflowExpr, versionExpr, versionSourceExpr, modelExpr, clause)
+WHERE name = ?`, workflowExpr, versionExpr, modelExpr, clause)
 
 	var (
 		d         model.WorkflowDetail
@@ -644,7 +639,7 @@ WHERE name = ?`, workflowExpr, versionExpr, versionSourceExpr, modelExpr, clause
 	)
 	err := r.db.QueryRowContext(ctx, q, append(args, f.Workflow)...).Scan(
 		&d.Calls, &d.Cost, &d.AvgLatencyMs, &p95, &d.ErrorRate,
-		&d.InputTokens, &d.OutputTokens, &modelName, &lastTrace, &d.CurrentVersion, &d.CurrentVersionSource)
+		&d.InputTokens, &d.OutputTokens, &modelName, &lastTrace, &d.CurrentVersion)
 	if err != nil {
 		return model.WorkflowDetail{}, fmt.Errorf("clickhouse: workflow detail: %w", err)
 	}

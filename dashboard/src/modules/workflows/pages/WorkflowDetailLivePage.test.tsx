@@ -45,7 +45,7 @@ beforeEach(() => {
   api.getWorkflowDetail.mockResolvedValue({
     name: 'checkout', calls: 100, cost: 1, avg_latency_ms: 900, p95_latency_ms: 1500, error_rate: 0.13,
     input_tokens: 0, output_tokens: 0, model: 'gpt-4o', provider: '', tools: [], last_trace_id: '',
-    current_version: '', current_version_source: '',
+    current_version: '',
   });
   api.getWorkflowVersions.mockResolvedValue(empty);
   api.getCostSeries.mockResolvedValue(empty);
@@ -90,7 +90,7 @@ describe('live workflow detail', () => {
 });
 
 const version = (v: string, first: number, cpr: number) => ({
-  version: v, source: 'explicit', first_seen_ms: first, last_seen_ms: first + 1000, calls: 40, cost: 40 * cpr,
+  version: v, first_seen_ms: first, last_seen_ms: first + 1000, calls: 40, cost: 40 * cpr,
   cost_per_run: cpr, p95_latency_ms: 2000, error_rate: 0.025, tokens_per_run: 900,
 });
 
@@ -99,7 +99,7 @@ describe('live workflow detail with versions', () => {
     api.getWorkflowDetail.mockResolvedValue({
       name: 'checkout', calls: 100, cost: 1, avg_latency_ms: 900, p95_latency_ms: 1500, error_rate: 0.13,
       input_tokens: 0, output_tokens: 0, model: 'gpt-4o', provider: '', tools: [], last_trace_id: '',
-      current_version: 'v3', current_version_source: 'explicit',
+      current_version: 'v3',
     });
     api.getWorkflowVersions.mockResolvedValue({ ...empty, items: [version('v3', 2000, 0.006), version('v2', 1000, 0.004)] });
   });

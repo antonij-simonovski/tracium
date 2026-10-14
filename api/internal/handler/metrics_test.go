@@ -418,7 +418,7 @@ func TestMetricsSeriesVersionRejectsRollupRange(t *testing.T) {
 func TestMetricsWorkflowVersions(t *testing.T) {
 	repo := &mocks.MockMetricsRepository{
 		Versions: []model.WorkflowVersion{
-			{Version: "v12", Source: "explicit", Calls: 40, Cost: 2, CostPerRun: 0.05},
+			{Version: "v12", Calls: 40, Cost: 2, CostPerRun: 0.05},
 			{Version: "", Calls: 3},
 		},
 	}
@@ -436,7 +436,7 @@ func TestMetricsWorkflowVersions(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(got.Items) != 2 || got.Items[0].Version != "v12" || got.Items[0].Source != "explicit" {
+	if len(got.Items) != 2 || got.Items[0].Version != "v12" {
 		t.Errorf("items = %+v, want v12 (explicit) first of 2", got.Items)
 	}
 }
@@ -473,6 +473,7 @@ func TestMetricsCompareVersionsErrors(t *testing.T) {
 		status      int
 	}{
 		{"missing candidate", "range=7d&base=v11", nil, http.StatusBadRequest},
+		{"same version twice", "range=7d&base=v11&candidate=v11", nil, http.StatusBadRequest},
 		{"unknown version", "range=7d&base=v11&candidate=v99", query.ErrNotFound, http.StatusNotFound},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

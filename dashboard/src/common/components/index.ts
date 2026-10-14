@@ -11,7 +11,7 @@ export { StatTile } from './StatTile';
 export type { StatTone } from './StatTile';
 export { MetaRow } from './MetaRow';
 export type { MetaRowProps } from './MetaRow';
-export { KpiStrip } from './KpiStrip/KpiStrip';
+export { KpiStrip, DELTA_COLOR } from './KpiStrip/KpiStrip';
 export type { KpiItem, DeltaTone } from './KpiStrip/KpiStrip';
 export { Panel } from './Panel/Panel';
 export { PanelFrame } from './Panel/PanelFrame';

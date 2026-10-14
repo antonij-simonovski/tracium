@@ -5,7 +5,6 @@ type Trace struct {
 	TraceID         string  `json:"trace_id"`
 	Name            string  `json:"name"`
 	WorkflowVersion string  `json:"workflow_version"`
-	VersionSource   string  `json:"version_source"`
 	StartTimeMs     int64   `json:"start_time_ms"`
 	EndTimeMs       int64   `json:"end_time_ms"`
 	DurationMs      int64   `json:"duration_ms"`

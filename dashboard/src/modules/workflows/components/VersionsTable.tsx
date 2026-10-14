@@ -1,8 +1,7 @@
 import { useState } from 'react';
-import { IconCheck, fmtDelta, fmtNum, relativeTime } from '../../../common';
+import { IconCheck, fmtDelta, fmtMs, fmtNum, relativeTime } from '../../../common';
 import type { WorkflowVersion } from '../interfaces';
-import { change, comparable, defaultPair, deltaColor, fmtPts, fmtRunCost, fmtSeen, versionLabel } from '../utils';
-import { VersionTag } from './VersionTag';
+import { change, comparable, defaultPair, deltaColor, fmtPts, fmtRunCost, fmtSeen, previousVersion, ptsColor, versionLabel } from '../utils';
 
 interface VersionsTableProps {
   versions: WorkflowVersion[];
@@ -100,9 +99,9 @@ export function VersionsTable({ versions, rangeLabel, onCompare }: VersionsTable
           <span style={{ textAlign: 'right' }}>Tokens / run</span>
         </div>
 
-        {versions.map((v, i) => {
+        {versions.map((v) => {
           const named = comparable(v);
-          const prev = named ? versions.slice(i + 1).find(comparable) : undefined;
+          const prev = named ? previousVersion(versions, v) : undefined;
           const isSel = sel.includes(v.version);
           const p95 = v.p95_latency_ms;
           const prevP95 = prev?.p95_latency_ms;
@@ -147,7 +146,6 @@ export function VersionsTable({ versions, rangeLabel, onCompare }: VersionsTable
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13.5, fontWeight: 500, color: named ? 'var(--foreground)' : 'var(--muted)' }}>
                   {versionLabel(v.version)}
                 </span>
-                <VersionTag source={v.source} />
                 {v.version === current && <span style={{ fontSize: 12, color: 'var(--accent)' }}>current</span>}
               </span>
               <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -160,12 +158,12 @@ export function VersionsTable({ versions, rangeLabel, onCompare }: VersionsTable
                 {prev && <Delta text={fmtDelta(change(v.cost_per_run, prev.cost_per_run))} color={deltaColor(change(v.cost_per_run, prev.cost_per_run))} />}
               </span>
               <span style={numCell}>
-                <span style={{ fontSize: 13.5, color: 'var(--foreground)' }}>{p95 == null ? '—' : `${(p95 / 1000).toFixed(1)}s`}</span>
+                <span style={{ fontSize: 13.5, color: 'var(--foreground)' }}>{p95 == null ? '—' : fmtMs(p95)}</span>
                 {p95 != null && prevP95 != null && <Delta text={fmtDelta(change(p95, prevP95))} color={deltaColor(change(p95, prevP95))} />}
               </span>
               <span style={numCell}>
                 <span style={{ fontSize: 13.5, color: 'var(--foreground)' }}>{(v.error_rate * 100).toFixed(1)}%</span>
-                {prev && <Delta text={fmtPts(v.error_rate, prev.error_rate)} color={deltaColor((v.error_rate - prev.error_rate) * 10)} />}
+                {prev && <Delta text={fmtPts(v.error_rate, prev.error_rate)} color={ptsColor(v.error_rate, prev.error_rate)} />}
               </span>
               <span style={numCell}>
                 <span style={{ fontSize: 13.5, color: 'var(--foreground)' }}>{fmtNum(Math.round(v.tokens_per_run))}</span>

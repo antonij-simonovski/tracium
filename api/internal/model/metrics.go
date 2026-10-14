@@ -115,26 +115,24 @@ type TokenPoint struct {
 // (≤30d): the handler rejects rollup ranges, since per-workflow latency can't be
 // derived from the daily rollup (same limitation as LatencySeries).
 type WorkflowDetail struct {
-	Name                 string          `json:"name"`
-	Calls                int64           `json:"calls"`
-	Cost                 float64         `json:"cost"`
-	AvgLatencyMs         float64         `json:"avg_latency_ms"`
-	P95LatencyMs         *float64        `json:"p95_latency_ms"`
-	ErrorRate            float64         `json:"error_rate"`
-	InputTokens          int64           `json:"input_tokens"`
-	OutputTokens         int64           `json:"output_tokens"`
-	Model                string          `json:"model"`    // modal model_normalized over the window
-	Provider             string          `json:"provider"` // inferred from the model id; "" when unrecognised
-	Tools                []AvailableTool `json:"tools"`    // union of available_tools from the latest run
-	LastTraceID          string          `json:"last_trace_id"`
-	CurrentVersion       string          `json:"current_version"`
-	CurrentVersionSource string          `json:"current_version_source"`
+	Name           string          `json:"name"`
+	Calls          int64           `json:"calls"`
+	Cost           float64         `json:"cost"`
+	AvgLatencyMs   float64         `json:"avg_latency_ms"`
+	P95LatencyMs   *float64        `json:"p95_latency_ms"`
+	ErrorRate      float64         `json:"error_rate"`
+	InputTokens    int64           `json:"input_tokens"`
+	OutputTokens   int64           `json:"output_tokens"`
+	Model          string          `json:"model"`    // modal model_normalized over the window
+	Provider       string          `json:"provider"` // inferred from the model id; "" when unrecognised
+	Tools          []AvailableTool `json:"tools"`    // union of available_tools from the latest run
+	LastTraceID    string          `json:"last_trace_id"`
+	CurrentVersion string          `json:"current_version"`
 }
 
 // WorkflowVersion is one version of a workflow over the window; P95LatencyMs is nil over rollup ranges.
 type WorkflowVersion struct {
 	Version      string   `json:"version"`
-	Source       string   `json:"source"`
 	FirstSeenMs  int64    `json:"first_seen_ms"`
 	LastSeenMs   int64    `json:"last_seen_ms"`
 	Calls        int64    `json:"calls"`

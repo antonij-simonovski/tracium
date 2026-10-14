@@ -1,5 +1,4 @@
 import type { AvailableTool } from '../../../common/interfaces';
-import type { VersionSource } from './WorkflowVersion';
 
 // API response shape for GET /v1/metrics/workflows/{name} — one workflow's detail
 // page. Span-backed only: there is no workflow-config store, so runtime params
@@ -22,5 +21,4 @@ export interface WorkflowDetail {
   last_trace_id: string;
   // The version of the most recent versioned run; '' when no run has one.
   current_version: string;
-  current_version_source: VersionSource;
 }

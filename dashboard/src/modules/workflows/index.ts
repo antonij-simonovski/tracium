@@ -5,4 +5,4 @@ export { WorkflowDetailDemoPage } from './pages/WorkflowDetailDemoPage';
 export { WorkflowDetailLivePage } from './pages/WorkflowDetailLivePage';
 export { VersionCompareLivePage } from './pages/VersionCompareLivePage';
 export { WORKFLOWS } from './data';
-export type { Workflow, WorkflowMeta, WorkflowDetail, WorkflowVersion, VersionComparison, VersionSource } from './interfaces';
+export type { Workflow, WorkflowMeta, WorkflowDetail, WorkflowVersion, VersionComparison } from './interfaces';

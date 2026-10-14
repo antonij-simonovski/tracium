@@ -233,7 +233,7 @@ export interface paths {
         };
         /**
          * Workflow versions
-         * @description The versions of one workflow that ran in the range, with each version's runs, cost, latency, error rate and token use, most recently seen first. Runs without a version are listed as version "". Ranges up to 30d read each run's version per trace; longer ranges read the daily rollup, which keys versions per span, leaves out unversioned spans without a model, and has no latency (p95_latency_ms is null). The two agree when the version is set on every span, e.g. as a resource attribute.
+         * @description The versions of one workflow that ran in the range, with each version's runs, cost, latency, error rate and token use, most recently seen first. Runs without a version are listed as version "". Ranges up to 30d read each run's version per trace; longer ranges read the daily rollup, which keys versions per span and has no latency (p95_latency_ms is null). The two agree when the version is set on every span, e.g. as a resource attribute.
          */
         get: operations["listWorkflowVersions"];
         put?: never;
@@ -966,7 +966,6 @@ export interface components {
             name?: string;
             /** @description The workflow version the trace ran under: the root span's version, else the earliest versioned span's. Empty when no span has one. */
             workflow_version?: string;
-            version_source?: components["schemas"]["VersionSource"];
             /** @description Unix epoch milliseconds when the trace started. */
             start_time_ms?: number;
             /** @description Unix epoch milliseconds when the trace ended. */
@@ -1130,12 +1129,10 @@ export interface components {
             last_trace_id: string;
             /** @description The version of the workflow's most recent versioned run in the window; empty when no run has one. */
             current_version: string;
-            current_version_source: components["schemas"]["VersionSource"];
         };
         WorkflowVersion: {
             /** @description The workflow version; empty for the runs that carry none. */
             version: string;
-            source: components["schemas"]["VersionSource"];
             /** @description Start of the version's first run in the window (the day's start over ranges longer than 30d). */
             first_seen_ms: number;
             /** @description Start of the version's latest run in the window (the day's start over ranges longer than 30d). */
@@ -1162,11 +1159,6 @@ export interface components {
             error_rate: components["schemas"]["Kpi"];
             tokens_per_run: components["schemas"]["Kpi"];
         };
-        /**
-         * @description Where a workflow version came from: explicit (tracium.workflow.version), prompt (the Traceloop managed prompt version), service (the resource service.version or vcs.ref.head.revision, which version the service rather than the workflow), or empty when there is no version.
-         * @enum {string}
-         */
-        VersionSource: "" | "explicit" | "prompt" | "service";
         Failure: {
             /** @description Workflow name (the trace root span name). */
             workflow: string;

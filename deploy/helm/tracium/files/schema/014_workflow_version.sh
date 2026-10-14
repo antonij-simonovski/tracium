@@ -1,9 +1,7 @@
-# Sourced by run-migrations.sh. Adds workflow_version and version_source to
-# tracium.spans and the metrics_daily sorting key. Stop ingestion while it runs.
+# Sourced by run-migrations.sh. Adds workflow_version to tracium.spans and the
+# metrics_daily sorting key. Stop ingestion while it runs.
 
-ch_query "ALTER TABLE tracium.spans
-  ADD COLUMN IF NOT EXISTS workflow_version LowCardinality(String) DEFAULT '',
-  ADD COLUMN IF NOT EXISTS version_source LowCardinality(String) DEFAULT ''"
+ch_query "ALTER TABLE tracium.spans ADD COLUMN IF NOT EXISTS workflow_version LowCardinality(String) DEFAULT ''"
 
 rollup_needs_swap=$(ch_query "SELECT count() > 0 AND countIf(name='workflow_version') = 0 FROM system.columns WHERE database='tracium' AND table='metrics_daily'" | xargs)
 if [ "$rollup_needs_swap" = "1" ]; then

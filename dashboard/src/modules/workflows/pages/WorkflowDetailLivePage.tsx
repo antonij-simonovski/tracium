@@ -17,8 +17,8 @@ import {
   useWorkflowLatencySeries,
   useWorkflowErrorSeries,
   useWorkflowRuns,
+  useWorkflowVersions,
 } from '../hooks/useWorkflowDetail';
-import { useWorkflowVersions } from '../hooks/useVersions';
 import { change, comparable, defaultPair, deriveRunOutcomes, fmtSeen, previousVersion, releaseMarkers } from '../utils';
 import { WorkflowDetailPage } from './WorkflowDetailPage';
 import type { MetaRowProps } from '../../../common';
@@ -93,12 +93,7 @@ export function WorkflowDetailLivePage({ workflowName, range, setView, setSelect
   const configRows: MetaRowProps[] = [
     { label: 'model', value: d.model || '—', mono: true },
     ...(d.provider ? [{ label: 'provider', value: d.provider }] : []),
-    ...(d.current_version
-      ? [
-          { label: 'version', value: d.current_version, mono: true, accent: true },
-          { label: 'version source', value: d.current_version_source, mono: true },
-        ]
-      : []),
+    ...(d.current_version ? [{ label: 'version', value: d.current_version, mono: true, accent: true }] : []),
     { label: 'input tokens', value: fmtNum(d.input_tokens), mono: true },
     { label: 'output tokens', value: fmtNum(d.output_tokens), mono: true },
   ];
@@ -107,7 +102,6 @@ export function WorkflowDetailLivePage({ workflowName, range, setView, setSelect
     <WorkflowDetailPage
       name={d.name}
       version={d.current_version || undefined}
-      versionSource={d.current_version_source}
       versionSince={current ? fmtSeen(current.first_seen_ms) : undefined}
       range={range}
       scope={filtered ? `${filtered.version} only` : versioned ? 'all versions' : undefined}

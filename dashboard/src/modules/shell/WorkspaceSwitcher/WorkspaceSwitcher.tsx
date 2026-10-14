@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { IconChevron, IconCheck, IconPlus, IconTrash, handleDialogKeyDown } from '../../../common';
+import React, { useCallback, useState, useRef } from 'react';
+import { IconChevron, IconCheck, IconPlus, IconTrash, handleDialogKeyDown, useClickOutside } from '../../../common';
 import hover from '../../../common/styles/hover.module.css';
 import type { Workspace } from '../interfaces';
 
@@ -34,15 +34,8 @@ export function WorkspaceSwitcher({
   const ref = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
-  useEffect(() => {
-    const h = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
-  }, []);
+  const dismiss = useCallback(() => setOpen(false), []);
+  useClickOutside(ref, open, dismiss);
 
   const envColor = workspace ? ENV_COLOR[workspace.env] : 'var(--muted)';
   const envLabel = workspace ? ENV_LABEL[workspace.env] : '';

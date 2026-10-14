@@ -16,12 +16,7 @@
     },
     "workflow_version": {
       "type": "string",
-      "description": "Workflow version the trace ran under (tracium.workflow.version, else the managed prompt version, else service.version): the root span's version, else the earliest versioned span's. Empty when no span carries one."
-    },
-    "version_source": {
-      "type": "string",
-      "enum": ["", "explicit", "prompt", "service"],
-      "description": "Where workflow_version came from. service versions the service, not the workflow."
+      "description": "Workflow version (tracium.workflow.version) the trace ran under: the root span's version, else the earliest versioned span's. Empty when no span carries one."
     },
     "start_time_ms": {
       "type": "integer",

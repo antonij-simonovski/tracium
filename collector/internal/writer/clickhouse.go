@@ -58,7 +58,6 @@ const insertQuery = `INSERT INTO tracium.spans (
 	source,
 	workflow_name,
 	workflow_version,
-	version_source,
 	service_name,
 	kind,
 	attributes
@@ -111,7 +110,6 @@ func (w *ClickHouseWriter) WriteBatch(ctx context.Context, spans []*spanmodel.Sp
 			source,
 			s.WorkflowName,
 			s.WorkflowVersion,
-			s.VersionSource,
 			s.ServiceName,
 			s.Kind,
 			attributes,

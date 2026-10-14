@@ -25,12 +25,6 @@ func TestTraceScope(t *testing.T) {
 	}
 }
 
-func TestVersionExprsPickTheSameSpan(t *testing.T) {
-	if got := strings.ReplaceAll(versionSourceExpr, "version_source", "workflow_version"); got != versionExpr {
-		t.Errorf("versionSourceExpr = %q, want versionExpr over version_source", versionSourceExpr)
-	}
-}
-
 func TestCompareVersions(t *testing.T) {
 	p95Base, p95Candidate := 1000.0, 800.0
 	base := model.WorkflowVersion{Version: "v11", CostPerRun: 0.05, ErrorRate: 0.1, TokensPerRun: 1000, P95LatencyMs: &p95Base}

@@ -64,7 +64,6 @@ func (r *ClickHouseRepository) workflowVersions(ctx context.Context, f MetricsFi
 	q := fmt.Sprintf(`
 SELECT
     version,
-    any(src),
     min(ts),
     max(ts),
     toInt64(count()),
@@ -76,7 +75,6 @@ FROM (
     SELECT
         %s AS name,
         %s AS version,
-        %s AS src,
         min(start_time_ms)   AS ts,
         sum(cost_usd)        AS cost,
         `+traceDurationExpr+` AS dur,
@@ -89,21 +87,19 @@ FROM (
 WHERE name = ?%s
 GROUP BY version
 ORDER BY max(ts) DESC
-LIMIT ?`, workflowExpr, versionExpr, versionSourceExpr, clause, onlyClause)
+LIMIT ?`, workflowExpr, versionExpr, clause, onlyClause)
 
 	qArgs := append(args, f.Workflow)
 	qArgs = append(qArgs, onlyArgs...)
 	return r.scanVersions(ctx, q, append(qArgs, limit), true)
 }
 
-// workflowVersionsRollup keys versions per span, so it skips unversioned spans
-// without a model: a run versioned only on its LLM calls (a prompt version) would
-// otherwise also count as unversioned through its structural spans.
+// workflowVersionsRollup keys versions per span, so it matches the raw path only
+// when every span carries the version (see the rollup.go caveats).
 func (r *ClickHouseRepository) workflowVersionsRollup(ctx context.Context, f MetricsFilter, only []string, limit int) ([]model.WorkflowVersion, error) {
 	clause, args := rollupWindow(f.UserID, f.WorkspaceIDs, f.Start, f.End, true)
 	onlyClause, onlyArgs := versionIn("workflow_version", only)
 	q := fmt.Sprintf(`SELECT workflow_version,
-    any(version_source),
     min(%[1]s),
     max(%[1]s),
     toInt64(uniqMerge(runs)),
@@ -111,7 +107,7 @@ func (r *ClickHouseRepository) workflowVersionsRollup(ctx context.Context, f Met
     toFloat64(0),
     toInt64(uniqIfMerge(error_runs)),
     toInt64(sum(input_tokens) + sum(output_tokens))
-FROM tracium.metrics_daily WHERE %[2]s AND workflow_name = ? AND (workflow_version != '' OR model != '')%[3]s
+FROM tracium.metrics_daily WHERE %[2]s AND workflow_name = ?%[3]s
 GROUP BY workflow_version ORDER BY max(bucket_date) DESC LIMIT ?`, bucketMsExpr, clause, onlyClause)
 
 	qArgs := append(args, f.Workflow)
@@ -133,7 +129,7 @@ func (r *ClickHouseRepository) scanVersions(ctx context.Context, q string, args 
 			p95             float64
 			errRuns, tokens int64
 		)
-		if err := rows.Scan(&v.Version, &v.Source, &v.FirstSeenMs, &v.LastSeenMs,
+		if err := rows.Scan(&v.Version, &v.FirstSeenMs, &v.LastSeenMs,
 			&v.Calls, &v.Cost, &p95, &errRuns, &tokens); err != nil {
 			return nil, fmt.Errorf("clickhouse: scan workflow version: %w", err)
 		}

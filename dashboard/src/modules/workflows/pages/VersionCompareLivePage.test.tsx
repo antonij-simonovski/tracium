@@ -16,9 +16,9 @@ vi.mock('../../../common/providers/APIProvider', () => ({
 }));
 
 const empty = { items: [], total: 0, page: 1, page_size: 20 };
-const kpi = (delta: number) => ({ value: 0, delta, delta_type: 'neutral' });
+const kpi = (delta: number, delta_type = 'neutral') => ({ value: 0, delta, delta_type });
 const version = (v: string, cpr: number, err: number) => ({
-  version: v, source: 'explicit', first_seen_ms: 0, last_seen_ms: 1000, calls: 100, cost: 100 * cpr,
+  version: v, first_seen_ms: 0, last_seen_ms: 1000, calls: 100, cost: 100 * cpr,
   cost_per_run: cpr, p95_latency_ms: 2500, error_rate: err, tokens_per_run: 1500,
 });
 
@@ -38,7 +38,7 @@ beforeEach(() => {
   api.compareWorkflowVersions.mockResolvedValue({
     base: version('v2', 0.004, 0.002),
     candidate: version('v3', 0.006, 0.006),
-    cost_per_run: kpi(0.5),
+    cost_per_run: kpi(0.5, 'bad'),
     p95_latency_ms: kpi(0),
     error_rate: kpi(2),
     tokens_per_run: kpi(0),
@@ -59,6 +59,7 @@ describe('version compare', () => {
     show();
     expect(await screen.findByRole('button', { name: /Cost \/ run/ })).toHaveTextContent('+50%');
     expect(screen.getByRole('button', { name: /Error rate/ })).toHaveTextContent('+0.4 pts');
+    expect(screen.getByRole('button', { name: /p95 latency/ })).toHaveTextContent('—');
     expect(api.compareWorkflowVersions).toHaveBeenCalledWith('checkout', 'v2', 'v3', '7d');
   });
 

@@ -6,7 +6,7 @@ const DAY = 86_400_000;
 
 function ver(version: string, first: number, last: number): WorkflowVersion {
   return {
-    version, source: version ? 'explicit' : '', first_seen_ms: first * DAY, last_seen_ms: last * DAY,
+    version, first_seen_ms: first * DAY, last_seen_ms: last * DAY,
     calls: 10, cost: 1, cost_per_run: 0.1, p95_latency_ms: 1000, error_rate: 0, tokens_per_run: 100,
   };
 }

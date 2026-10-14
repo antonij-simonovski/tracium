@@ -114,18 +114,18 @@ the views (they are `CREATE VIEW IF NOT EXISTS`, so a re-run alone is a no-op):
 `DROP VIEW IF EXISTS tracium.calls;` then re-apply the migration, likewise for
 `tracium.usage_metrics`.
 
-## Workflow versions (migration 015)
+## Workflow versions (migration 014)
 
-Migration `015` adds `workflow_version` and `version_source` to `tracium.spans`
-and to the `tracium.metrics_daily` sorting key. A sorting key can't gain a column
+Migration `014` adds `workflow_version` to `tracium.spans` and to the
+`tracium.metrics_daily` sorting key. A sorting key can't gain a column
 in place, so the migration renames the rollup to
 `tracium.metrics_daily_pre_version`, recreates it, and copies every aggregate
 state across as unversioned. It also recreates the `calls` and `usage_metrics`
-views so they expose the new columns.
+views so they expose the new column.
 
 Stop the collector while it runs: spans written while the rollup's view is
 dropped are not added to `metrics_daily`. If it fails, rerun it; a retry picks
-up from the retained table. The new API reads the new columns, so apply the
+up from the retained table. The new API reads the new column, so apply the
 migration before rolling the API (the standard deploy order already does). Drop
 `tracium.metrics_daily_pre_version` once long-range totals check out.
 

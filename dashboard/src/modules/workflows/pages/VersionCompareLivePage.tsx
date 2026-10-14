@@ -1,25 +1,32 @@
 import { useState } from 'react';
 import {
   Centered,
+  DELTA_COLOR,
   EmptyState,
   Spinner,
   bucketLabel,
   fmtCost,
   fmtDelta,
+  fmtMs,
   fmtNum,
   isLongRange,
   rangeLabel,
 } from '../../../common';
 import hover from '../../../common/styles/hover.module.css';
 import { APIError } from '../../../common/api/client';
-import { useVersionComparison, useWorkflowVersions } from '../hooks/useVersions';
-import { useWorkflowCostSeries, useWorkflowErrorSeries, useWorkflowLatencySeries } from '../hooks/useWorkflowDetail';
+import {
+  useVersionComparison,
+  useWorkflowCostSeries,
+  useWorkflowErrorSeries,
+  useWorkflowLatencySeries,
+  useWorkflowVersions,
+} from '../hooks/useWorkflowDetail';
 import { TrafficStrip } from '../components/TrafficStrip';
+import { VersionDropdown } from '../components/VersionDropdown';
 import { VersionLineChart } from '../components/VersionLineChart';
-import { VersionPicker } from '../components/VersionPicker';
-import { VersionTag } from '../components/VersionTag';
+import type { Kpi } from '../../overview/interfaces';
 import type { WorkflowVersion } from '../interfaces';
-import { change, deltaColor, fmtPts, fmtRunCost, fmtSeen, overlap, releaseMarkers } from '../utils';
+import { change, fmtPts, fmtRunCost, fmtSeen, overlap, ptsColor, releaseMarkers } from '../utils';
 
 type MetricId = 'runs' | 'cost' | 'cpr' | 'p95' | 'err' | 'tpr';
 
@@ -43,17 +50,20 @@ interface VersionCompareLivePageProps {
   onSelect: (base: string, candidate: string) => void;
 }
 
-const fmtDay = (ms: number) => new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-const fmtSecs = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
-
 const Y_FMT: Record<MetricId, (v: number) => string> = {
   runs: (v) => fmtNum(Math.round(v)),
-  cost: (v) => `$${v.toFixed(2)}`,
-  cpr: (v) => `$${v.toFixed(4)}`,
-  p95: (v) => `${v.toFixed(1)}s`,
+  cost: fmtCost,
+  cpr: fmtRunCost,
+  p95: fmtMs,
   err: (v) => `${(v * 100).toFixed(1)}%`,
   tpr: (v) => fmtNum(Math.round(v)),
 };
+
+// The API marks a change neutral when the base has no value to compare against.
+const kpiDelta = (k: Kpi) => ({
+  delta: k.delta_type === 'neutral' ? '—' : fmtDelta(k.delta),
+  color: DELTA_COLOR[k.delta_type],
+});
 
 const eyebrow = { fontSize: 12, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)' } as const;
 
@@ -102,8 +112,17 @@ function VersionCell({ v, label, versions, exclude, onChange, color, opacity, di
     <div style={{ padding: '14px 22px 16px', display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0, borderLeft: divided ? '1px solid var(--border)' : 'none' }}>
       <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
         <span style={{ width: 14, height: 2, background: color, opacity, flexShrink: 0 }} />
-        <VersionPicker label={label} value={v.version} versions={versions} exclude={exclude} onChange={onChange} />
-        <VersionTag source={v.source} />
+        <VersionDropdown
+          label={label}
+          value={v.version}
+          options={versions.filter((o) => o.version && o.version !== exclude).map((o) => ({ id: o.version, label: o.version, calls: o.calls }))}
+          onChange={(id) => id && onChange(id)}
+          trigger={<span style={{ fontFamily: 'var(--font-mono)', fontSize: 15, fontWeight: 500, color: 'var(--foreground)', whiteSpace: 'nowrap' }}>{v.version}</span>}
+          triggerLabel={`${label}: ${v.version}`}
+          triggerStyle={{ gap: 6, padding: '3px 8px', margin: '-4px -9px', background: 'transparent', border: '1px solid transparent' }}
+          popoverStyle={{ top: 'calc(100% + 10px)', left: -9 }}
+          emptyText="No other versions in this range"
+        />
       </span>
       <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>
         {fmtSeen(v.first_seen_ms)} – {fmtSeen(v.last_seen_ms)}
@@ -138,7 +157,7 @@ export function VersionCompareLivePage({ workflowName, base, candidate, range, o
     );
   }
   if (!cmp.data) {
-    const missing = cmp.error instanceof APIError && (cmp.error.isNotFound || cmp.error.status === 400);
+    const missing = cmp.error instanceof APIError && cmp.error.isNotFound;
     return missing ? (
       <EmptyState
         message="Nothing to compare in this range"
@@ -150,17 +169,13 @@ export function VersionCompareLivePage({ workflowName, base, candidate, range, o
   }
 
   const { base: A, candidate: B } = cmp.data;
-  const kpiColor = (k: { delta: number }) => deltaColor(k.delta);
   const rows: Row[] = [
     { id: 'runs', label: 'Runs', title: 'Runs', a: A.calls, b: B.calls, fmt: Y_FMT.runs, delta: fmtDelta(change(B.calls, A.calls)), color: 'var(--muted)', chartable: true },
     { id: 'cost', label: 'Total cost', title: 'Cost', a: A.cost, b: B.cost, fmt: fmtCost, delta: fmtDelta(change(B.cost, A.cost)), color: 'var(--muted)', chartable: true },
-    { id: 'cpr', label: 'Cost / run', title: 'Cost per run', a: A.cost_per_run, b: B.cost_per_run, fmt: fmtRunCost, delta: fmtDelta(cmp.data.cost_per_run.delta), color: kpiColor(cmp.data.cost_per_run), chartable: true },
-    {
-      id: 'p95', label: 'p95 latency', title: 'p95 latency', a: A.p95_latency_ms, b: B.p95_latency_ms, fmt: fmtSecs,
-      delta: A.p95_latency_ms == null ? '—' : fmtDelta(cmp.data.p95_latency_ms.delta), color: kpiColor(cmp.data.p95_latency_ms), chartable: true,
-    },
-    { id: 'err', label: 'Error rate', title: 'Error rate', a: A.error_rate, b: B.error_rate, fmt: Y_FMT.err, delta: fmtPts(B.error_rate, A.error_rate), color: deltaColor((B.error_rate - A.error_rate) * 10), chartable: true },
-    { id: 'tpr', label: 'Tokens / run', title: 'Tokens per run', a: A.tokens_per_run, b: B.tokens_per_run, fmt: Y_FMT.tpr, delta: fmtDelta(cmp.data.tokens_per_run.delta), color: kpiColor(cmp.data.tokens_per_run), chartable: false },
+    { id: 'cpr', label: 'Cost / run', title: 'Cost per run', a: A.cost_per_run, b: B.cost_per_run, fmt: fmtRunCost, ...kpiDelta(cmp.data.cost_per_run), chartable: true },
+    { id: 'p95', label: 'p95 latency', title: 'p95 latency', a: A.p95_latency_ms, b: B.p95_latency_ms, fmt: fmtMs, ...kpiDelta(cmp.data.p95_latency_ms), chartable: true },
+    { id: 'err', label: 'Error rate', title: 'Error rate', a: A.error_rate, b: B.error_rate, fmt: Y_FMT.err, delta: fmtPts(B.error_rate, A.error_rate), color: ptsColor(B.error_rate, A.error_rate), chartable: true },
+    { id: 'tpr', label: 'Tokens / run', title: 'Tokens per run', a: A.tokens_per_run, b: B.tokens_per_run, fmt: Y_FMT.tpr, ...kpiDelta(cmp.data.tokens_per_run), chartable: false },
   ];
   const active = rows.find((r) => r.id === metric)!;
 
@@ -168,9 +183,10 @@ export function VersionCompareLivePage({ workflowName, base, candidate, range, o
   const bucketsMs = axis.map((b) => b.bucket_ms);
   const labels = bucketsMs.map((ms) => bucketLabel(ms, range));
   const byBucket = <T extends { bucket_ms: number }>(items: T[] | undefined) => new Map((items ?? []).map((b) => [b.bucket_ms, b]));
+  const errAMap = byBucket(errA.data?.items);
+  const errBMap = byBucket(errB.data?.items);
 
-  const seriesFor = (err: typeof errA, cost: typeof costA, lat: typeof latA): (number | null)[] => {
-    const errs = byBucket(err.data?.items);
+  const seriesFor = (errs: typeof errAMap, cost: typeof costA, lat: typeof latA): (number | null)[] => {
     const costs = byBucket(cost.data?.items);
     const lats = byBucket(lat.data?.items);
     return bucketsMs.map((ms) => {
@@ -181,26 +197,20 @@ export function VersionCompareLivePage({ workflowName, base, candidate, range, o
         case 'err': return e.errors / e.total;
         case 'cost': return costs.get(ms)?.value ?? null;
         case 'cpr': { const c = costs.get(ms); return c ? c.value / e.total : null; }
-        case 'p95': { const p = lats.get(ms)?.p95; return p == null ? null : p / 1000; }
+        case 'p95': return lats.get(ms)?.p95 ?? null;
         default: return null;
       }
     });
   };
-  const sA = seriesFor(errA, costA, latA);
-  const sB = seriesFor(errB, costB, latB);
+  const sA = seriesFor(errAMap, costA, latA);
+  const sB = seriesFor(errBMap, costB, latB);
 
-  const both = bucketsMs.map((ms, i) => {
-    const a = byBucket(errA.data?.items).get(ms)?.total ?? 0;
-    const b = byBucket(errB.data?.items).get(ms)?.total ?? 0;
-    return a > 0 && b > 0 ? i : -1;
-  }).filter((i) => i >= 0);
+  const both = bucketsMs.map((ms, i) => ((errAMap.get(ms)?.total ?? 0) > 0 && (errBMap.get(ms)?.total ?? 0) > 0 ? i : -1)).filter((i) => i >= 0);
   const ov = overlap(A, B);
   // A bucket can hold both versions back to back; shade only a real overlap.
   const band: [number, number] | null = ov && both.length ? [both[0], both[both.length - 1]] : null;
   const markers = releaseMarkers([A, B], bucketsMs, (v) => (v.version === B.version ? 'var(--accent)' : 'var(--muted-foreground)'));
 
-  const errAMap = byBucket(errA.data?.items);
-  const errBMap = byBucket(errB.data?.items);
   const traffic = axis.map((b) => ({
     label: bucketLabel(b.bucket_ms, range),
     base: errAMap.get(b.bucket_ms)?.total ?? 0,
@@ -267,72 +277,74 @@ export function VersionCompareLivePage({ workflowName, base, candidate, range, o
       </div>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '28px 40px', alignItems: 'flex-start' }}>
-        <div style={{ flex: '1 1 340px', minWidth: 0, maxWidth: 520 }}>
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'minmax(0,1.35fr) minmax(0,1fr) minmax(0,1fr) 70px',
-              gap: 12,
-              padding: '0 10px 10px',
-              borderBottom: '1px solid var(--border)',
-              ...eyebrow,
-              letterSpacing: '0.06em',
-            }}
-          >
-            <span>Metric</span>
-            <span style={{ textAlign: 'right', textTransform: 'none', letterSpacing: 0, fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis' }}>{A.version}</span>
-            <span style={{ textAlign: 'right', textTransform: 'none', letterSpacing: 0, fontFamily: 'var(--font-mono)', color: 'var(--foreground)', overflow: 'hidden', textOverflow: 'ellipsis' }}>{B.version}</span>
-            <span style={{ textAlign: 'right' }}>Change</span>
-          </div>
-          {rows.map((r) => {
-            const on = r.id === metric;
-            return (
-              <button
-                key={r.id}
-                onClick={() => setMetric(r.id)}
-                aria-pressed={on}
-                className={hover.row}
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'minmax(0,1.35fr) minmax(0,1fr) minmax(0,1fr) 70px',
-                  gap: 12,
-                  alignItems: 'center',
-                  width: '100%',
-                  padding: '11px 10px',
-                  border: 'none',
-                  borderRadius: 6,
-                  textAlign: 'left',
-                  background: on ? 'var(--surface-alt)' : undefined,
-                  borderBottom: '1px solid color-mix(in srgb, var(--border) 50%, transparent)',
-                }}
-              >
-                <span style={{ fontSize: 13.5, color: on ? 'var(--foreground)' : 'var(--muted)', fontWeight: on ? 500 : 400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {r.label}
-                </span>
-                <span style={{ fontSize: 13.5, textAlign: 'right', color: 'var(--muted)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
-                  {r.a == null ? '—' : r.fmt(r.a)}
-                </span>
-                <span style={{ fontSize: 13.5, textAlign: 'right', color: 'var(--foreground)', fontWeight: 500, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
-                  {r.b == null ? '—' : r.fmt(r.b)}
-                </span>
-                <span
+        <div style={{ flex: '1 1 340px', maxWidth: 520 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.35fr) minmax(max-content,1fr) minmax(max-content,1fr) 70px', columnGap: 12 }}>
+            <div
+              style={{
+                display: 'grid',
+                gridColumn: '1 / -1',
+                gridTemplateColumns: 'subgrid',
+                padding: '0 10px 10px',
+                borderBottom: '1px solid var(--border)',
+                ...eyebrow,
+                letterSpacing: '0.06em',
+              }}
+            >
+              <span>Metric</span>
+              <span style={{ textAlign: 'right', textTransform: 'none', letterSpacing: 0, fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>{A.version}</span>
+              <span style={{ textAlign: 'right', textTransform: 'none', letterSpacing: 0, fontFamily: 'var(--font-mono)', color: 'var(--foreground)', whiteSpace: 'nowrap' }}>{B.version}</span>
+              <span style={{ textAlign: 'right' }}>Change</span>
+            </div>
+            {rows.map((r) => {
+              const on = r.id === metric;
+              return (
+                <button
+                  key={r.id}
+                  onClick={() => setMetric(r.id)}
+                  aria-pressed={on}
+                  className={hover.row}
                   style={{
-                    justifySelf: 'end',
-                    fontSize: 12.5,
-                    fontWeight: 600,
-                    padding: '1px 7px',
-                    borderRadius: 999,
-                    color: r.color,
-                    background: `color-mix(in srgb, ${r.color} 12%, transparent)`,
-                    fontVariantNumeric: 'tabular-nums',
-                    whiteSpace: 'nowrap',
+                    display: 'grid',
+                    gridColumn: '1 / -1',
+                    gridTemplateColumns: 'subgrid',
+                    alignItems: 'center',
+                    width: '100%',
+                    padding: '11px 10px',
+                    border: 'none',
+                    borderRadius: 6,
+                    textAlign: 'left',
+                    background: on ? 'var(--surface-alt)' : undefined,
+                    borderBottom: '1px solid color-mix(in srgb, var(--border) 50%, transparent)',
                   }}
                 >
-                  {r.delta}
-                </span>
-              </button>
-            );
-          })}
+                  <span style={{ fontSize: 13.5, color: on ? 'var(--foreground)' : 'var(--muted)', fontWeight: on ? 500 : 400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {r.label}
+                  </span>
+                  <span style={{ fontSize: 13.5, textAlign: 'right', color: 'var(--muted)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                    {r.a == null ? '—' : r.fmt(r.a)}
+                  </span>
+                  <span style={{ fontSize: 13.5, textAlign: 'right', color: 'var(--foreground)', fontWeight: 500, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                    {r.b == null ? '—' : r.fmt(r.b)}
+                  </span>
+                  <span
+                    style={{
+                      justifySelf: 'end',
+                      fontSize: 12.5,
+                      fontWeight: 600,
+                      padding: '1px 7px',
+                      borderRadius: 999,
+                      color: r.color,
+                      background: `color-mix(in srgb, ${r.color} 12%, transparent)`,
+                      fontVariantNumeric: 'tabular-nums',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {r.delta}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
           <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '12px 10px 0' }}>Totals over the {rangeLabel(range)}. Click a row to chart it.</p>
         </div>
 
@@ -347,7 +359,7 @@ export function VersionCompareLivePage({ workflowName, base, candidate, range, o
             <div style={{ display: 'flex', gap: 12, fontSize: 12.5, color: 'var(--muted)', fontFamily: 'var(--font-mono)', flexWrap: 'wrap' }}>
               <Legend color="var(--foreground)" opacity={0.5} label={A.version} />
               <Legend color="var(--accent)" label={B.version} />
-              {showBand && ov && <BandLegend label={`Concurrent ${fmtDay(ov[0])} – ${fmtDay(ov[1])}`} />}
+              {showBand && ov && <BandLegend label={`Concurrent ${fmtSeen(ov[0])} – ${fmtSeen(ov[1])}`} />}
             </div>
           </div>
           <div style={{ paddingTop: 10 }}>{chart}</div>

@@ -76,7 +76,6 @@ var Rollups = []Rollup{
     workspace_id,
     workflow_name,
     workflow_version,
-    version_source,
     if(model_normalized != '', model_normalized, model) AS model,
     sum(cost_usd)                                      AS cost,
     sum(input_tokens)                                  AS input_tokens,
@@ -85,7 +84,7 @@ var Rollups = []Rollup{
     uniqState(trace_id)                                AS runs,
     uniqIfState(trace_id, error_type != '' OR error_message != '') AS error_runs
 FROM tracium.spans` + whereClause(where) + `
-GROUP BY bucket_date, user_id, workspace_id, workflow_name, workflow_version, version_source, model`
+GROUP BY bucket_date, user_id, workspace_id, workflow_name, workflow_version, model`
 		},
 	},
 	{

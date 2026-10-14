@@ -1,6 +1,6 @@
 import { fmtCost } from '../../../common/utils/formatters';
 import type { ChartMarker } from '../../../common/interfaces';
-import type { VersionSource, WorkflowVersion } from '../interfaces';
+import type { WorkflowVersion } from '../interfaces';
 
 export const UNVERSIONED = 'unversioned';
 
@@ -11,12 +11,6 @@ export const fmtRunCost = (usd: number): string => (usd >= 0.01 && usd < 1 ? `$$
 
 export const fmtSeen = (ms: number): string =>
   new Date(ms).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-
-export const SOURCE_COLOR: Record<Exclude<VersionSource, ''>, string> = {
-  explicit: 'var(--accent)',
-  prompt: 'var(--info)',
-  service: 'var(--muted-foreground)',
-};
 
 // Changes within ±5% read as noise and stay neutral.
 const NOISE = 0.05;
@@ -36,6 +30,9 @@ export function fmtPts(next: number, prev: number): string {
   const pts = (next - prev) * 100;
   return `${pts >= 0 ? '+' : ''}${pts.toFixed(1)} pts`;
 }
+
+// Tone for an error-rate change: within half a point reads as noise.
+export const ptsColor = (next: number, prev: number): string => deltaColor((next - prev) * 10);
 
 export const comparable = (v: WorkflowVersion): boolean => v.version !== '';
 

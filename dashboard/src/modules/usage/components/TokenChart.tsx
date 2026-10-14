@@ -5,7 +5,7 @@ import { useState } from 'react';
 import type { CSSProperties } from 'react';
 import { fmtNum, fmtTokens } from '../../../common';
 import type { TokenSeriesPoint } from '../interfaces';
-import { niceCeil, tickIndices } from './DailyChart';
+import { niceCeil, tickIndices } from '../utils';
 import chart from './DailyChart.module.css';
 import styles from './TokenChart.module.css';
 

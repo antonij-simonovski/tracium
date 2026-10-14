@@ -6,14 +6,12 @@
 }
 
 .input {
-  --tok: var(--accent);
-  background: var(--tok);
+  background: var(--accent);
   opacity: 0.6;
 }
 
 .output {
-  --tok: #7aa5ff;
-  background: var(--tok);
+  background: var(--info);
   opacity: 0.8;
 }
 
@@ -34,7 +32,7 @@
 
 .outFill {
   height: var(--share);
-  background: #7aa5ff;
+  background: var(--info);
 }
 
 .inFill {
@@ -61,7 +59,7 @@
   width: var(--share);
   height: 100%;
   margin-left: auto;
-  background: #7aa5ff;
+  background: var(--info);
 }
 
 .mixRow {

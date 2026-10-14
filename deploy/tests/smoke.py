@@ -158,17 +158,15 @@ def get(path):
     return result
 
 
-# Explicit beats service.version; the resource version covers every span.
-v1 = versioned_run([attr('tracium.workflow.version', 'v1'), attr('service.version', '9.9.9')])
+# The resource version covers every span.
+v1 = versioned_run([attr('tracium.workflow.version', 'v1')])
 v2 = versioned_run([attr('tracium.workflow.version', 'v2')], tokens=300)
-# A root-span version applies to the whole trace; the prompt version is next in line.
-v3 = versioned_run([], root_attrs=[attr('tracium.workflow.version', 'v3')],
-                   child_attrs=[attr('traceloop.prompt.key', 'p'), attr('traceloop.prompt.version', '7')])
-prompt = versioned_run([], child_attrs=[attr('traceloop.prompt.key', 'p'), attr('traceloop.prompt.version', '7')])
-service = versioned_run([attr('service.version', '1.4.0')])
-plain = versioned_run([])
-expected = {v1: ('v1', 'explicit'), v2: ('v2', 'explicit'), v3: ('v3', 'explicit'),
-            prompt: ('p@7', 'prompt'), service: ('1.4.0', 'service'), plain: ('', '')}
+# A root-span version applies to the whole trace.
+v3 = versioned_run([], root_attrs=[attr('tracium.workflow.version', 'v3')])
+# Other version attributes are not read as a workflow version.
+plain = versioned_run([attr('service.version', '1.4.0')],
+                      child_attrs=[attr('traceloop.prompt.key', 'p'), attr('traceloop.prompt.version', '7')])
+expected = {v1: 'v1', v2: 'v2', v3: 'v3', plain: ''}
 
 
 def traces_versioned():
@@ -178,14 +176,14 @@ def traces_versioned():
 
 rows = eventually(traces_versioned)
 for trace, want in expected.items():
-    assert (rows[trace]['workflow_version'], rows[trace]['version_source']) == want, (trace, rows[trace], want)
+    assert rows[trace]['workflow_version'] == want, (trace, rows[trace], want)
 
 filtered = get('/v1/traces?workflow=versioned-smoke&version=v2')['items']
 assert [t['trace_id'] for t in filtered] == [v2], filtered
 
 versions = {v['version']: v for v in get('/v1/metrics/workflows/versioned-smoke/versions?range=24h')['items']}
-assert set(versions) == {'v1', 'v2', 'v3', 'p@7', '1.4.0', ''}, versions
-assert versions['v1']['calls'] == 1 and versions['v1']['source'] == 'explicit', versions['v1']
+assert set(versions) == {'v1', 'v2', 'v3', ''}, versions
+assert versions['v1']['calls'] == 1, versions['v1']
 assert versions['v2']['tokens_per_run'] == 310 and versions['v2']['p95_latency_ms'] is not None, versions['v2']
 
 compare = get('/v1/metrics/workflows/versioned-smoke/versions/compare?range=24h&base=v1&candidate=v2')
@@ -197,11 +195,9 @@ assert status == 404, status
 # Long ranges read the daily rollup, which keys the version per span.
 rollup = {v['version']: v for v in get('/v1/metrics/workflows/versioned-smoke/versions?range=90d')['items']}
 assert rollup['v1']['calls'] == 1 and rollup['v1']['p95_latency_ms'] is None, rollup
-# The prompt-versioned run's model-less root span doesn't make it count as unversioned.
-assert rollup['']['calls'] == 1, rollup['']
 
 detail = get('/v1/metrics/workflows/versioned-smoke?range=24h')
-assert detail['current_version'] != '' and detail['current_version_source'] != '', detail
+assert detail['current_version'] != '', detail
 series = get('/v1/metrics/cost-series?range=24h&workflow=versioned-smoke&version=v2')
 assert sum(point['value'] for point in series['items']) > 0, series
 print('PASS: register, login, workspace, ingest key issuance, mandatory-key OTLP ingestion (keyless/bogus rejected), dashboard API proxy, trace visibility, metrics, workflow versions, and cross-workspace isolation')

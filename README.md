@@ -107,12 +107,8 @@ resourceFromAttributes({ "service.name": "support-bot", "tracium.workflow.versio
 ```
 
 or on the run's root span only, which versions the whole trace:
-`span.setAttribute("tracium.workflow.version", "v12")`.
-
-Without it, Tracium falls back to the OpenLLMetry managed prompt version
-(`traceloop.prompt.key@traceloop.prompt.version`), then the resource
-`service.version` or `vcs.ref.head.revision`. Each run's `version_source`
-(`explicit`, `prompt` or `service`) says which one it got.
+`span.setAttribute("tracium.workflow.version", "v12")`. Runs without it are
+unversioned; no other attribute is read as a version.
 
 Full documentation is at [docs.tracium.ai](https://docs.tracium.ai).
 

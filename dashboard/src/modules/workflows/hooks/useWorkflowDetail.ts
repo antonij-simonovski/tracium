@@ -9,7 +9,7 @@ const WORKFLOW_RUNS_PAGE_SIZE = 10;
 // Keys are [scope, kind, workspaceId, name, range, version?]: a range or version
 // change keeps the page up, but another workflow or workspace never shows these
 // numbers.
-export const shared = (workspaceId: string | undefined, name: string, enabled: boolean) => ({
+const shared = (workspaceId: string | undefined, name: string, enabled: boolean) => ({
   staleTime: DETAIL_REFRESH_MS,
   refetchInterval: DETAIL_REFRESH_MS,
   refetchIntervalInBackground: false,
@@ -24,6 +24,24 @@ export function useWorkflowDetail(name: string, range: string, enabled = true) {
     queryKey: ['workflows', 'detail', workspaceId, name, range],
     queryFn: () => metricsAPI.getWorkflowDetail(name, range),
     ...shared(workspaceId, name, enabled),
+  });
+}
+
+export function useWorkflowVersions(name: string, range: string, enabled = true) {
+  const { metricsAPI, workspaceId } = useAPIClient();
+  return useQuery({
+    queryKey: ['workflows', 'versions', workspaceId, name, range],
+    queryFn: () => metricsAPI.getWorkflowVersions(name, range),
+    ...shared(workspaceId, name, enabled),
+  });
+}
+
+export function useVersionComparison(name: string, base: string, candidate: string, range: string) {
+  const { metricsAPI, workspaceId } = useAPIClient();
+  return useQuery({
+    queryKey: ['workflows', 'compare', workspaceId, name, range, base, candidate],
+    queryFn: () => metricsAPI.compareWorkflowVersions(name, base, candidate, range),
+    ...shared(workspaceId, name, true),
   });
 }
 

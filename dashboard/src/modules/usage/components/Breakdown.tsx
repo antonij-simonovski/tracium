@@ -1,6 +1,6 @@
 // The Avg column reports cost per 1,000 runs so sub-cent per-run figures stay readable.
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import {
   Sparkline,
@@ -11,6 +11,7 @@ import {
   IconSearch,
   fmtCost,
   fmtNum,
+  useClickOutside,
 } from '../../../common';
 import hover from '../../../common/styles/hover.module.css';
 import type { UserSummary, WorkflowSummary, AttributeSummary } from '../interfaces';
@@ -302,14 +303,8 @@ function AttributeTab({
   const ref = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    const h = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
-  }, [open]);
+  const dismiss = useCallback(() => setOpen(false), []);
+  useClickOutside(ref, open, dismiss);
 
   useEffect(() => {
     if (open) {

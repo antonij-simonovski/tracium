@@ -29,7 +29,6 @@ CREATE TABLE IF NOT EXISTS tracium.metrics_daily (
     workspace_id String,
     workflow_name  LowCardinality(String),
     workflow_version LowCardinality(String),
-    version_source LowCardinality(String),
     model          LowCardinality(String),
     cost           SimpleAggregateFunction(sum, Float64),
     input_tokens   SimpleAggregateFunction(sum, UInt64),
@@ -39,4 +38,4 @@ CREATE TABLE IF NOT EXISTS tracium.metrics_daily (
     error_runs     AggregateFunction(uniqIf, String, UInt8)
 ) ENGINE = AggregatingMergeTree()
 PARTITION BY toYYYYMM(bucket_date)
-ORDER BY (bucket_date, user_id, workspace_id, workflow_name, workflow_version, version_source, model);
+ORDER BY (bucket_date, user_id, workspace_id, workflow_name, workflow_version, model);

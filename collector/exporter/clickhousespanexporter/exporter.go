@@ -81,18 +81,7 @@ const (
 	attrGenAIAgentName    = "gen_ai.agent.name"
 	attrTraceloopWorkflow = "traceloop.workflow.name"
 	attrTraceloopEntity   = "traceloop.entity.name"
-
-	attrWorkflowVersion = "tracium.workflow.version"
-	attrPromptKey       = "traceloop.prompt.key"
-	attrPromptVersion   = "traceloop.prompt.version"
-	attrServiceVersion  = "service.version"
-	attrVCSRevision     = "vcs.ref.head.revision"
-)
-
-const (
-	versionSourceExplicit = "explicit"
-	versionSourcePrompt   = "prompt"
-	versionSourceService  = "service"
+	attrWorkflowVersion   = "tracium.workflow.version"
 )
 
 func fromOTLP(s ptrace.Span, serviceName string, resourceAttrs pcommon.Map) *spanmodel.Span {
@@ -109,7 +98,6 @@ func fromOTLP(s ptrace.Span, serviceName string, resourceAttrs pcommon.Map) *spa
 	// Empty when the processor stripped content because capture is disabled.
 	input, output := genai.Content(am)
 	errType, errMessage := spanError(s)
-	version, versionSource := workflowVersion(attrs, resourceAttrs)
 
 	return &spanmodel.Span{
 		TraceID:         s.TraceID().String(),
@@ -143,8 +131,7 @@ func fromOTLP(s ptrace.Span, serviceName string, resourceAttrs pcommon.Map) *spa
 			strAttr(attrs, attrTraceloopEntity),
 			s.Name(),
 		),
-		WorkflowVersion: version,
-		VersionSource:   versionSource,
+		WorkflowVersion: workflowVersion(attrs, resourceAttrs),
 		// ServiceName is the resource-level service.name, persisted verbatim (the
 		// OTel "unknown_service" default treated as absent). The query layer uses
 		// it as the stable in-flight fallback for a trace's display/workflow name.
@@ -233,32 +220,12 @@ func workflowName(serviceName, genaiAgent, traceloopWorkflow, traceloopEntity, s
 	return ""
 }
 
-// workflowVersion returns the first version found and its source.
-func workflowVersion(spanAttrs, resourceAttrs pcommon.Map) (version, source string) {
-	candidates := []struct{ version, source string }{
-		{strAttr(spanAttrs, attrWorkflowVersion), versionSourceExplicit},
-		{strAttr(resourceAttrs, attrWorkflowVersion), versionSourceExplicit},
-		{promptVersion(spanAttrs), versionSourcePrompt},
-		{strAttr(resourceAttrs, attrServiceVersion), versionSourceService},
-		{strAttr(resourceAttrs, attrVCSRevision), versionSourceService},
+// workflowVersion returns the span's tracium.workflow.version, else the resource's.
+func workflowVersion(spanAttrs, resourceAttrs pcommon.Map) string {
+	if v := ingest.SanitizeIdentifier(strAttr(spanAttrs, attrWorkflowVersion), ingest.MaxVersionBytes); v != "" {
+		return v
 	}
-	for _, c := range candidates {
-		if v := ingest.SanitizeIdentifier(c.version, ingest.MaxVersionBytes); v != "" {
-			return v, c.source
-		}
-	}
-	return "", ""
-}
-
-func promptVersion(attrs pcommon.Map) string {
-	version := strings.TrimSpace(strAttr(attrs, attrPromptVersion))
-	if version == "" {
-		return ""
-	}
-	if key := strings.TrimSpace(strAttr(attrs, attrPromptKey)); key != "" {
-		return key + "@" + version
-	}
-	return version
+	return ingest.SanitizeIdentifier(strAttr(resourceAttrs, attrWorkflowVersion), ingest.MaxVersionBytes)
 }
 
 // resourceServiceName returns the usable service.name, treating the OTel SDK

@@ -70,7 +70,6 @@ SELECT
              nullIf(argMinIf(service_name, start_time_ms, service_name != ''), ''),
              argMin(name, start_time_ms)) AS trace_name,
     ` + versionExpr + `                   AS trace_version,
-    ` + versionSourceExpr + `             AS trace_version_source,
     any(user_id)                        AS trace_user,
     any(workspace_id)                     AS trace_workspace,
     min(start_time_ms)                    AS started_ms,
@@ -86,7 +85,7 @@ func scanTrace(s interface{ Scan(...any) error }) (model.Trace, error) {
 	var t model.Trace
 	var hasError uint8
 	var spanCount int64
-	err := s.Scan(&t.TraceID, &t.Name, &t.WorkflowVersion, &t.VersionSource, &t.UserID, &t.WorkspaceID, &t.StartTimeMs, &t.EndTimeMs,
+	err := s.Scan(&t.TraceID, &t.Name, &t.WorkflowVersion, &t.UserID, &t.WorkspaceID, &t.StartTimeMs, &t.EndTimeMs,
 		&t.DurationMs, &spanCount, &hasError, &t.TotalCostUSD)
 	t.HasError = hasError != 0
 	t.SpanCount = int(spanCount)

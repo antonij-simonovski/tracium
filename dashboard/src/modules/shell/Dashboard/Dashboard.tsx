@@ -225,8 +225,8 @@ export function Dashboard({ embedded = false, onLogout, onSessionRenewed, extens
       ? [{ label: 'Workflows', onClick: () => { setSelected(s => { const n = { ...s }; delete n.workflow; return n; }); setView('workflows'); } }, { label: selected.workflow }]
       : [{ label: 'Workflows' }];
     if (view === 'compare')    return [
-      { label: 'Workflows', onClick: () => { setSelected(s => { const n = { ...s }; delete n.workflow; return n; }); setView('workflows'); } },
-      ...(selected.workflow ? [{ label: selected.workflow, onClick: () => setView('workflows') }] : []),
+      { label: 'Workflows', onClick: () => { setSelected(s => { const n = { ...s }; delete n.workflow; delete n.base; delete n.candidate; return n; }); setView('workflows'); } },
+      ...(selected.workflow ? [{ label: selected.workflow, onClick: () => { setSelected(s => { const n = { ...s }; delete n.base; delete n.candidate; return n; }); setView('workflows'); } }] : []),
       { label: 'Compare' },
     ];
     if (view === 'usage')      return [{ label: 'Usage' }];

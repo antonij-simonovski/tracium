@@ -39,10 +39,8 @@ else
   # name here — 011 runs later. Rename it inline, exactly as tenant_id above.
   ch_query "ALTER TABLE tracium.spans RENAME COLUMN IF EXISTS agent_name TO workflow_name"
   ch_query "ALTER TABLE tracium.spans ADD COLUMN IF NOT EXISTS workspace_id String DEFAULT ''"
-  # The rollup DDL reads the columns migration 015 adds.
-  ch_query "ALTER TABLE tracium.spans
-    ADD COLUMN IF NOT EXISTS workflow_version LowCardinality(String) DEFAULT '',
-    ADD COLUMN IF NOT EXISTS version_source LowCardinality(String) DEFAULT ''"
+  # The rollup DDL reads the column migration 014 adds.
+  ch_query "ALTER TABLE tracium.spans ADD COLUMN IF NOT EXISTS workflow_version LowCardinality(String) DEFAULT ''"
   # Store ownership explicitly. A permanent legacy default would silently grant
   # the old workspace access to future untagged spans. UPDATE is retry-safe
   # while ingestion is paused and does not overwrite already assigned rows.
