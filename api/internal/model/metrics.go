@@ -99,6 +99,14 @@ type ErrorPoint struct {
 	Total    int64 `json:"total"`
 }
 
+// TokenPoint is one time bucket of token usage, split into prompt (input) and
+// completion (output) tokens. Span-sourced, like the model-costs token totals.
+type TokenPoint struct {
+	BucketMs     int64 `json:"bucket_ms"`
+	InputTokens  int64 `json:"input_tokens"`
+	OutputTokens int64 `json:"output_tokens"`
+}
+
 // WorkflowDetail is one workflow's detail-page payload: its headline metrics over the
 // window plus the version and tool surface of its most recent run. Span-backed
 // only — there is no workflow-config store, so runtime params (temperature,

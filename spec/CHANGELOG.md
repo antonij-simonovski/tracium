@@ -13,6 +13,7 @@ Breaking changes require a `schema_version` bump. Additive changes do not.
 - `GET /v1/metrics/workflows/{name}/versions` lists a workflow's versions with runs, cost per run, p95 latency, error rate and tokens per run
 - `GET /v1/metrics/workflows/{name}/versions/compare?base=&candidate=` compares two versions
 - `version` filter on `GET /v1/traces` and the series endpoints
+- `GET /v1/metrics/token-series` returns input and output tokens per time bucket; the Usage page charts them
 - `WorkflowDetail.current_version` and `current_version_source`: the version of the workflow's most recent versioned run
 - `span.json` lists `workflow_version` and `version_source`
 - The examples set `tracium.workflow.version`, and the demo seed ships two or three releases per workflow, versioned through each source, with one unversioned workflow

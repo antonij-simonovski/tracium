@@ -11,17 +11,27 @@ import {
   fmtPct,
   plural,
   rangeLabel,
+  SetupIssueNote,
 } from '../../../common';
 import type { MetaRowProps, RunRow, StatTone } from '../../../common';
-import type { CostPoint, LatencyPoint, ErrorPoint } from '../../../common/interfaces';
-import { ERR_BAD, ERR_WARN } from '../utils';
+import type { CostPoint, LatencyPoint, ErrorPoint, ChartMarker } from '../../../common/interfaces';
+import hover from '../../../common/styles/hover.module.css';
+import { VersionMenu } from '../components/VersionMenu';
+import { VersionTag } from '../components/VersionTag';
+import { VersionsTable } from '../components/VersionsTable';
+import type { VersionSource, WorkflowVersion } from '../interfaces';
+import { ERR_BAD, ERR_WARN, fmtRunCost } from '../utils';
 import styles from './WorkflowDetailPage.module.css';
 
 export interface WorkflowDetailPageProps {
   name: string;
   version?: string;
+  versionSource?: VersionSource;
+  versionSince?: string;
   description?: string;
   range: string;
+  // Narrows the tiles' window label, e.g. to one version.
+  scope?: string;
 
   calls: number;
   completed: number;
@@ -35,17 +45,35 @@ export interface WorkflowDetailPageProps {
   latencySeries: LatencyPoint[];
   errorSeries: ErrorPoint[];
   runs: RunRow[];
+  markers?: ChartMarker[];
+  // Present once the workflow has versions; drives the filter, table and compare.
+  versions?: WorkflowVersion[];
+  versionFilter?: string | null;
+  onVersionFilter?: (version: string | null) => void;
+  onCompare?: (base: string, candidate: string) => void;
+  defaultCompare?: [string, string] | null;
+  costAlert?: { version: string; from: number; to: number; change: string };
   loadErrors?: Partial<Record<'cost' | 'latency' | 'errors' | 'runs', boolean>>;
 
   setView: (v: string) => void;
   setSelected: (updater: (prev: Record<string, string>) => Record<string, string>) => void;
 }
 
+const linkButton = {
+  padding: 0,
+  border: 'none',
+  background: 'transparent',
+  color: 'var(--foreground)',
+  fontSize: 'inherit',
+  textDecoration: 'underline',
+} as const;
+
 export function WorkflowDetailPage(props: WorkflowDetailPageProps) {
   const {
-    name, version, description, range,
+    name, version, versionSource = '', versionSince, description, range, scope,
     calls, completed, failed, cost, p95Ms, errorRate,
-    configRows, costSeries, latencySeries, errorSeries, runs, loadErrors = {},
+    configRows, costSeries, latencySeries, errorSeries, runs, markers = [], loadErrors = {},
+    versions, versionFilter = null, onVersionFilter, onCompare, defaultCompare, costAlert,
     setView, setSelected,
   } = props;
 
@@ -60,25 +88,30 @@ export function WorkflowDetailPage(props: WorkflowDetailPageProps) {
 
   return (
     <div style={{ padding: '32px 40px 64px', maxWidth: 1480, margin: '0 auto' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 24, marginBottom: 22 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 24, marginBottom: 22, flexWrap: 'wrap' }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
             <h1 style={{ fontSize: 26, fontWeight: 600, letterSpacing: '-0.02em', margin: 0 }}>{name}</h1>
             {version && (
               <span
                 style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 8,
                   fontSize: 12.5,
                   padding: '3px 9px',
                   borderRadius: 6,
                   background: 'var(--surface-alt)',
-                  border: '1px solid var(--border)',
-                  color: 'var(--muted)',
+                  border: '1px solid var(--border-strong)',
+                  color: 'var(--foreground)',
                   fontFamily: 'var(--font-mono)',
                 }}
               >
                 {version}
+                <VersionTag source={versionSource} />
               </span>
             )}
+            {version && versionSince && <span style={{ fontSize: 13, color: 'var(--muted)' }}>current since {versionSince}</span>}
           </div>
           {description && (
             <p style={{ fontSize: 14.5, color: 'var(--muted)', margin: 0, maxWidth: 660, lineHeight: 1.55, textWrap: 'pretty' }}>
@@ -86,7 +119,36 @@ export function WorkflowDetailPage(props: WorkflowDetailPageProps) {
             </p>
           )}
         </div>
+        {versions && versions.length > 0 && onVersionFilter && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <VersionMenu versions={versions} value={versionFilter} onChange={onVersionFilter} />
+            {onCompare && defaultCompare && (
+              <button
+                onClick={() => onCompare(...defaultCompare)}
+                className={hover.outlined}
+                style={{ padding: '6px 12px', background: 'var(--surface-alt)', border: '1px solid var(--border)', borderRadius: 7, fontSize: 13 }}
+              >
+                Compare versions
+              </button>
+            )}
+          </div>
+        )}
       </div>
+
+      {costAlert && (
+        <div style={{ marginBottom: 28 }}>
+          <SetupIssueNote issue={{ code: 'version_cost', severity: 'warning', message: `Cost per run up since ${costAlert.version}` }}>
+            <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+              {fmtRunCost(costAlert.from)} → {fmtRunCost(costAlert.to)} ({costAlert.change})
+            </span>
+            {onCompare && defaultCompare && (
+              <button onClick={() => onCompare(...defaultCompare)} style={linkButton}>
+                Compare
+              </button>
+            )}
+          </SetupIssueNote>
+        </div>
+      )}
 
       <div
         style={{
@@ -97,7 +159,7 @@ export function WorkflowDetailPage(props: WorkflowDetailPageProps) {
           margin: '4px 0 32px',
         }}
       >
-        <StatTile isFirst label="Total runs" value={fmtNum(calls)} sub={windowLabel} />
+        <StatTile isFirst label="Total runs" value={fmtNum(calls)} sub={scope ? `${windowLabel} · ${scope}` : windowLabel} />
         <StatTile label="Completed" value={fmtNum(completed)} />
         <StatTile label="Failed" value={fmtNum(failed)} tone={failed > 0 ? errTone : undefined} />
         <StatTile label="Success rate" value={calls > 0 ? fmtPct((completed / calls) * 100) : '—'} tone={calls > 0 ? errTone : undefined} />
@@ -117,7 +179,7 @@ export function WorkflowDetailPage(props: WorkflowDetailPageProps) {
             </div>
             <span style={{ fontSize: 13, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>{fmtCost(cost)} total</span>
           </div>
-          {loadErrors.cost ? <Centered minHeight={210}>Couldn't load spend</Centered> : <CostBarChart series={costSeries} height={210} />}
+          {loadErrors.cost ? <Centered minHeight={210}>Couldn't load spend</Centered> : <CostBarChart series={costSeries} height={210} markers={markers} />}
         </div>
         <div className={styles.divided} style={{ padding: '22px 26px 20px', minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, marginBottom: 18 }}>
@@ -131,9 +193,13 @@ export function WorkflowDetailPage(props: WorkflowDetailPageProps) {
               <span><span style={{ display: 'inline-block', width: 8, height: 2, background: 'var(--warning)', verticalAlign: 'middle', marginRight: 4 }} />p99</span>
             </div>
           </div>
-          {loadErrors.latency ? <Centered minHeight={210}>Couldn't load latency</Centered> : <LatencyChart series={latencySeries} height={210} />}
+          {loadErrors.latency ? <Centered minHeight={210}>Couldn't load latency</Centered> : <LatencyChart series={latencySeries} height={210} markers={markers} />}
         </div>
       </div>
+
+      {versions && versions.length > 0 && onCompare && (
+        <VersionsTable versions={versions} rangeLabel={windowLabel} onCompare={onCompare} />
+      )}
 
       <div style={{ marginBottom: 44 }}>
         <div
@@ -161,8 +227,15 @@ export function WorkflowDetailPage(props: WorkflowDetailPageProps) {
 
       <div className={styles.split}>
         <div style={{ minWidth: 0 }}>
-          <h2 style={{ fontSize: 17, fontWeight: 600, letterSpacing: '-0.01em', margin: '0 0 14px' }}>Recent runs</h2>
-          {loadErrors.runs ? <Centered minHeight={120}>Couldn't load runs</Centered> : <RunsTable runs={runs} onOpen={openTrace} />}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, margin: '0 0 14px' }}>
+            <h2 style={{ fontSize: 17, fontWeight: 600, letterSpacing: '-0.01em', margin: 0 }}>Recent runs</h2>
+            {versionFilter && (
+              <span style={{ fontSize: 13, color: 'var(--muted)' }}>
+                Version: <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5, color: 'var(--foreground)' }}>{versionFilter}</span>
+              </span>
+            )}
+          </div>
+          {loadErrors.runs ? <Centered minHeight={120}>Couldn't load runs</Centered> : <RunsTable runs={runs} onOpen={openTrace} showVersion={!!versions?.length} />}
         </div>
 
         <div>

@@ -6,9 +6,10 @@ const DETAIL_REFRESH_MS = 60_000;
 
 const WORKFLOW_RUNS_PAGE_SIZE = 10;
 
-// Keys are [scope, kind, workspaceId, name, range]: a range change keeps the
-// page up, but another workflow or workspace never shows these numbers.
-const shared = (workspaceId: string | undefined, name: string, enabled: boolean) => ({
+// Keys are [scope, kind, workspaceId, name, range, version?]: a range or version
+// change keeps the page up, but another workflow or workspace never shows these
+// numbers.
+export const shared = (workspaceId: string | undefined, name: string, enabled: boolean) => ({
   staleTime: DETAIL_REFRESH_MS,
   refetchInterval: DETAIL_REFRESH_MS,
   refetchIntervalInBackground: false,
@@ -26,38 +27,38 @@ export function useWorkflowDetail(name: string, range: string, enabled = true) {
   });
 }
 
-export function useWorkflowCostSeries(name: string, range: string, enabled = true) {
+export function useWorkflowCostSeries(name: string, range: string, enabled = true, version?: string) {
   const { metricsAPI, workspaceId } = useAPIClient();
   return useQuery({
-    queryKey: ['workflows', 'cost-series', workspaceId, name, range],
-    queryFn: () => metricsAPI.getCostSeries(range, name),
+    queryKey: ['workflows', 'cost-series', workspaceId, name, range, version],
+    queryFn: () => metricsAPI.getCostSeries(range, name, undefined, version),
     ...shared(workspaceId, name, enabled),
   });
 }
 
-export function useWorkflowLatencySeries(name: string, range: string, enabled = true) {
+export function useWorkflowLatencySeries(name: string, range: string, enabled = true, version?: string) {
   const { metricsAPI, workspaceId } = useAPIClient();
   return useQuery({
-    queryKey: ['workflows', 'latency-series', workspaceId, name, range],
-    queryFn: () => metricsAPI.getLatencySeries(range, name),
+    queryKey: ['workflows', 'latency-series', workspaceId, name, range, version],
+    queryFn: () => metricsAPI.getLatencySeries(range, name, version),
     ...shared(workspaceId, name, enabled),
   });
 }
 
-export function useWorkflowErrorSeries(name: string, range: string, enabled = true) {
+export function useWorkflowErrorSeries(name: string, range: string, enabled = true, version?: string) {
   const { metricsAPI, workspaceId } = useAPIClient();
   return useQuery({
-    queryKey: ['workflows', 'error-series', workspaceId, name, range],
-    queryFn: () => metricsAPI.getErrorSeries(range, name),
+    queryKey: ['workflows', 'error-series', workspaceId, name, range, version],
+    queryFn: () => metricsAPI.getErrorSeries(range, name, undefined, version),
     ...shared(workspaceId, name, enabled),
   });
 }
 
-export function useWorkflowRuns(name: string, range: string, enabled = true) {
+export function useWorkflowRuns(name: string, range: string, enabled = true, version?: string) {
   const { tracesAPI, workspaceId } = useAPIClient();
   return useQuery({
-    queryKey: ['workflows', 'runs', workspaceId, name, range],
-    queryFn: () => tracesAPI.listTraces({ workflow: name, range, page_size: WORKFLOW_RUNS_PAGE_SIZE }),
+    queryKey: ['workflows', 'runs', workspaceId, name, range, version],
+    queryFn: () => tracesAPI.listTraces({ workflow: name, version, range, page_size: WORKFLOW_RUNS_PAGE_SIZE }),
     ...shared(workspaceId, name, enabled),
   });
 }

@@ -21,7 +21,8 @@
 // Workflows ship releases over the history (see WORKFLOWS[].versions), each
 // version sent the way real apps send one: tracium.workflow.version on the
 // resource, the resource service.version, or a Traceloop managed prompt version
-// on the LLM spans. research-assistant sends none.
+// on the LLM spans. research-assistant only starts sending one 24 days ago, so
+// its older runs stay unversioned.
 
 const OTLP = process.env.OTLP_ENDPOINT || "http://localhost:4318/v1/traces";
 const WORKSPACE_ID = process.env.WORKSPACE_ID || "c4ef3026-f040-4221-ad58-d6345dd4570c";
@@ -538,25 +539,28 @@ function wfResearch(T, root, seq) {
 const WORKFLOWS = [
   {
     workflow: "support-ticket-resolver", team: "support", feature: "ticket-triage", cost_center: "CC-1001", weight: 20, build: wfSupport,
-    versions: { source: "explicit", releases: [["v2.1.0", 42], ["v2.2.0", 18, 0.85], ["v2.3.0", 6, 1.3]] },
+    versions: { source: "explicit", releases: [["v2.0.0", 42], ["v2.1.0", 30, 1.1], ["v2.2.0", 18, 0.85], ["v2.3.0", 6, 1.3]] },
   },
   {
     workflow: "invoice-extractor", team: "finance", feature: "invoice-ocr", cost_center: "CC-2100", weight: 14, build: wfInvoice,
-    versions: { source: "service", releases: [["1.8.3", 42], ["1.9.0", 11, 0.9]] },
+    versions: { source: "service", releases: [["1.8.3", 42], ["1.8.4", 27], ["1.9.0", 11, 0.9], ["1.9.1", 3, 0.95]] },
   },
   {
     workflow: "code-review-bot", team: "engineering", feature: "pr-review", cost_center: "CC-3050", weight: 12, build: wfCodeReview,
-    versions: { source: "explicit", releases: [["3f9c2e1", 42], ["a71d04b", 20], ["c5e88f2", 8, 0.8]] },
+    versions: { source: "explicit", releases: [["3f9c2e1", 42], ["9b14d6a", 31, 1.15], ["a71d04b", 20], ["c5e88f2", 8, 0.8]] },
   },
   {
     workflow: "semantic-search", team: "growth", feature: "kb-search", cost_center: "CC-4200", weight: 14, build: wfSearch,
-    versions: { source: "prompt", releases: [["3", 42], ["4", 14, 1.15]] },
+    versions: { source: "prompt", releases: [["2", 42], ["3", 28, 0.9], ["4", 14, 1.15], ["5", 4, 0.95]] },
   },
   {
     workflow: "content-moderation", team: "trust-safety", feature: "auto-moderation", cost_center: "CC-5500", weight: 30, build: wfModeration,
-    versions: { source: "explicit", releases: [["2026.09.1", 42], ["2026.10.0", 13]] },
+    versions: { source: "explicit", releases: [["v1.4.0", 42], ["v1.5.0", 25, 1.1], ["v1.5.1", 13], ["v1.6.0", 5, 0.9]] },
   },
-  { workflow: "research-assistant", team: "research", feature: "deep-research", cost_center: "CC-6300", weight: 10, build: wfResearch },
+  {
+    workflow: "research-assistant", team: "research", feature: "deep-research", cost_center: "CC-6300", weight: 10, build: wfResearch,
+    versions: { source: "explicit", releases: [["v0.8.0", 24], ["v0.9.0", 15, 1.2], ["v1.0.0", 5, 0.85]] },
+  },
 ];
 
 // releaseAt returns the release a workflow was running startNs, or undefined.

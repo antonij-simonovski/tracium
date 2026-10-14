@@ -1,4 +1,5 @@
 export type { DailySeriesPoint } from './DailySeriesPoint';
+export type { TokenSeriesPoint } from './TokenSeriesPoint';
 export type { UserSummary } from './UserSummary';
 export type { WorkflowSummary } from './WorkflowSummary';
 export type { AttributeSummary } from './AttributeSummary';

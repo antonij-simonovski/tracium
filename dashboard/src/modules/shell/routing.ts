@@ -12,6 +12,9 @@ export function stateToPath(view: ViewId, selected: Record<string, string>, page
   switch (view) {
     case 'overview':   return '/';
     case 'workflows':     return selected.workflow ? `/workflows/${enc(selected.workflow)}` : '/workflows';
+    case 'compare':    return selected.workflow && selected.base && selected.candidate
+      ? `/workflows/${enc(selected.workflow)}/compare/${enc(selected.base)}/${enc(selected.candidate)}`
+      : selected.workflow ? `/workflows/${enc(selected.workflow)}` : '/workflows';
     case 'trace':      return selected.traceId ? `/traces/${enc(selected.traceId)}` : '/traces';
     case 'usage':      return '/usage';
     case 'users':    return '/clients';
@@ -32,6 +35,9 @@ export function pathToState(pathname: string, pages: readonly ExtensionPage[] = 
 
   switch (seg[0]) {
     case 'workflows':
+      if (seg[2] === 'compare' && seg[3] && seg[4]) {
+        return { view: 'compare', selected: { workflow: seg[1], base: seg[3], candidate: seg[4] } };
+      }
       return seg[1]
         ? { view: 'workflows', selected: { workflow: seg[1] } }
         : { view: 'workflows', selected: {} };

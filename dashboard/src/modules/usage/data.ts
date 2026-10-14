@@ -22,6 +22,15 @@ export const USAGE_DATA: UsageData = {
       runs,
     };
   }),
+  tokenSeries: Array.from({ length: 30 }, (_, i) => {
+    const runs = Math.round(140 + Math.sin(i / 3) * 30);
+    return {
+      label: `Apr ${i + 1}`,
+      input: Math.round(runs * (4385 + Math.sin(i / 5) * 400)),
+      output: Math.round(runs * (1190 + Math.cos(i / 4) * 160)),
+      runs,
+    };
+  }),
   users: [
     { id: "u_umbrella"     as UserId, name: "Umbrella Production", cost: 2.8412, costPrev: 2.4880, runs: 3204, runsPrev: 2961, avg: 0.000887, trend: [80,85,92,88,96,102,108,112]},
     { id: "u_umbrella_dev" as UserId, name: "Umbrella Dev",         cost: 0.9812, costPrev: 0.9078, runs: 1802, runsPrev: 1741, avg: 0.000545, trend: [30,32,35,33,38,40,42,44]},

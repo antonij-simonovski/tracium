@@ -128,6 +128,7 @@ func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, invit
 		r.Get(version.Route(version.V1, "/metrics/cost-series"), metricsHandler.CostSeries)
 		r.Get(version.Route(version.V1, "/metrics/latency-series"), metricsHandler.LatencySeries)
 		r.Get(version.Route(version.V1, "/metrics/error-series"), metricsHandler.ErrorSeries)
+		r.Get(version.Route(version.V1, "/metrics/token-series"), metricsHandler.TokenSeries)
 		r.Get(version.Route(version.V1, "/metrics/top-workflows"), metricsHandler.TopWorkflows)
 		r.Get(version.Route(version.V1, "/metrics/workflows"), metricsHandler.Workflows)
 		r.Get(version.Route(version.V1, "/metrics/workflows/{name}"), metricsHandler.WorkflowDetail)

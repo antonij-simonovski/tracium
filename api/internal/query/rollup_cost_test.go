@@ -55,3 +55,20 @@ func TestRollupCostQueriesReconcileBothSources(t *testing.T) {
 		t.Errorf("series does not emit bucket_ms on the shared grid:\n%s", series)
 	}
 }
+
+// The long-window token series reads the span rollup, where the token sums live,
+// on the same day grid as the cost series.
+func TestTokenSeriesRollupSQL(t *testing.T) {
+	const clause = "bucket_date >= ? AND bucket_date <= ?"
+	q := tokenSeriesRollupSQL(clause)
+	for _, want := range []string{
+		"FROM tracium.metrics_daily WHERE " + clause,
+		bucketMsExpr + " AS bucket_ms",
+		"sum(input_tokens)",
+		"sum(output_tokens)",
+	} {
+		if !strings.Contains(q, want) {
+			t.Errorf("query missing %q:\n%s", want, q)
+		}
+	}
+}

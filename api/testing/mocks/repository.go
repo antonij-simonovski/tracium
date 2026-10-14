@@ -103,6 +103,7 @@ type MockMetricsRepository struct {
 	Cost            []model.CostPoint
 	Latency         []model.LatencyPoint
 	Errors          []model.ErrorPoint
+	Tokens          []model.TokenPoint
 	Workflows       []model.WorkflowCost
 	WorkflowRows    []model.Workflow
 	WorkflowDetailV model.WorkflowDetail
@@ -135,6 +136,10 @@ func (m *MockMetricsRepository) LatencySeries(_ context.Context, _ query.Metrics
 
 func (m *MockMetricsRepository) ErrorSeries(_ context.Context, _ query.MetricsFilter) ([]model.ErrorPoint, error) {
 	return m.Errors, m.Err
+}
+
+func (m *MockMetricsRepository) TokenSeries(_ context.Context, _ query.MetricsFilter) ([]model.TokenPoint, error) {
+	return m.Tokens, m.Err
 }
 
 func (m *MockMetricsRepository) TopWorkflows(_ context.Context, _ query.MetricsFilter, _ int) ([]model.WorkflowCost, error) {

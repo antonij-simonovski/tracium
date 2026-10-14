@@ -14,3 +14,17 @@ describe('clients routing', () => {
     }
   });
 });
+
+describe('version compare routing', () => {
+  it('round-trips a compare link with encoded versions', () => {
+    const selected = { workflow: 'summarize comments', base: 'v3.0.2', candidate: 'release/v3.1' };
+    const path = stateToPath('compare', selected);
+    expect(path).toBe('/workflows/summarize%20comments/compare/v3.0.2/release%2Fv3.1');
+    expect(pathToState(path)).toEqual({ view: 'compare', selected });
+  });
+
+  it('falls back to the workflow page without both versions', () => {
+    expect(stateToPath('compare', { workflow: 'checkout' })).toBe('/workflows/checkout');
+    expect(pathToState('/workflows/checkout/compare/v1')).toEqual({ view: 'workflows', selected: { workflow: 'checkout' } });
+  });
+});

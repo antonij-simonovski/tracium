@@ -1,0 +1,86 @@
+.swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.input {
+  --tok: var(--accent);
+  background: var(--tok);
+  opacity: 0.6;
+}
+
+.output {
+  --tok: #7aa5ff;
+  background: var(--tok);
+  opacity: 0.8;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  height: var(--h);
+  min-height: 2px;
+  border-radius: 2px 2px 0 0;
+  overflow: hidden;
+  opacity: 0.6;
+  transition: opacity 0.12s;
+}
+
+.bar:hover .stack {
+  opacity: 1;
+}
+
+.outFill {
+  height: var(--share);
+  background: #7aa5ff;
+}
+
+.inFill {
+  flex: 1;
+  background: var(--accent);
+}
+
+.mix {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 4px;
+}
+
+.track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--accent);
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+
+.trackOut {
+  width: var(--share);
+  height: 100%;
+  margin-left: auto;
+  background: #7aa5ff;
+}
+
+.mixRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+}
+
+.mixLabel {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--muted);
+}
+
+.mixValue {
+  font-weight: 500;
+  color: var(--foreground);
+  font-variant-numeric: tabular-nums;
+}

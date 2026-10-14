@@ -195,6 +195,11 @@ func (h *MetricsHandler) ErrorSeries(w http.ResponseWriter, r *http.Request) {
 	serveList(w, r, h.seriesFilter, "error series", h.repo.ErrorSeries)
 }
 
+// TokenSeries handles GET /v1/metrics/token-series.
+func (h *MetricsHandler) TokenSeries(w http.ResponseWriter, r *http.Request) {
+	serveList(w, r, h.seriesFilter, "token series", h.repo.TokenSeries)
+}
+
 // TopWorkflows handles GET /v1/metrics/top-workflows.
 func (h *MetricsHandler) TopWorkflows(w http.ResponseWriter, r *http.Request) {
 	serveList(w, r, h.filter, "top workflows", withLimit(h.repo.TopWorkflows, overviewLimit))

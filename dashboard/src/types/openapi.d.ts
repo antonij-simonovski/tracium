@@ -144,6 +144,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/metrics/token-series": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Tokens over time
+         * @description Input and output tokens per time bucket across the range. Counted from per-call spans, the same source as the model-costs token totals, so the buckets sum to those totals.
+         */
+        get: operations["getTokenSeries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/metrics/top-workflows": {
         parameters: {
             query?: never;
@@ -1031,6 +1051,14 @@ export interface components {
             /** @description Total runs that started within the bucket. */
             total: number;
         };
+        TokenBucket: {
+            /** @description Bucket start, Unix epoch milliseconds. */
+            bucket_ms: number;
+            /** @description Input (prompt) tokens within the bucket. */
+            input_tokens: number;
+            /** @description Output (completion) tokens within the bucket. */
+            output_tokens: number;
+        };
         LatencyBucket: {
             /** @description Bucket start, Unix epoch milliseconds. */
             bucket_ms: number;
@@ -1157,6 +1185,12 @@ export interface components {
         };
         PaginatedErrorBucketResponse: {
             items: components["schemas"]["ErrorBucket"][];
+            total: number;
+            page: number;
+            page_size: number;
+        };
+        PaginatedTokenBucketResponse: {
+            items: components["schemas"]["TokenBucket"][];
             total: number;
             page: number;
             page_size: number;
@@ -1689,6 +1723,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PaginatedErrorBucketResponse"];
+                };
+            };
+            /** @description Invalid range. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getTokenSeries: {
+        parameters: {
+            query?: {
+                /** @description Time window for the metric. Defaults to 7d. 24h is bucketed hourly; 7d/30d/90d/1y daily. Ranges longer than 30d (90d, 1y) are served from the daily rollup, so latency percentiles are not available for them. */
+                range?: components["parameters"]["Range"];
+                /** @description Optional business filter (the operator's end-client). Empty means all clients. */
+                user_id?: components["parameters"]["UserFilter"];
+                /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
+                workspace_id?: components["parameters"]["WorkspaceFilter"];
+                /** @description Optional: restrict the metric to a single workflow (the trace root name), powering the workflow detail page's charts. Only the series endpoints accept it; other metrics endpoints reject it with a 400. Workflow-scoped series are a raw-window feature; ranges longer than 30d (90d, 1y) are rejected with a 400, since per-workflow latency cannot be derived from the daily rollup. */
+                workflow?: components["parameters"]["WorkflowFilter"];
+                /** @description Optional: restrict the metric to the runs of one workflow version (see Trace.workflow_version), alone or together with workflow. Accepted and limited to ranges up to 30d exactly like workflow. */
+                version?: components["parameters"]["VersionFilter"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Token buckets ordered by bucket_ms ascending. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedTokenBucketResponse"];
                 };
             };
             /** @description Invalid range. */

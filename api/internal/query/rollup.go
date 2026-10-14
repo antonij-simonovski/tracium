@@ -184,6 +184,22 @@ FROM tracium.metrics_daily WHERE %s GROUP BY bucket_ms`, bucketMsExpr, clause)
 	return points, nil
 }
 
+func tokenSeriesRollupSQL(clause string) string {
+	return fmt.Sprintf(`SELECT %s AS bucket_ms,
+    toInt64(sum(input_tokens))  AS input_tokens,
+    toInt64(sum(output_tokens)) AS output_tokens
+FROM tracium.metrics_daily WHERE %s GROUP BY bucket_ms`, bucketMsExpr, clause)
+}
+
+func (r *ClickHouseRepository) tokenSeriesRollup(ctx context.Context, f MetricsFilter) ([]model.TokenPoint, error) {
+	clause, args := rollupWindow(f.UserID, f.WorkspaceIDs, f.Start, f.End, true)
+	points, err := bucketSeries(ctx, r.db, f, tokenSeriesRollupSQL(clause), args, scanTokenBucket, tokenPoint)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse: token series rollup: %w", err)
+	}
+	return points, nil
+}
+
 func (r *ClickHouseRepository) topWorkflowsRollup(ctx context.Context, f MetricsFilter, limit int) ([]model.WorkflowCost, error) {
 	clause, args := rollupWindow(f.UserID, f.WorkspaceIDs, f.Start, f.End, true)
 	q := fmt.Sprintf(`SELECT workflow_name AS name, sum(cost) AS cost, toInt64(uniqMerge(runs)) AS calls

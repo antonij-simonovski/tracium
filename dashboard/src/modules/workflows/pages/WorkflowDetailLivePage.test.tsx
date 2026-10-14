@@ -1,10 +1,11 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkflowDetailLivePage } from './WorkflowDetailLivePage';
 
 const api = vi.hoisted(() => ({
   getWorkflowDetail: vi.fn(),
+  getWorkflowVersions: vi.fn(),
   getCostSeries: vi.fn(),
   getLatencySeries: vi.fn(),
   getErrorSeries: vi.fn(),
@@ -14,6 +15,7 @@ vi.mock('../../../common/providers/APIProvider', () => ({
   useAPIClient: () => ({
     metricsAPI: {
       getWorkflowDetail: api.getWorkflowDetail,
+      getWorkflowVersions: api.getWorkflowVersions,
       getCostSeries: api.getCostSeries,
       getLatencySeries: api.getLatencySeries,
       getErrorSeries: api.getErrorSeries,
@@ -24,11 +26,13 @@ vi.mock('../../../common/providers/APIProvider', () => ({
 
 const empty = { items: [], total: 0, page: 1, page_size: 20 };
 
+const nav = { setView: vi.fn(), setSelected: vi.fn() };
+
 function show(range = '7d') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const page = (r: string, name = 'checkout') => (
     <QueryClientProvider client={client}>
-      <WorkflowDetailLivePage workflowName={name} range={r} setView={vi.fn()} setSelected={vi.fn()} />
+      <WorkflowDetailLivePage workflowName={name} range={r} setView={nav.setView} setSelected={nav.setSelected} />
     </QueryClientProvider>
   );
   const { rerender } = render(page(range));
@@ -41,7 +45,9 @@ beforeEach(() => {
   api.getWorkflowDetail.mockResolvedValue({
     name: 'checkout', calls: 100, cost: 1, avg_latency_ms: 900, p95_latency_ms: 1500, error_rate: 0.13,
     input_tokens: 0, output_tokens: 0, model: 'gpt-4o', provider: '', tools: [], last_trace_id: '',
+    current_version: '', current_version_source: '',
   });
+  api.getWorkflowVersions.mockResolvedValue(empty);
   api.getCostSeries.mockResolvedValue(empty);
   api.getLatencySeries.mockResolvedValue(empty);
   api.getErrorSeries.mockResolvedValue(empty);
@@ -80,5 +86,39 @@ describe('live workflow detail', () => {
     rerender('7d', 'refunds');
     expect(screen.queryByText('13 failures')).not.toBeInTheDocument();
     expect(screen.getByRole('status', { name: 'Loading' })).toBeInTheDocument();
+  });
+});
+
+const version = (v: string, first: number, cpr: number) => ({
+  version: v, source: 'explicit', first_seen_ms: first, last_seen_ms: first + 1000, calls: 40, cost: 40 * cpr,
+  cost_per_run: cpr, p95_latency_ms: 2000, error_rate: 0.025, tokens_per_run: 900,
+});
+
+describe('live workflow detail with versions', () => {
+  beforeEach(() => {
+    api.getWorkflowDetail.mockResolvedValue({
+      name: 'checkout', calls: 100, cost: 1, avg_latency_ms: 900, p95_latency_ms: 1500, error_rate: 0.13,
+      input_tokens: 0, output_tokens: 0, model: 'gpt-4o', provider: '', tools: [], last_trace_id: '',
+      current_version: 'v3', current_version_source: 'explicit',
+    });
+    api.getWorkflowVersions.mockResolvedValue({ ...empty, items: [version('v3', 2000, 0.006), version('v2', 1000, 0.004)] });
+  });
+
+  it('flags a cost-per-run rise and opens the comparison against the replaced version', async () => {
+    show();
+    expect(await screen.findByText('Cost per run up since v3')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Compare versions' }));
+    expect(nav.setView).toHaveBeenCalledWith('compare');
+    const update = nav.setSelected.mock.calls[0][0];
+    expect(update({})).toEqual({ workflow: 'checkout', base: 'v2', candidate: 'v3' });
+  });
+
+  it('scopes the tiles and series to the picked version', async () => {
+    show();
+    fireEvent.click(await screen.findByRole('button', { name: /^Version/ }));
+    fireEvent.click(screen.getByRole('option', { name: /v2/ }));
+    await waitFor(() => expect(api.getCostSeries).toHaveBeenCalledWith('7d', 'checkout', undefined, 'v2'));
+    expect(screen.getByText('last 7 days · v2 only')).toBeInTheDocument();
+    expect(screen.getByText('1 failure')).toBeInTheDocument();
   });
 });

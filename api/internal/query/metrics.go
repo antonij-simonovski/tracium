@@ -373,6 +373,45 @@ GROUP BY bucket_ms`, scopeCols, clause, scopeWhere)
 	return points, nil
 }
 
+// TokenSeries returns input and output tokens per time bucket, zero-filled over
+// the window. Tokens come from per-call spans only, the same source as the
+// model-costs totals behind the Tokens KPI, so the chart sums to that figure.
+// Spans roll up to traces (bucketed at the trace start) so the workflow and
+// version filters apply the same way they do for the error series.
+func (r *ClickHouseRepository) TokenSeries(ctx context.Context, f MetricsFilter) ([]model.TokenPoint, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+
+	if f.UseRollup() {
+		return r.tokenSeriesRollup(ctx, f)
+	}
+	clause, args := window(f.UserID, f.WorkspaceIDs, f.Start.UnixMilli(), f.End.UnixMilli())
+	scopeCols, scopeWhere, scopeArgs := traceScope(f)
+	bucketMs := f.Bucket.Milliseconds()
+	q := fmt.Sprintf(`
+SELECT
+    bucket_ms,
+    toInt64(sum(input))  AS input_tokens,
+    toInt64(sum(output)) AS output_tokens
+FROM (
+    SELECT
+        intDiv(min(start_time_ms), ?) * ? AS bucket_ms,
+        sum(input_tokens)                 AS input,
+        sum(output_tokens)                AS output%s
+    FROM `+tableCalls+`
+    WHERE %s
+    GROUP BY trace_id
+)%s
+GROUP BY bucket_ms`, scopeCols, clause, scopeWhere)
+
+	qArgs := append([]any{bucketMs, bucketMs}, args...)
+	points, err := bucketSeries(ctx, r.db, f, q, append(qArgs, scopeArgs...), scanTokenBucket, tokenPoint)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse: token series: %w", err)
+	}
+	return points, nil
+}
+
 // workflowExpr derives a trace's workflow inside a `GROUP BY trace_id` subquery:
 // the root span's workflow_name, else the earliest span's workflow_name, else
 // service_name, else the earliest span's name. Preferring the root avoids

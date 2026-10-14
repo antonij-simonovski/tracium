@@ -103,6 +103,32 @@ func TestMetricsErrorSeries(t *testing.T) {
 	}
 }
 
+func TestMetricsTokenSeries(t *testing.T) {
+	repo := &mocks.MockMetricsRepository{
+		Tokens: []model.TokenPoint{
+			{BucketMs: 1_700_000_000_000, InputTokens: 1200, OutputTokens: 340},
+			{BucketMs: 1_700_086_400_000, InputTokens: 980, OutputTokens: 410},
+		},
+	}
+	h := newMetricsHandler(repo)
+
+	rr := httptest.NewRecorder()
+	serveAuthed(h.TokenSeries, rr, httptest.NewRequest(http.MethodGet, "/v1/metrics/token-series?range=7d", nil))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	var got struct {
+		Items []model.TokenPoint `json:"items"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got.Items) != 2 || got.Items[1].InputTokens != 980 || got.Items[1].OutputTokens != 410 {
+		t.Errorf("items = %+v, want two buckets ending in 980/410", got.Items)
+	}
+}
+
 func TestMetricsWorkflowsEnvelope(t *testing.T) {
 	repo := &mocks.MockMetricsRepository{
 		WorkflowRows: []model.Workflow{

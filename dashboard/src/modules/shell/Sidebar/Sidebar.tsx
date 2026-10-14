@@ -232,7 +232,7 @@ export function Sidebar({
             item={item}
             active={
               currentView === item.id ||
-              (currentView === 'trace' && item.id === 'workflows')
+              ((currentView === 'trace' || currentView === 'compare') && item.id === 'workflows')
             }
             onClick={() => navigate(item.id)}
           />
