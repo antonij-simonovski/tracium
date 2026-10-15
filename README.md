@@ -1,10 +1,3 @@
-<h1>
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/tracium-logo-dark.svg">
-    <img alt="Tracium" src="docs/assets/tracium-logo-light.svg" height="44">
-  </picture>
-</h1>
-
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/tracium-robot-dark.png">
