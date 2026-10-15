@@ -15,6 +15,7 @@ Breaking changes require a `schema_version` bump. Additive changes do not.
 - Workflow detail, its series and the `version` filter serve 90d and 1y from the daily rollup, with latency unset, so the workflow and version compare pages work on long ranges
 - `GET /v1/metrics/token-series` returns input and output tokens per time bucket; the Usage page charts them
 - `span.json` lists `workflow_version`
+- Setup checks `workflow_without_version` (info: runs with no `tracium.workflow.version`) and `version_per_run` (warning: a workflow with at least 20 versioned runs where more than half carry a distinct version)
 - The examples set `tracium.workflow.version`, and the demo seed ships two or three releases per workflow, with one unversioned workflow
 - The smoke test checks versions end to end, and the upgrade test runs migration 014 on a 1.0.4 rollup
 

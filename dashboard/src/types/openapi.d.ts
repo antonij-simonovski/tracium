@@ -1224,7 +1224,7 @@ export interface components {
             summary: string;
         };
         SetupIssue: {
-            /** @description Stable identifier: no_llm_spans, unpriced_model, unmetered, no_model, instant_llm_spans, error_without_detail, missing_root_span, unnamed_workflow, or rejected_<drop code> for spans the collector rejected (e.g. rejected_invalid_timestamp). */
+            /** @description Stable identifier: no_llm_spans, unpriced_model, unmetered, no_model, instant_llm_spans, error_without_detail, missing_root_span, unnamed_workflow, workflow_without_version, version_per_run, or rejected_<drop code> for spans the collector rejected (e.g. rejected_invalid_timestamp). */
             code: string;
             /** @enum {string} */
             severity: "info" | "warning" | "critical";

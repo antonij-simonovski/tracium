@@ -67,7 +67,19 @@ var setupChecks = []setupCheck{
 		// then falls back to service.name and the span name.
 		cond: "parent_span_id = '' AND (workflow_name = service_name OR workflow_name = name)",
 	},
+	{
+		SetupIssue: model.SetupIssue{Code: "workflow_without_version", Severity: "info",
+			Message: "Workflow runs arrived without a version, so they cannot be compared across releases. Set the tracium.workflow.version resource attribute (see Workflow versions in the README)."},
+		agg: "if(countIf(workflow_name != '') > 0 AND countIf(workflow_version != '') = 0, count(), 0)",
+	},
 }
+
+// A workflow is flagged when it has at least versionPerRunMinRuns versioned runs
+// and more than half of them carry a distinct version.
+const versionPerRunMinRuns = 20
+
+var versionPerRunIssue = model.SetupIssue{Code: "version_per_run", Severity: "warning",
+	Message: "A workflow reports a new version on almost every run, so its versions cannot be compared. tracium.workflow.version should change per release, not per run; a timestamp, run ID or request ID makes every run its own version."}
 
 // rejectedMessages is keyed by the collector's span drop codes.
 var rejectedMessages = map[string]string{
@@ -139,6 +151,13 @@ func (r *ClickHouseRepository) SetupChecks(ctx context.Context, f MetricsFilter)
 			checks = append(checks, c)
 		}
 	}
+	perRun, err := r.versionPerRunCheck(ctx, clause, args)
+	if err != nil {
+		return nil, err
+	}
+	if perRun.Spans > 0 {
+		checks = append(checks, perRun)
+	}
 	rejected, err := r.rejectedChecks(ctx, f)
 	if err != nil {
 		return nil, err
@@ -159,6 +178,22 @@ func (r *ClickHouseRepository) SetupChecks(ctx context.Context, f MetricsFilter)
 		return checks[i].Spans > checks[j].Spans
 	})
 	return checks, nil
+}
+
+var versionPerRunSQL = fmt.Sprintf(`SELECT toInt64(sum(spans)), any(example) FROM (
+    SELECT sum(n) AS spans, any(trace_id) AS example
+    FROM (SELECT trace_id, %s AS name, %s AS version, count() AS n FROM %s WHERE %%s GROUP BY trace_id)
+    WHERE version != ''
+    GROUP BY name
+    HAVING count() >= %d AND uniqExact(version) * 2 > count()
+)`, workflowExpr, versionExpr, tableCalls, versionPerRunMinRuns)
+
+func (r *ClickHouseRepository) versionPerRunCheck(ctx context.Context, clause string, args []any) (model.SetupCheck, error) {
+	c := model.SetupCheck{SetupIssue: versionPerRunIssue}
+	if err := r.db.QueryRowContext(ctx, fmt.Sprintf(versionPerRunSQL, clause), args...).Scan(&c.Spans, &c.ExampleTraceID); err != nil {
+		return c, fmt.Errorf("clickhouse: version per run check: %w", err)
+	}
+	return c, nil
 }
 
 func (r *ClickHouseRepository) rejectedChecks(ctx context.Context, f MetricsFilter) ([]model.SetupCheck, error) {
