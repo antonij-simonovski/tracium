@@ -7,11 +7,13 @@ and configuring it. The [README](README.md) is the short version.
 
 ## Architecture
 
-```
-your app ──OTLP──▶ collector ──▶ ClickHouse ◀── api ◀──REST── dashboard
-(gRPC/HTTP)      (enrich: cost,    (spans +      (bounded          (trace viewer)
-                  user, model)      rollups)      reads)
-                                   Postgres ◀── api (users, auth, config)
+```mermaid
+flowchart LR
+    app["Your app<br/>(OTel SDK)"] -- "OTLP gRPC / HTTP" --> collector["Collector<br/>enrich: cost, user, model"]
+    collector -- "spans" --> ch[("ClickHouse<br/>spans + daily rollups")]
+    api["API<br/>bounded reads"] -- "traces, metrics" --> ch
+    api -- "users, auth, config" --> pg[("Postgres")]
+    dashboard["Dashboard"] -- "REST /v1" --> api
 ```
 
 The collector is a generic OpenTelemetry Collector distribution plus two Tracium

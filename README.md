@@ -33,8 +33,10 @@
 
 ## Features
 
-- **Overview**: spend, runs, latency and error rate at a glance, with anomalies
-  flagged and linked to the workflow version change that likely caused them.
+- **Overview**: spend, runs, latency and error rate at a glance.
+- **Anomaly and outlier detection**: spikes and drops in cost, error rate and
+  runs are flagged per workspace and per workflow, ranked by severity, and linked
+  to the workflow version change that likely caused them.
 - **Trace viewer**: every span of a run with its prompt, completion, tokens,
   cost and timing.
 - **Workflows and versions**: compare cost, latency, errors and tokens between
