@@ -13,6 +13,12 @@
 </p>
 
 <p align="center">
+  <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache%202.0-0e9f6e"></a>
+  <a href="https://github.com/antonij-simonovski/tracium/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/antonij-simonovski/tracium?color=0e9f6e"></a>
+  <a href="https://github.com/antonij-simonovski/tracium/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/antonij-simonovski/tracium?color=0e9f6e"></a>
+</p>
+
+<p align="center">
   <a href="https://docs.tracium.ai">Docs</a> ·
   <a href="#quickstart">Quickstart</a> ·
   <a href="CONTRIBUTING.md">Contributing</a> ·
@@ -21,49 +27,36 @@
 
 ![Tracium dashboard: overview, workflows, usage and clients](docs/assets/tracium-readme.gif)
 
-## Why Tracium
+## How it works
 
-- **No SDK to adopt.** Tracium *is* an OpenTelemetry backend. Any app already
-  exporting OTLP sends to it with three environment variables and no code changes.
-- **Your data stays home.** One `docker compose up` runs the whole stack on your
-  infrastructure; prompts and traces never leave it.
-- **Fast at any size.** Daily rollups keep queries tied to the time window, not
-  total rows, from the first span to hundreds of millions.
-- **Apache 2.0.** Free to run, fork and extend.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/tracium-how-it-works-dark.svg">
+  <img alt="Your app sends OTLP with an API key to the Tracium collector, which prices and tags each call and writes to ClickHouse; the dashboard reads it through the API. Everything runs on your infrastructure." src="docs/assets/tracium-how-it-works-light.svg" width="100%">
+</picture>
+
+Tracium is an OpenTelemetry backend, not an SDK: anything that exports OTLP can
+send to it. It reads the [GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/)
+and [OpenLLMetry](https://github.com/traceloop/openllmetry) attributes, so OpenAI,
+Anthropic, Bedrock, Vertex AI, LangChain, LlamaIndex and more work out of the box.
 
 ## Features
 
-- **Overview**: spend, runs, latency and error rate at a glance.
-- **Anomaly and outlier detection**: spikes and drops in cost, error rate and
-  runs are flagged per workspace and per workflow, ranked by severity, and linked
-  to the workflow version change that likely caused them.
-- **Trace viewer**: every span of a run with its prompt, completion, tokens,
-  cost and timing.
-- **Workflows and versions**: compare cost, latency, errors and tokens between
-  releases of a prompt or agent.
-- **Usage and cost allocation**: break spend down by model, or by any attribute
-  you attach (`team`, `environment`, …).
-- **Clients**: meter spend, runs and failures per end client.
-- **Setup checks**: catch instrumentation problems like unpriced models or
-  missing token usage, with how to fix each.
-- **Workspaces**: separate API keys and data per team, with member invites.
-- **Runs anywhere**: Docker Compose locally, Helm on Kubernetes.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/tracium-features-dark.svg">
+  <img alt="Tracium features: anomaly detection, workflow versions, trace viewer, cost allocation, per-client metering and setup checks." src="docs/assets/tracium-features-light.svg" width="100%">
+</picture>
 
 ## Quickstart
 
 Requires Docker with Compose v2.
 
 ```bash
-git clone https://github.com/antonij-simonovski/tracium
-cd tracium
-cp .env.example .env
-# Set JWT_SECRET, CLICKHOUSE_PASSWORD and POSTGRES_PASSWORD in .env,
-# each to its own value from: openssl rand -hex 32
+git clone https://github.com/antonij-simonovski/tracium && cd tracium
+cp .env.example .env   # set JWT_SECRET, CLICKHOUSE_PASSWORD, POSTGRES_PASSWORD (openssl rand -hex 32)
 docker compose up
 ```
 
-Open http://localhost:3000, sign up, create a workspace, and create an API key
-under **API keys**. Then point your instrumented app at Tracium:
+Open http://localhost:3000, create a workspace and an API key, then point your app at Tracium:
 
 ```bash
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
@@ -71,34 +64,15 @@ OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
 OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer YOUR_API_KEY"
 ```
 
-Just want to look around? Seed ~1,500 demo traces with
-`cd dashboard && npm run seed` and sign in as `demo@tracium.ai` / `tracium-demo-1234`.
-
-## Works with
-
-Tracium reads the [OpenTelemetry GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/)
-and [OpenLLMetry](https://github.com/traceloop/openllmetry) attributes, so these
-work out of the box:
-
-- **OpenLLMetry** (Python, JS/TS): OpenAI, Anthropic, Bedrock, Vertex AI,
-  LangChain, LlamaIndex and more.
-- **OpenTelemetry GenAI instrumentations**, such as `opentelemetry-instrumentation-openai-v2`.
-- **Your own spans** with `gen_ai.*` attributes. See [span setup](https://docs.tracium.ai/#otel-setup).
-
-Runnable senders are in [`examples/`](examples/).
+No app yet? Run `cd dashboard && npm run seed` and sign in as `demo@tracium.ai` / `tracium-demo-1234`,
+or try one of the [examples](examples/).
 
 ## Learn more
 
-- [Documentation](https://docs.tracium.ai)
-- [Architecture, configuration and development](CONTRIBUTING.md)
-- [Kubernetes deployment](deploy/README.md)
-- [Upgrading](deploy/docs/upgrading.md)
+[Documentation](https://docs.tracium.ai) ·
+[Configuration and development](CONTRIBUTING.md) ·
+[Kubernetes](deploy/README.md) ·
+[Upgrading](deploy/docs/upgrading.md) ·
+[Security](SECURITY.md)
 
-## Contributing
-
-Contributions are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md).
-Security reports: [SECURITY.md](SECURITY.md).
-
-## License
-
-Apache 2.0. See [LICENSE](LICENSE).
+Apache 2.0. Contributions welcome, see [CONTRIBUTING.md](CONTRIBUTING.md).
