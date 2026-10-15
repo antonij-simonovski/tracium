@@ -11,7 +11,7 @@ package model
 // "info" | "warning" | "critical". Observed is the bucket's value, Expected the
 // baseline median, Deviation their difference, and Score the signed robust
 // z-score behind the ranking. Summary is a ready-to-read sentence; the dashboard
-// may reformat from the raw fields instead. VersionChange is the workflow version
+// may reformat from the raw fields instead. VersionChange is a workflow version
 // first seen on the anomaly's day or the day before, or nil.
 type Anomaly struct {
 	Metric    string  `json:"metric"`

@@ -1222,7 +1222,7 @@ export interface components {
             severity: "info" | "warning" | "critical";
             /** @description One-line human-readable description of the anomaly. */
             summary: string;
-            /** @description The workflow version first seen on the anomaly's day or the day before (of its own workflow when scope is "workflow"), or null. */
+            /** @description A workflow version first seen on the anomaly's day or the day before, or null. Scope "workflow" names its own workflow's version; scope "workspace" names the version of the workflow that carried the most of the metric that day. A workflow's first versioned day is not a change. */
             version_change: components["schemas"]["VersionChange"] | null;
         };
         VersionChange: {

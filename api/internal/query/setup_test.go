@@ -21,7 +21,7 @@ func TestSpanIssuesSQLCoversOnlySpanLevelChecks(t *testing.T) {
 }
 
 func TestVersionPerRunSQLComparesVersionsWithinAWorkflow(t *testing.T) {
-	for _, want := range []string{workflowExpr + " AS name", versionExpr + " AS version", "WHERE version != ''", "GROUP BY name", "HAVING count() >= 20"} {
+	for _, want := range []string{workflowExpr + " AS name", versionExpr + " AS version", "WHERE version != ''", "GROUP BY workspace_id, name", "HAVING count() >= 20"} {
 		if !strings.Contains(versionPerRunSQL, want) {
 			t.Errorf("versionPerRunSQL lacks %q", want)
 		}

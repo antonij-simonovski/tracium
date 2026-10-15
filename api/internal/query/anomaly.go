@@ -112,8 +112,9 @@ func (r *ClickHouseRepository) Anomalies(ctx context.Context, f MetricsFilter) (
 	if err != nil {
 		return nil, err
 	}
+	var byWorkflow map[string]map[int64]dailyAgg
 	if len(workflows) > 0 {
-		byWorkflow, err := r.anomalyWorkflowSeries(ctx, f, baseStart, workflows)
+		byWorkflow, err = r.anomalyWorkflowSeries(ctx, f, baseStart, workflows)
 		if err != nil {
 			return nil, err
 		}
@@ -123,11 +124,11 @@ func (r *ClickHouseRepository) Anomalies(ctx context.Context, f MetricsFilter) (
 	}
 
 	if len(out) > 0 {
-		firsts, err := r.versionFirstSeen(ctx, f, detectFrom-versionLeadMs)
+		changes, err := r.versionChanges(ctx, f, baseStart, detectFrom-versionLeadMs)
 		if err != nil {
 			return nil, err
 		}
-		attachVersionChanges(out, firsts)
+		attachVersionChanges(out, changes, byWorkflow)
 	}
 
 	sortAnomalies(out)
@@ -191,22 +192,26 @@ func detectSeries(f MetricsFilter, scope, workflow string, axis []int64, byBucke
 func seriesPoints(axis []int64, byBucket map[int64]dailyAgg, metric string) []anomaly.Point {
 	pts := make([]anomaly.Point, len(axis))
 	for i, bm := range axis {
-		d := byBucket[bm]
-		var v, sup float64
-		switch metric {
-		case "cost":
-			v, sup = d.cost, d.cost
-		case "runs":
-			v, sup = float64(d.runs), float64(d.runs)
-		case "error_rate":
-			sup = float64(d.runs)
-			if d.runs > 0 {
-				v = float64(d.errRuns) / float64(d.runs)
-			}
-		}
+		v, sup := metricValue(byBucket[bm], metric)
 		pts[i] = anomaly.Point{BucketMs: bm, Value: sanitize(v), Support: sup}
 	}
 	return pts
+}
+
+// metricValue is one bucket's value for metric and the volume behind it.
+func metricValue(d dailyAgg, metric string) (v, sup float64) {
+	switch metric {
+	case "cost":
+		v, sup = d.cost, d.cost
+	case "runs":
+		v, sup = float64(d.runs), float64(d.runs)
+	case "error_rate":
+		sup = float64(d.runs)
+		if d.runs > 0 {
+			v = float64(d.errRuns) / float64(d.runs)
+		}
+	}
+	return v, sup
 }
 
 // anomalyDailySeries loads the workspace-wide daily aggregates over [baseStart, End].
@@ -298,20 +303,28 @@ GROUP BY workflow_name, bucket_ms`, bucketMsExpr, clause, placeholders)
 	return byWorkflow, rows.Err()
 }
 
-// versionLeadMs is how far before an anomaly's day a first-seen version still counts as near it.
+// versionLeadMs is how far before an anomaly's day a version change still counts as near it.
 const versionLeadMs = 24 * 60 * 60 * 1000
 
-// versionFirstSeen returns workflow versions first seen at or after since, earliest first.
-func (r *ClickHouseRepository) versionFirstSeen(ctx context.Context, f MetricsFilter, since int64) ([]model.VersionChange, error) {
-	clause, args := rollupWindow(f.UserID, f.WorkspaceIDs, time.Unix(0, 0).UTC(), f.End, true)
-	q := fmt.Sprintf(`SELECT workflow_name, workflow_version, min(%s) AS first_seen
-FROM tracium.metrics_daily WHERE %s AND workflow_name != '' AND workflow_version != ''
-GROUP BY workflow_name, workflow_version HAVING first_seen >= ?
+// versionChanges returns the workflow versions first seen at or after since,
+// earliest first. History is read from baseStart, the series' own lead-in, and
+// release is workspace-wide, so the client filter does not apply. A workflow's
+// first versioned day is when it started sending versions, not a change, so it
+// is skipped.
+func (r *ClickHouseRepository) versionChanges(ctx context.Context, f MetricsFilter, baseStart time.Time, since int64) ([]model.VersionChange, error) {
+	clause, args := rollupWindow("", f.WorkspaceIDs, baseStart, f.End, true)
+	q := fmt.Sprintf(`SELECT workflow_name, workflow_version, first_seen FROM (
+    SELECT workflow_name, workflow_version, first_seen, min(first_seen) OVER (PARTITION BY workflow_name) AS adopted
+    FROM (SELECT workflow_name, workflow_version, min(%s) AS first_seen
+        FROM tracium.metrics_daily WHERE %s AND workflow_name != '' AND workflow_version != ''
+        GROUP BY workflow_name, workflow_version)
+)
+WHERE first_seen > adopted AND first_seen >= ?
 ORDER BY first_seen, workflow_name, workflow_version`, bucketMsExpr, clause)
 
 	rows, err := r.db.QueryContext(ctx, q, append(args, since)...)
 	if err != nil {
-		return nil, fmt.Errorf("clickhouse: version first seen: %w", err)
+		return nil, fmt.Errorf("clickhouse: version changes: %w", err)
 	}
 	defer rows.Close()
 
@@ -319,27 +332,37 @@ ORDER BY first_seen, workflow_name, workflow_version`, bucketMsExpr, clause)
 	for rows.Next() {
 		var v model.VersionChange
 		if err := rows.Scan(&v.Workflow, &v.Version, &v.FirstSeenMs); err != nil {
-			return nil, fmt.Errorf("clickhouse: scan version first seen: %w", err)
+			return nil, fmt.Errorf("clickhouse: scan version change: %w", err)
 		}
 		out = append(out, v)
 	}
 	return out, rows.Err()
 }
 
-// attachVersionChanges gives each anomaly the latest version first seen within
-// versionLeadMs before its bucket, of its own workflow for workflow-scoped ones.
-func attachVersionChanges(anomalies []model.Anomaly, firsts []model.VersionChange) {
+// attachVersionChanges gives each anomaly a version change from within
+// versionLeadMs before its bucket: its own workflow's latest for workflow-scoped
+// anomalies, and for workspace-wide ones the change whose workflow carried the
+// most of the anomaly's metric that day.
+func attachVersionChanges(anomalies []model.Anomaly, changes []model.VersionChange, byWorkflow map[string]map[int64]dailyAgg) {
 	for i := range anomalies {
 		a := &anomalies[i]
-		for j := range firsts {
-			v := firsts[j]
+		var most float64
+		for j, v := range changes {
 			if v.FirstSeenMs > a.BucketMs {
 				break
 			}
-			if v.FirstSeenMs < a.BucketMs-versionLeadMs || (a.Scope == "workflow" && v.Workflow != a.Workflow) {
+			if v.FirstSeenMs < a.BucketMs-versionLeadMs {
 				continue
 			}
-			a.VersionChange = &firsts[j]
+			if a.Scope == "workflow" {
+				if v.Workflow == a.Workflow {
+					a.VersionChange = &changes[j]
+				}
+				continue
+			}
+			if _, sup := metricValue(byWorkflow[v.Workflow][a.BucketMs], a.Metric); sup > most {
+				a.VersionChange, most = &changes[j], sup
+			}
 		}
 		if a.VersionChange != nil {
 			a.Summary += fmt.Sprintf(" Started near %s %s (first seen %s).", a.VersionChange.Workflow, a.VersionChange.Version,

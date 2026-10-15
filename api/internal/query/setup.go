@@ -74,8 +74,8 @@ var setupChecks = []setupCheck{
 	},
 }
 
-// A workflow is flagged when it has at least versionPerRunMinRuns versioned runs
-// and more than half of them carry a distinct version.
+// A workflow is flagged, per workspace, when it has at least versionPerRunMinRuns
+// versioned runs and more than half of them carry a distinct version.
 const versionPerRunMinRuns = 20
 
 var versionPerRunIssue = model.SetupIssue{Code: "version_per_run", Severity: "warning",
@@ -182,9 +182,9 @@ func (r *ClickHouseRepository) SetupChecks(ctx context.Context, f MetricsFilter)
 
 var versionPerRunSQL = fmt.Sprintf(`SELECT toInt64(sum(spans)), any(example) FROM (
     SELECT sum(n) AS spans, any(trace_id) AS example
-    FROM (SELECT trace_id, %s AS name, %s AS version, count() AS n FROM %s WHERE %%s GROUP BY trace_id)
+    FROM (SELECT workspace_id, trace_id, %s AS name, %s AS version, count() AS n FROM %s WHERE %%s GROUP BY workspace_id, trace_id)
     WHERE version != ''
-    GROUP BY name
+    GROUP BY workspace_id, name
     HAVING count() >= %d AND uniqExact(version) * 2 > count()
 )`, workflowExpr, versionExpr, tableCalls, versionPerRunMinRuns)
 

@@ -114,16 +114,22 @@ func TestAttachVersionChanges(t *testing.T) {
 		{Workflow: "rewrite-message", Version: "v2", FirstSeenMs: 9 * day},
 		{Workflow: "planner", Version: "v2", FirstSeenMs: 10 * day},
 	}
-	in := []model.Anomaly{
-		{Scope: "workflow", Workflow: "planner", BucketMs: 10 * day, Summary: "x."},
-		{Scope: "workflow", Workflow: "rewrite-message", BucketMs: 10 * day},
-		{Scope: "workspace", BucketMs: 10 * day},
-		{Scope: "workflow", Workflow: "planner", BucketMs: 5 * day},
-		{Scope: "workflow", Workflow: "planner", BucketMs: 12 * day},
+	byWorkflow := map[string]map[int64]dailyAgg{
+		"planner":         {10 * day: {cost: 9, runs: 10}},
+		"rewrite-message": {10 * day: {cost: 1, runs: 40}},
 	}
-	attachVersionChanges(in, firsts)
+	in := []model.Anomaly{
+		{Metric: "cost", Scope: "workflow", Workflow: "planner", BucketMs: 10 * day, Summary: "x."},
+		{Metric: "cost", Scope: "workflow", Workflow: "rewrite-message", BucketMs: 10 * day},
+		{Metric: "cost", Scope: "workspace", BucketMs: 10 * day},
+		{Metric: "runs", Scope: "workspace", BucketMs: 10 * day},
+		{Metric: "runs", Scope: "workspace", BucketMs: 11 * day},
+		{Metric: "cost", Scope: "workflow", Workflow: "planner", BucketMs: 5 * day},
+		{Metric: "cost", Scope: "workflow", Workflow: "planner", BucketMs: 12 * day},
+	}
+	attachVersionChanges(in, firsts, byWorkflow)
 
-	want := []string{"planner/v2", "rewrite-message/v2", "planner/v2", "", ""}
+	want := []string{"planner/v2", "rewrite-message/v2", "planner/v2", "rewrite-message/v2", "", "", ""}
 	for i, a := range in {
 		got := ""
 		if a.VersionChange != nil {
