@@ -1,6 +1,7 @@
-import type { CostBucket, ErrorBucket } from '../../overview/interfaces';
+import type { CostBucket, ErrorBucket, TokenBucket } from '../../overview/interfaces';
 import type {
   DailySeriesPoint,
+  TokenSeriesPoint,
   ModelCost,
   ModelSummary,
   WorkflowUsage,
@@ -25,6 +26,16 @@ export function toDailySeries(cost: CostBucket[], errors: ErrorBucket[], range: 
     label: bucketLabel(c.bucket_ms, range),
     cost: c.value,
     runs: runs.get(c.bucket_ms) ?? 0,
+  }));
+}
+
+export function toTokenSeries(tokens: TokenBucket[], errors: ErrorBucket[], range: string): TokenSeriesPoint[] {
+  const runs = new Map(errors.map((e) => [e.bucket_ms, e.total]));
+  return tokens.map((t) => ({
+    label: bucketLabel(t.bucket_ms, range),
+    input: t.input_tokens,
+    output: t.output_tokens,
+    runs: runs.get(t.bucket_ms) ?? 0,
   }));
 }
 

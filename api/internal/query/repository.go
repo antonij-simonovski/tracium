@@ -22,11 +22,14 @@ type MetricsRepository interface {
 	CostSeries(ctx context.Context, f MetricsFilter) ([]model.CostPoint, error)
 	LatencySeries(ctx context.Context, f MetricsFilter) ([]model.LatencyPoint, error)
 	ErrorSeries(ctx context.Context, f MetricsFilter) ([]model.ErrorPoint, error)
+	TokenSeries(ctx context.Context, f MetricsFilter) ([]model.TokenPoint, error)
 	TopWorkflows(ctx context.Context, f MetricsFilter, limit int) ([]model.WorkflowCost, error)
 	ListWorkflows(ctx context.Context, f MetricsFilter, limit int) ([]model.Workflow, error)
 	// WorkflowDetail serves one workflow's detail page (f.Workflow names it). Returns
 	// ErrNotFound when that workflow has no runs in the window.
 	WorkflowDetail(ctx context.Context, f MetricsFilter) (model.WorkflowDetail, error)
+	// WorkflowVersions lists the versions of f.Workflow that ran in the window.
+	WorkflowVersions(ctx context.Context, f MetricsFilter, limit int) ([]model.WorkflowVersion, error)
 	Failures(ctx context.Context, f MetricsFilter, limit int) ([]model.Failure, int64, error)
 	ModelCosts(ctx context.Context, f MetricsFilter, limit int) ([]model.ModelCost, error)
 	UserUsage(ctx context.Context, f MetricsFilter, limit int) ([]model.UserUsage, error)

@@ -31,6 +31,7 @@ func (h *TraceHandler) ListTraces(w http.ResponseWriter, r *http.Request) {
 		UserID:   q.Get("user_id"),
 		Model:    q.Get("model"),
 		Workflow: q.Get("workflow"),
+		Version:  q.Get("version"),
 	}
 
 	scope, ok := resolveWorkspaceScope(w, r, h.access, q.Get("workspace_id"))

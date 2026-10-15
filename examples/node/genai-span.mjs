@@ -15,6 +15,7 @@ const sdk = new NodeSDK({
   resource: resourceFromAttributes({
     "service.name": "node-example",
     "tracium.user.id": process.env.TRACIUM_USER_ID ?? "acme-corp",
+    "tracium.workflow.version": process.env.TRACIUM_WORKFLOW_VERSION ?? "v1",
   }),
   traceExporter: new OTLPTraceExporter({
     url: `${endpoint}/v1/traces`,

@@ -27,6 +27,12 @@ export interface LatencyBucket {
   p99: number | null; // all ms
 }
 
+export interface TokenBucket {
+  bucket_ms: number;
+  input_tokens: number;
+  output_tokens: number;
+}
+
 export interface ErrorBucket {
   bucket_ms: number;
   errors: number; // runs that errored within the bucket

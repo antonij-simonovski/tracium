@@ -79,6 +79,34 @@ without code changes beyond the exporter settings above:
   [`spec/attributes/genai.yaml`](spec/attributes/genai.yaml) for the span
   attributes Tracium reads.
 
+### Workflow versions
+
+Set `tracium.workflow.version` on the resource to compare cost, latency, errors
+and tokens between versions of a workflow (`GET /v1/metrics/workflows/{name}/versions`).
+Any string works: a semver, a git sha, a prompt version. Keep it stable across
+runs: a timestamp or request id makes every run its own version.
+
+With any OTel SDK, through the environment:
+
+```bash
+OTEL_RESOURCE_ATTRIBUTES=tracium.workflow.version=v12
+```
+
+With OpenLLMetry:
+
+```python
+Traceloop.init(resource_attributes={"tracium.workflow.version": "v12"})
+```
+
+In code, with the plain OTel SDK:
+
+```js
+resourceFromAttributes({ "service.name": "support-bot", "tracium.workflow.version": "v12" })
+```
+
+Only the resource attribute is read: a span attribute of the same name, or any
+other version attribute, is ignored. Runs without it are unversioned.
+
 Full documentation is at [docs.tracium.ai](https://docs.tracium.ai).
 
 Runnable senders are in [`examples/`](examples/); each needs `TRACIUM_API_KEY`:

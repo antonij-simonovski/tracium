@@ -10,5 +10,6 @@ export function toRunRow(t: Trace): RunRow {
     time: relativeTime(t.start_time_ms),
     duration: t.duration_ms,
     cost: t.total_cost_usd,
+    version: t.workflow_version,
   };
 }

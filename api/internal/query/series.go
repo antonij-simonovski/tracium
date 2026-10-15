@@ -150,6 +150,17 @@ func errorPoint(bm int64, p model.ErrorPoint) model.ErrorPoint {
 	return p
 }
 
+func scanTokenBucket(rows *sql.Rows) (int64, model.TokenPoint, error) {
+	var p model.TokenPoint
+	err := rows.Scan(&p.BucketMs, &p.InputTokens, &p.OutputTokens)
+	return p.BucketMs, p, err
+}
+
+func tokenPoint(bm int64, p model.TokenPoint) model.TokenPoint {
+	p.BucketMs = bm
+	return p
+}
+
 func scanNamedInt(rows *sql.Rows) (string, int64, int64, error) {
 	var name string
 	var bm, v int64

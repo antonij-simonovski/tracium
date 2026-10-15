@@ -8,6 +8,7 @@ const api = vi.hoisted(() => ({
   getCostSeries: vi.fn(),
   getErrorSeries: vi.fn(),
   getModelCosts: vi.fn(),
+  getTokenSeries: vi.fn(),
   getUserUsage: vi.fn(),
   getWorkflowUsage: vi.fn(),
   getAttributeKeys: vi.fn(),
@@ -33,7 +34,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
   api.getKpis.mockResolvedValue({ cost: kpi(5), runs: kpi(3), error_rate: kpi(0), latency_p95: kpi(0) });
-  for (const fn of [api.getCostSeries, api.getErrorSeries, api.getModelCosts, api.getUserUsage, api.getWorkflowUsage]) {
+  for (const fn of [api.getCostSeries, api.getErrorSeries, api.getModelCosts, api.getTokenSeries, api.getUserUsage, api.getWorkflowUsage]) {
     fn.mockResolvedValue(empty);
   }
   api.getAttributeKeys.mockResolvedValue({ ...empty, items: ['team'] });

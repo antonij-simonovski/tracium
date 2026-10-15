@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/tracium/collector/internal/genai"
+	"github.com/tracium/collector/internal/ingest"
 	"github.com/tracium/collector/internal/writer"
 	"github.com/tracium/collector/pkg/spanmodel"
 
@@ -80,6 +81,7 @@ const (
 	attrGenAIAgentName    = "gen_ai.agent.name"
 	attrTraceloopWorkflow = "traceloop.workflow.name"
 	attrTraceloopEntity   = "traceloop.entity.name"
+	attrWorkflowVersion   = "tracium.workflow.version"
 )
 
 func fromOTLP(s ptrace.Span, serviceName string, resourceAttrs pcommon.Map) *spanmodel.Span {
@@ -129,6 +131,9 @@ func fromOTLP(s ptrace.Span, serviceName string, resourceAttrs pcommon.Map) *spa
 			strAttr(attrs, attrTraceloopEntity),
 			s.Name(),
 		),
+		// Resource only, so every span of a run carries the same version and the
+		// daily rollup, keyed per span, matches the per-run numbers.
+		WorkflowVersion: ingest.SanitizeIdentifier(strAttr(resourceAttrs, attrWorkflowVersion), ingest.MaxVersionBytes),
 		// ServiceName is the resource-level service.name, persisted verbatim (the
 		// OTel "unknown_service" default treated as absent). The query layer uses
 		// it as the stable in-flight fallback for a trace's display/workflow name.

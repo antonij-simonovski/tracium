@@ -77,6 +77,7 @@ POST /workspaces/{id}/members   DELETE /workspaces/{id}/members/{userId}   (owne
 GET  /traces  /traces/{id}  /traces/{traceId}/spans        (auth)
 GET  /metrics/kpis  /cost-series  /latency-series  /error-series
 GET  /metrics/top-workflows  /workflows  /workflows/{name}  /failures
+GET  /metrics/workflows/{name}/versions
 GET  /metrics/model-costs  /usage-users  /usage-workflows
 GET  /metrics/attribute-keys  /usage-by-attribute        (allocate cost by any attribute)
 ```

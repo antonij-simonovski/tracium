@@ -57,10 +57,11 @@ func (h *MetricsHandler) baseFilter(w http.ResponseWriter, r *http.Request) (que
 	return f, true
 }
 
-// filter is baseFilter for endpoints that cannot narrow to one workflow.
+// filter is baseFilter for endpoints that cannot narrow to one workflow or version.
 func (h *MetricsHandler) filter(w http.ResponseWriter, r *http.Request) (query.MetricsFilter, bool) {
-	if r.URL.Query().Get("workflow") != "" {
-		respondError(w, http.StatusBadRequest, "BAD_REQUEST", "workflow filtering is only supported by the series endpoints")
+	q := r.URL.Query()
+	if q.Get("workflow") != "" || q.Get("version") != "" {
+		respondError(w, http.StatusBadRequest, "BAD_REQUEST", "workflow and version filtering are only supported by the series endpoints")
 		return query.MetricsFilter{}, false
 	}
 	return h.baseFilter(w, r)
@@ -76,19 +77,29 @@ func (h *MetricsHandler) rawFilter(w http.ResponseWriter, r *http.Request) (quer
 	return f, ok
 }
 
-// seriesFilter is baseFilter plus the optional workflow param. Per-workflow
-// series can't come from the daily rollup, so workflow requires a raw range.
+// seriesFilter is baseFilter plus the optional workflow and version params.
 func (h *MetricsHandler) seriesFilter(w http.ResponseWriter, r *http.Request) (query.MetricsFilter, bool) {
 	f, ok := h.baseFilter(w, r)
 	if !ok {
 		return f, false
 	}
 	f.Workflow = r.URL.Query().Get("workflow")
-	if f.Workflow != "" && f.UseRollup() {
-		respondError(w, http.StatusBadRequest, "BAD_REQUEST", "workflow filtering is available for ranges up to 30d")
-		return query.MetricsFilter{}, false
-	}
+	f.Version = r.URL.Query().Get("version")
 	return f, true
+}
+
+// workflowFilter is filter plus the {name} path param, naming the workflow.
+func workflowFilter(filter filterFunc) filterFunc {
+	return func(w http.ResponseWriter, r *http.Request) (query.MetricsFilter, bool) {
+		name := chi.URLParam(r, "name")
+		if name == "" {
+			respondError(w, http.StatusBadRequest, "BAD_REQUEST", "workflow name is required")
+			return query.MetricsFilter{}, false
+		}
+		f, ok := filter(w, r)
+		f.Workflow = name
+		return f, ok
+	}
 }
 
 func serveList[T any](w http.ResponseWriter, r *http.Request, filter filterFunc, what string, load func(context.Context, query.MetricsFilter) ([]T, error)) {
@@ -180,6 +191,11 @@ func (h *MetricsHandler) ErrorSeries(w http.ResponseWriter, r *http.Request) {
 	serveList(w, r, h.seriesFilter, "error series", h.repo.ErrorSeries)
 }
 
+// TokenSeries handles GET /v1/metrics/token-series.
+func (h *MetricsHandler) TokenSeries(w http.ResponseWriter, r *http.Request) {
+	serveList(w, r, h.seriesFilter, "token series", h.repo.TokenSeries)
+}
+
 // TopWorkflows handles GET /v1/metrics/top-workflows.
 func (h *MetricsHandler) TopWorkflows(w http.ResponseWriter, r *http.Request) {
 	serveList(w, r, h.filter, "top workflows", withLimit(h.repo.TopWorkflows, overviewLimit))
@@ -192,16 +208,10 @@ func (h *MetricsHandler) Workflows(w http.ResponseWriter, r *http.Request) {
 
 // WorkflowDetail handles GET /v1/metrics/workflows/{name}.
 func (h *MetricsHandler) WorkflowDetail(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
-	if name == "" {
-		respondError(w, http.StatusBadRequest, "BAD_REQUEST", "workflow name is required")
-		return
-	}
-	f, ok := h.rawFilter(w, r)
+	f, ok := workflowFilter(h.filter)(w, r)
 	if !ok {
 		return
 	}
-	f.Workflow = name
 	detail, err := h.repo.WorkflowDetail(r.Context(), f)
 	if err != nil {
 		if errors.Is(err, query.ErrNotFound) {
@@ -212,6 +222,11 @@ func (h *MetricsHandler) WorkflowDetail(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	respondJSON(w, http.StatusOK, detail)
+}
+
+// WorkflowVersions handles GET /v1/metrics/workflows/{name}/versions.
+func (h *MetricsHandler) WorkflowVersions(w http.ResponseWriter, r *http.Request) {
+	serveList(w, r, workflowFilter(h.filter), "workflow versions", withLimit(h.repo.WorkflowVersions, workflowsLimit))
 }
 
 // Failures handles GET /v1/metrics/failures. Total counts every failed run in

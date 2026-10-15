@@ -15,7 +15,7 @@ export interface KpiItem {
   hint?: string;
 }
 
-const DELTA_COLOR: Record<DeltaTone, string> = {
+export const DELTA_COLOR: Record<DeltaTone, string> = {
   good: 'var(--accent)',
   bad: 'var(--error)',
   neutral: 'var(--muted)',

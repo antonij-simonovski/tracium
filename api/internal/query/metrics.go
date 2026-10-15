@@ -221,29 +221,27 @@ func (r *ClickHouseRepository) CostSeries(ctx context.Context, f MetricsFilter) 
 	}
 	bucketMs := f.Bucket.Milliseconds()
 
-	// Workflow-scoped cost must use per-call spans (the metric relation carries no
-	// workflow identity) and roll up to traces so the workflow filter can apply. The
-	// unfiltered path reconciles both relations instead.
-	if f.Workflow != "" {
+	// Workflow- or version-scoped cost must use per-call spans (the metric relation
+	// carries no workflow identity) and roll up to traces so the filter can apply.
+	// The unfiltered path reconciles both relations instead.
+	if f.Workflow != "" || f.Version != "" {
 		clause, args := window(f.UserID, f.WorkspaceIDs, f.Start.UnixMilli(), f.End.UnixMilli())
+		scopeCols, scopeWhere, scopeArgs := traceScope(f)
 		q := fmt.Sprintf(`
 SELECT intDiv(ts, ?) * ? AS bucket_ms, sum(cost) AS value
 FROM (
     SELECT
         min(start_time_ms) AS ts,
-        sum(cost_usd)      AS cost,
-        %s AS name
+        sum(cost_usd)      AS cost%s
     FROM %s
     WHERE %s
     GROUP BY trace_id
-)
-WHERE name = ?
-GROUP BY bucket_ms`, workflowExpr, tableCalls, clause)
+)%s
+GROUP BY bucket_ms`, scopeCols, tableCalls, clause, scopeWhere)
 		qArgs := append([]any{bucketMs, bucketMs}, args...)
-		qArgs = append(qArgs, f.Workflow)
-		points, err := bucketSeries(ctx, r.db, f, q, qArgs, scanCostBucket, costPoint)
+		points, err := bucketSeries(ctx, r.db, f, q, append(qArgs, scopeArgs...), scanCostBucket, costPoint)
 		if err != nil {
-			return nil, fmt.Errorf("clickhouse: cost series (workflow): %w", err)
+			return nil, fmt.Errorf("clickhouse: cost series (scoped): %w", err)
 		}
 		return points, nil
 	}
@@ -287,6 +285,7 @@ func (r *ClickHouseRepository) LatencySeries(ctx context.Context, f MetricsFilte
 		return latencySeriesEmpty(f), nil
 	}
 	clause, args := window(f.UserID, f.WorkspaceIDs, f.Start.UnixMilli(), f.End.UnixMilli())
+	scopeCols, scopeWhere, scopeArgs := traceScope(f)
 	base, bucketMs, n := bucketAxis(f)
 	q := fmt.Sprintf(`
 SELECT
@@ -302,13 +301,10 @@ FROM (
     WHERE %s
     GROUP BY trace_id
 )%s
-GROUP BY bucket_ms`, workflowNameCol(f.Workflow), clause, workflowNameFilter(f.Workflow))
+GROUP BY bucket_ms`, scopeCols, clause, scopeWhere)
 
 	qArgs := append([]any{bucketMs, bucketMs}, args...)
-	if f.Workflow != "" {
-		qArgs = append(qArgs, f.Workflow)
-	}
-	rows, err := r.db.QueryContext(ctx, q, qArgs...)
+	rows, err := r.db.QueryContext(ctx, q, append(qArgs, scopeArgs...)...)
 	if err != nil {
 		return nil, fmt.Errorf("clickhouse: latency series: %w", err)
 	}
@@ -352,6 +348,7 @@ func (r *ClickHouseRepository) ErrorSeries(ctx context.Context, f MetricsFilter)
 		return r.errorSeriesRollup(ctx, f)
 	}
 	clause, args := window(f.UserID, f.WorkspaceIDs, f.Start.UnixMilli(), f.End.UnixMilli())
+	scopeCols, scopeWhere, scopeArgs := traceScope(f)
 	bucketMs := f.Bucket.Milliseconds()
 	q := fmt.Sprintf(`
 SELECT
@@ -366,15 +363,51 @@ FROM (
     WHERE %s
     GROUP BY trace_id
 )%s
-GROUP BY bucket_ms`, workflowNameCol(f.Workflow), clause, workflowNameFilter(f.Workflow))
+GROUP BY bucket_ms`, scopeCols, clause, scopeWhere)
 
 	qArgs := append([]any{bucketMs, bucketMs}, args...)
-	if f.Workflow != "" {
-		qArgs = append(qArgs, f.Workflow)
-	}
-	points, err := bucketSeries(ctx, r.db, f, q, qArgs, scanErrorBucket, errorPoint)
+	points, err := bucketSeries(ctx, r.db, f, q, append(qArgs, scopeArgs...), scanErrorBucket, errorPoint)
 	if err != nil {
 		return nil, fmt.Errorf("clickhouse: error series: %w", err)
+	}
+	return points, nil
+}
+
+// TokenSeries returns input and output tokens per time bucket, zero-filled over
+// the window. Tokens come from per-call spans only, the same source as the
+// model-costs totals behind the Tokens KPI, so the chart sums to that figure.
+// Spans roll up to traces (bucketed at the trace start) so the workflow and
+// version filters apply the same way they do for the error series.
+func (r *ClickHouseRepository) TokenSeries(ctx context.Context, f MetricsFilter) ([]model.TokenPoint, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+
+	if f.UseRollup() {
+		return r.tokenSeriesRollup(ctx, f)
+	}
+	clause, args := window(f.UserID, f.WorkspaceIDs, f.Start.UnixMilli(), f.End.UnixMilli())
+	scopeCols, scopeWhere, scopeArgs := traceScope(f)
+	bucketMs := f.Bucket.Milliseconds()
+	q := fmt.Sprintf(`
+SELECT
+    bucket_ms,
+    toInt64(sum(input))  AS input_tokens,
+    toInt64(sum(output)) AS output_tokens
+FROM (
+    SELECT
+        intDiv(min(start_time_ms), ?) * ? AS bucket_ms,
+        sum(input_tokens)                 AS input,
+        sum(output_tokens)                AS output%s
+    FROM `+tableCalls+`
+    WHERE %s
+    GROUP BY trace_id
+)%s
+GROUP BY bucket_ms`, scopeCols, clause, scopeWhere)
+
+	qArgs := append([]any{bucketMs, bucketMs}, args...)
+	points, err := bucketSeries(ctx, r.db, f, q, append(qArgs, scopeArgs...), scanTokenBucket, tokenPoint)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse: token series: %w", err)
 	}
 	return points, nil
 }
@@ -389,21 +422,27 @@ const workflowExpr = `coalesce(` +
 	`nullIf(argMinIf(service_name, start_time_ms, service_name != ''), ''), ` +
 	`argMin(name, start_time_ms))`
 
-// workflowNameCol / workflowNameFilter add an optional single-workflow filter to a
-// series query whose inner subquery groups by trace_id. Both are empty when no
-// workflow is set; otherwise the filter binds the workflow name after the window args.
-func workflowNameCol(workflow string) string {
-	if workflow == "" {
-		return ""
-	}
-	return ",\n        " + workflowExpr + " AS name"
-}
+// versionExpr takes a trace's version from its root span, else its earliest
+// versioned span: false sorts first, so root spans win.
+const versionExpr = `argMinIf(workflow_version, (parent_span_id != '', start_time_ms), workflow_version != '')`
 
-func workflowNameFilter(workflow string) string {
-	if workflow == "" {
-		return ""
+// traceScope returns the inner columns, outer WHERE and args for the workflow and version filters.
+func traceScope(f MetricsFilter) (cols, where string, args []any) {
+	var conds []string
+	if f.Workflow != "" {
+		cols += ",\n        " + workflowExpr + " AS name"
+		conds = append(conds, "name = ?")
+		args = append(args, f.Workflow)
 	}
-	return "\nWHERE name = ?"
+	if f.Version != "" {
+		cols += ",\n        " + versionExpr + " AS version"
+		conds = append(conds, "version = ?")
+		args = append(args, f.Version)
+	}
+	if len(conds) > 0 {
+		where = "\nWHERE " + strings.Join(conds, " AND ")
+	}
+	return cols, where, args
 }
 
 // TopWorkflows returns the highest-spending workflows in the window. A workflow is the
@@ -548,10 +587,9 @@ SETTINGS use_query_cache = 1, query_cache_ttl = 60`, workflowExpr, clause)
 }
 
 // WorkflowDetail returns one workflow's headline metrics for the detail page (f.Workflow
-// names it), plus its current tool surface. Span-backed only: there is no
-// workflow-config store, so runtime params are not served. The window is bounded
-// like every other metric; callers keep it off the rollup (the handler rejects
-// rollup ranges) because per-workflow latency can't come from the daily rollup.
+// names it), plus its current tool surface. Span-backed only: there
+// is no workflow-config store, so runtime params are not served. Long windows read
+// the daily rollup, which has no latency (see workflowDetailRollup).
 // Returns ErrNotFound when the workflow has no runs in the window.
 //
 // The inner query rolls spans up to traces (cost, duration, errored, tokens,
@@ -561,6 +599,9 @@ func (r *ClickHouseRepository) WorkflowDetail(ctx context.Context, f MetricsFilt
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 
+	if f.UseRollup() {
+		return r.workflowDetailRollup(ctx, f)
+	}
 	clause, args := window(f.UserID, f.WorkspaceIDs, f.Start.UnixMilli(), f.End.UnixMilli())
 	q := fmt.Sprintf(`
 SELECT
@@ -616,17 +657,21 @@ WHERE name = ?`, workflowExpr, modelExpr, clause)
 	d.Model = modelName
 	d.Provider = providerFromModel(modelName)
 	d.LastTraceID = lastTrace
+	return r.withTools(ctx, d, f.WorkspaceIDs)
+}
 
-	// The tool surface is the union of available_tools across the workflow's most
-	// recent run — cheap (one trace, bloom-indexed by trace_id) and representative
-	// of the current deployment. Empty when content/tool capture is off.
-	if lastTrace != "" {
-		spans, err := r.GetSpans(ctx, lastTrace, f.WorkspaceIDs)
-		if err != nil {
-			return model.WorkflowDetail{}, fmt.Errorf("clickhouse: workflow detail tools: %w", err)
-		}
-		d.Tools = unionTools(spans)
+// withTools sets the tool surface: the union of available_tools across the
+// workflow's most recent run — cheap (one trace, bloom-indexed by trace_id) and
+// representative of the current deployment. Empty when content/tool capture is off.
+func (r *ClickHouseRepository) withTools(ctx context.Context, d model.WorkflowDetail, workspaces []string) (model.WorkflowDetail, error) {
+	if d.LastTraceID == "" {
+		return d, nil
 	}
+	spans, err := r.GetSpans(ctx, d.LastTraceID, workspaces)
+	if err != nil {
+		return model.WorkflowDetail{}, fmt.Errorf("clickhouse: workflow detail tools: %w", err)
+	}
+	d.Tools = unionTools(spans)
 	return d, nil
 }
 

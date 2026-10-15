@@ -83,6 +83,8 @@ CREATE TABLE IF NOT EXISTS tracium.spans (
     --   ALTER TABLE tracium.spans ADD COLUMN IF NOT EXISTS
     --     service_name LowCardinality(String) DEFAULT '';
     service_name      LowCardinality(String) DEFAULT '',
+    -- Added to existing tables by migration 014.
+    workflow_version  LowCardinality(String) DEFAULT '',
     kind              LowCardinality(String) DEFAULT '',
     -- Metering provenance. output_tokens_derived: part of output_tokens was
     -- reconciled from total_tokens rather than reported by the provider (Gemini

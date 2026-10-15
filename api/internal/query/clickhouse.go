@@ -69,6 +69,7 @@ SELECT
              nullIf(argMinIf(name, start_time_ms, parent_span_id = ''), ''),
              nullIf(argMinIf(service_name, start_time_ms, service_name != ''), ''),
              argMin(name, start_time_ms)) AS trace_name,
+    ` + versionExpr + `                   AS trace_version,
     any(user_id)                        AS trace_user,
     any(workspace_id)                     AS trace_workspace,
     min(start_time_ms)                    AS started_ms,
@@ -84,7 +85,7 @@ func scanTrace(s interface{ Scan(...any) error }) (model.Trace, error) {
 	var t model.Trace
 	var hasError uint8
 	var spanCount int64
-	err := s.Scan(&t.TraceID, &t.Name, &t.UserID, &t.WorkspaceID, &t.StartTimeMs, &t.EndTimeMs,
+	err := s.Scan(&t.TraceID, &t.Name, &t.WorkflowVersion, &t.UserID, &t.WorkspaceID, &t.StartTimeMs, &t.EndTimeMs,
 		&t.DurationMs, &spanCount, &hasError, &t.TotalCostUSD)
 	t.HasError = hasError != 0
 	t.SpanCount = int(spanCount)
@@ -135,6 +136,10 @@ func traceFilterSQL(filter TraceFilter) (string, []any) {
 	if filter.Workflow != "" {
 		having = append(having, workflowExpr+" = ?")
 		args = append(args, filter.Workflow)
+	}
+	if filter.Version != "" {
+		having = append(having, versionExpr+" = ?")
+		args = append(args, filter.Version)
 	}
 	if filter.HasError != nil {
 		hasError := uint8(0)

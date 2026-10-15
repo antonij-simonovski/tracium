@@ -90,6 +90,10 @@
       "type": "string",
       "description": "Resource-level service.name, stored verbatim. The OTel 'unknown_service' default is stored as empty."
     },
+    "workflow_version": {
+      "type": "string",
+      "description": "Version the span ran under: the resource's tracium.workflow.version. Capped at 128 bytes; empty when none is set."
+    },
     "source": {
       "type": "string",
       "enum": ["span", "metric"],

@@ -14,6 +14,14 @@ export function useModelCosts(range: string) {
   });
 }
 
+export function useTokenSeries(range: string) {
+  const { metricsAPI, workspaceId } = useAPIClient();
+  return useQuery({
+    queryKey: ['usage', 'token-series', workspaceId, range],
+    queryFn: () => metricsAPI.getTokenSeries(range),
+  });
+}
+
 export function useUserUsage(range: string) {
   const { metricsAPI, workspaceId } = useAPIClient();
   return useQuery({

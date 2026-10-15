@@ -103,6 +103,32 @@ func TestMetricsErrorSeries(t *testing.T) {
 	}
 }
 
+func TestMetricsTokenSeries(t *testing.T) {
+	repo := &mocks.MockMetricsRepository{
+		Tokens: []model.TokenPoint{
+			{BucketMs: 1_700_000_000_000, InputTokens: 1200, OutputTokens: 340},
+			{BucketMs: 1_700_086_400_000, InputTokens: 980, OutputTokens: 410},
+		},
+	}
+	h := newMetricsHandler(repo)
+
+	rr := httptest.NewRecorder()
+	serveAuthed(h.TokenSeries, rr, httptest.NewRequest(http.MethodGet, "/v1/metrics/token-series?range=7d", nil))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	var got struct {
+		Items []model.TokenPoint `json:"items"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got.Items) != 2 || got.Items[1].InputTokens != 980 || got.Items[1].OutputTokens != 410 {
+		t.Errorf("items = %+v, want two buckets ending in 980/410", got.Items)
+	}
+}
+
 func TestMetricsWorkflowsEnvelope(t *testing.T) {
 	repo := &mocks.MockMetricsRepository{
 		WorkflowRows: []model.Workflow{
@@ -214,28 +240,20 @@ func TestMetricsWorkflowDetailNotFound(t *testing.T) {
 	}
 }
 
-// Per-workflow latency can't come from the daily rollup, so workflow-scoped requests
-// over rollup ranges (>30d) are rejected rather than silently degraded.
-func TestMetricsWorkflowDetailRejectsRollupRange(t *testing.T) {
-	h := newMetricsHandler(&mocks.MockMetricsRepository{})
+// Long ranges serve the workflow detail and its series, per version too, from the daily rollup.
+func TestMetricsWorkflowServesRollupRange(t *testing.T) {
+	h := newMetricsHandler(&mocks.MockMetricsRepository{WorkflowDetailV: model.WorkflowDetail{Name: "rewrite-message", Calls: 3}})
 
 	rr := httptest.NewRecorder()
 	serveAuthed(h.WorkflowDetail, rr, workflowDetailRequest("rewrite-message", "range=1y"))
-
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", rr.Code)
+	if rr.Code != http.StatusOK {
+		t.Errorf("detail: status = %d, want 200", rr.Code)
 	}
-}
 
-// The workflow query param on the series endpoints is likewise a raw-window feature.
-func TestMetricsSeriesWorkflowRejectsRollupRange(t *testing.T) {
-	h := newMetricsHandler(&mocks.MockMetricsRepository{})
-
-	rr := httptest.NewRecorder()
-	serveAuthed(h.CostSeries, rr, httptest.NewRequest(http.MethodGet, "/v1/metrics/cost-series?range=90d&workflow=rewrite-message", nil))
-
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", rr.Code)
+	rr = httptest.NewRecorder()
+	serveAuthed(h.CostSeries, rr, httptest.NewRequest(http.MethodGet, "/v1/metrics/cost-series?range=90d&workflow=rewrite-message&version=v2", nil))
+	if rr.Code != http.StatusOK {
+		t.Errorf("series: status = %d, want 200", rr.Code)
 	}
 }
 
@@ -357,20 +375,50 @@ func TestMetricsRejectsWorkflowOnUnscopedEndpoints(t *testing.T) {
 		"/v1/metrics/usage-users":    h.UserUsage,
 		"/v1/metrics/attribute-keys": h.AttributeKeys,
 	} {
-		rr := httptest.NewRecorder()
-		serveAuthed(hf, rr, httptest.NewRequest(http.MethodGet, path+"?range=7d&workflow=planner", nil))
-		if rr.Code != http.StatusBadRequest {
-			t.Errorf("%s: status = %d, want 400", path, rr.Code)
+		for _, param := range []string{"workflow=planner", "version=v2"} {
+			rr := httptest.NewRecorder()
+			serveAuthed(hf, rr, httptest.NewRequest(http.MethodGet, path+"?range=7d&"+param, nil))
+			if rr.Code != http.StatusBadRequest {
+				t.Errorf("%s?%s: status = %d, want 400", path, param, rr.Code)
+			}
 		}
 	}
 }
 
-func TestMetricsSeriesAcceptsWorkflow(t *testing.T) {
+func TestMetricsSeriesAcceptsWorkflowAndVersion(t *testing.T) {
 	h := newMetricsHandler(&mocks.MockMetricsRepository{})
+	for _, q := range []string{"workflow=planner", "version=v2", "workflow=planner&version=v2"} {
+		rr := httptest.NewRecorder()
+		serveAuthed(h.ErrorSeries, rr, httptest.NewRequest(http.MethodGet, "/v1/metrics/error-series?range=7d&"+q, nil))
+		if rr.Code != http.StatusOK {
+			t.Errorf("%s: status = %d, want 200", q, rr.Code)
+		}
+	}
+}
+
+func TestMetricsWorkflowVersions(t *testing.T) {
+	repo := &mocks.MockMetricsRepository{
+		Versions: []model.WorkflowVersion{
+			{Version: "v12", Calls: 40, Cost: 2, CostPerRun: 0.05},
+			{Version: "", Calls: 3},
+		},
+	}
+	h := newMetricsHandler(repo)
+
 	rr := httptest.NewRecorder()
-	serveAuthed(h.ErrorSeries, rr, httptest.NewRequest(http.MethodGet, "/v1/metrics/error-series?range=7d&workflow=planner", nil))
+	serveAuthed(h.WorkflowVersions, rr, workflowDetailRequest("planner", "range=1y"))
+
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	var got struct {
+		Items []model.WorkflowVersion `json:"items"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got.Items) != 2 || got.Items[0].Version != "v12" {
+		t.Errorf("items = %+v, want v12 (explicit) first of 2", got.Items)
 	}
 }
 

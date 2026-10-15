@@ -43,6 +43,11 @@ paths:
           description: Filter to traces belonging to a single workflow (the trace root name), which powers a workflow's recent runs.
           schema:
             type: string
+        - name: version
+          in: query
+          description: Filter to traces that ran under this workflow version (see Trace.workflow_version).
+          schema:
+            type: string
         - name: has_error
           in: query
           description: Filter to traces that have at least one error span.
@@ -217,6 +222,7 @@ paths:
         - $ref: "#/components/parameters/UserFilter"
         - $ref: "#/components/parameters/WorkspaceFilter"
         - $ref: "#/components/parameters/WorkflowFilter"
+        - $ref: "#/components/parameters/VersionFilter"
       responses:
         "200":
           description: Cost buckets ordered by bucket_ms ascending.
@@ -243,6 +249,7 @@ paths:
         - $ref: "#/components/parameters/UserFilter"
         - $ref: "#/components/parameters/WorkspaceFilter"
         - $ref: "#/components/parameters/WorkflowFilter"
+        - $ref: "#/components/parameters/VersionFilter"
       responses:
         "200":
           description: Latency buckets ordered by bucket_ms ascending.
@@ -269,6 +276,7 @@ paths:
         - $ref: "#/components/parameters/UserFilter"
         - $ref: "#/components/parameters/WorkspaceFilter"
         - $ref: "#/components/parameters/WorkflowFilter"
+        - $ref: "#/components/parameters/VersionFilter"
       responses:
         "200":
           description: Error buckets ordered by bucket_ms ascending.
@@ -276,6 +284,36 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PaginatedErrorBucketResponse"
+        "400":
+          description: Invalid range.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/metrics/token-series:
+    get:
+      operationId: getTokenSeries
+      summary: Tokens over time
+      description: >
+        Input and output tokens per time bucket across the range. Counted from
+        per-call spans, the same source as the model-costs token totals, so the
+        buckets sum to those totals.
+      tags:
+        - Metrics
+      parameters:
+        - $ref: "#/components/parameters/Range"
+        - $ref: "#/components/parameters/UserFilter"
+        - $ref: "#/components/parameters/WorkspaceFilter"
+        - $ref: "#/components/parameters/WorkflowFilter"
+        - $ref: "#/components/parameters/VersionFilter"
+      responses:
+        "200":
+          description: Token buckets ordered by bucket_ms ascending.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedTokenBucketResponse"
         "400":
           description: Invalid range.
           content:
@@ -344,20 +382,16 @@ paths:
       summary: Workflow detail
       description: >
         One workflow's detail-page payload: its headline metrics over the range
-        plus the tool surface from its most recent run. Span-backed only; there
-        is no workflow-config store, so runtime params (temperature, retries,
-        version, owner, …) are not served. A raw-window feature: ranges longer
-        than 30d (90d, 1y) are rejected with a 400, since per-workflow latency
-        cannot be derived from the daily rollup.
+        plus the tool surface of its most recent run. Span-backed
+        only; there is no workflow-config store, so runtime params (temperature,
+        retries, owner, …) are not served. Ranges longer than 30d (90d, 1y) are
+        served from the daily rollup: runs and error runs are approximate, cost
+        is span-only, latency is unset (avg_latency_ms 0, p95_latency_ms null),
+        and the tool surface comes from a run in the last 30 days.
       tags:
         - Metrics
       parameters:
-        - name: name
-          in: path
-          required: true
-          description: The workflow name (the trace root span name).
-          schema:
-            type: string
+        - $ref: "#/components/parameters/WorkflowName"
         - $ref: "#/components/parameters/Range"
         - $ref: "#/components/parameters/UserFilter"
         - $ref: "#/components/parameters/WorkspaceFilter"
@@ -369,13 +403,43 @@ paths:
               schema:
                 $ref: "#/components/schemas/WorkflowDetail"
         "400":
-          description: Invalid range, or a range longer than 30d.
+          description: Invalid range.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "404":
           description: No workflow with that name has runs in the window.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/metrics/workflows/{name}/versions:
+    get:
+      operationId: listWorkflowVersions
+      summary: Workflow versions
+      description: >
+        The versions of one workflow that ran in the range, with each version's
+        runs, cost, latency, error rate and token use, most recently seen first.
+        Runs without a version are listed as version "". Ranges longer than 30d
+        read the daily rollup, which has no latency (p95_latency_ms is null).
+      tags:
+        - Metrics
+      parameters:
+        - $ref: "#/components/parameters/WorkflowName"
+        - $ref: "#/components/parameters/Range"
+        - $ref: "#/components/parameters/UserFilter"
+        - $ref: "#/components/parameters/WorkspaceFilter"
+      responses:
+        "200":
+          description: Versions ordered by last_seen_ms descending.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedWorkflowVersionResponse"
+        "400":
+          description: Invalid range.
           content:
             application/json:
               schema:
@@ -1346,6 +1410,13 @@ components:
       description: JWT or opaque bearer token issued by the Tracium auth service.
 
   parameters:
+    WorkflowName:
+      name: name
+      in: path
+      required: true
+      description: The workflow name (the trace root span name).
+      schema:
+        type: string
     Range:
       name: range
       in: query
@@ -1380,10 +1451,17 @@ components:
       description: >-
         Optional: restrict the metric to a single workflow (the trace root name),
         powering the workflow detail page's charts. Only the series endpoints
-        accept it; other metrics endpoints reject it with a 400. Workflow-scoped
-        series are a raw-window feature; ranges longer than 30d (90d, 1y) are
-        rejected with a 400, since per-workflow latency cannot be derived from the
-        daily rollup.
+        accept it; other metrics endpoints reject it with a 400. Over ranges
+        longer than 30d (90d, 1y) the series read the daily rollup: cost is
+        span-only and the latency series is empty, as it is unscoped.
+      schema:
+        type: string
+    VersionFilter:
+      name: version
+      in: query
+      description: >-
+        Optional: restrict the metric to the runs of one workflow version (see
+        Trace.workflow_version), alone or together with workflow.
       schema:
         type: string
 
@@ -1729,6 +1807,11 @@ components:
         name:
           type: string
           description: Human-readable name for the trace.
+        workflow_version:
+          type: string
+          description: >-
+            The workflow version the trace ran under: the root span's version,
+            else the earliest versioned span's. Empty when no span has one.
         start_time_ms:
           type: integer
           description: Unix epoch milliseconds when the trace started.
@@ -1907,6 +1990,25 @@ components:
           minimum: 0
           description: Total runs that started within the bucket.
 
+    TokenBucket:
+      type: object
+      required:
+        - bucket_ms
+        - input_tokens
+        - output_tokens
+      properties:
+        bucket_ms:
+          type: integer
+          description: Bucket start, Unix epoch milliseconds.
+        input_tokens:
+          type: integer
+          minimum: 0
+          description: Input (prompt) tokens within the bucket.
+        output_tokens:
+          type: integer
+          minimum: 0
+          description: Output (completion) tokens within the bucket.
+
     LatencyBucket:
       type: object
       required:
@@ -2060,14 +2162,14 @@ components:
         avg_latency_ms:
           type: number
           minimum: 0
-          description: Mean end-to-end run duration in milliseconds.
+          description: Mean end-to-end run duration in milliseconds; 0 over ranges longer than 30d.
         p95_latency_ms:
           type: number
           nullable: true
           minimum: 0
           description: >-
             p95 end-to-end run duration in milliseconds, or null when undefined
-            (no runs in the window).
+            (no runs in the window, or a range longer than 30d).
         error_rate:
           type: number
           minimum: 0
@@ -2097,6 +2199,55 @@ components:
         last_trace_id:
           type: string
           description: The workflow's most recent trace in the window, for deep-linking.
+
+    WorkflowVersion:
+      type: object
+      required:
+        - version
+        - first_seen_ms
+        - last_seen_ms
+        - calls
+        - cost
+        - cost_per_run
+        - p95_latency_ms
+        - error_rate
+        - tokens_per_run
+      properties:
+        version:
+          type: string
+          description: The workflow version; empty for the runs that carry none.
+        first_seen_ms:
+          type: integer
+          description: Start of the version's first run in the window (the day's start over ranges longer than 30d).
+        last_seen_ms:
+          type: integer
+          description: Start of the version's latest run in the window (the day's start over ranges longer than 30d).
+        calls:
+          type: integer
+          minimum: 0
+          description: Number of runs (traces) of this version over the window.
+        cost:
+          type: number
+          minimum: 0
+          description: Total cost in USD of this version's runs.
+        cost_per_run:
+          type: number
+          minimum: 0
+          description: Mean cost in USD per run.
+        p95_latency_ms:
+          type: number
+          nullable: true
+          minimum: 0
+          description: p95 end-to-end run duration in milliseconds; null over ranges longer than 30d.
+        error_rate:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Fraction of this version's runs that errored (0–1).
+        tokens_per_run:
+          type: number
+          minimum: 0
+          description: Mean input plus output tokens per run.
 
     Failure:
       type: object
@@ -2150,6 +2301,21 @@ components:
         page_size:
           type: integer
 
+    PaginatedTokenBucketResponse:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/TokenBucket"
+        total:
+          type: integer
+        page:
+          type: integer
+        page_size:
+          type: integer
+
     PaginatedLatencyBucketResponse:
       type: object
       required: [items, total, page, page_size]
@@ -2188,6 +2354,21 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Workflow"
+        total:
+          type: integer
+        page:
+          type: integer
+        page_size:
+          type: integer
+
+    PaginatedWorkflowVersionResponse:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowVersion"
         total:
           type: integer
         page:

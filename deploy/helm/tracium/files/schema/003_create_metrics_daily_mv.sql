@@ -2,7 +2,8 @@
 --
 -- Fires on every insert into tracium.spans, aggregates that block, and writes
 -- the partial states into metrics_daily (TO target). AggregatingMergeTree merges
--- the partials per (bucket_date, user_id, workspace_id, workflow_name, model)
+-- the partials per (bucket_date, user_id, workspace_id, workflow_name,
+-- workflow_version, model)
 -- over time.
 --
 -- source='span' only: aggregate token-usage metric rows (source='metric') carry
@@ -15,12 +16,13 @@
 -- a table that already holds spans, backfill once after creating it:
 --   INSERT INTO tracium.metrics_daily
 --   SELECT toDate(start_time_ms/1000), user_id, workspace_id, workflow_name,
+--          workflow_version,
 --          if(model_normalized!='', model_normalized, model),
 --          sum(cost_usd), sum(input_tokens), sum(output_tokens), count(),
 --          uniqState(trace_id),
 --          uniqIfState(trace_id, error_type!='' OR error_message!='')
 --   FROM tracium.spans WHERE source='span'
---   GROUP BY 1,2,3,4,5;
+--   GROUP BY 1,2,3,4,5,6,7;
 --
 -- Single CREATE statement (the migration runner sends one statement per file).
 CREATE MATERIALIZED VIEW IF NOT EXISTS tracium.metrics_daily_mv
@@ -30,6 +32,7 @@ SELECT
     user_id,
     workspace_id,
     workflow_name,
+    workflow_version,
     if(model_normalized != '', model_normalized, model) AS model,
     sum(cost_usd)                                      AS cost,
     sum(input_tokens)                                  AS input_tokens,
@@ -39,4 +42,4 @@ SELECT
     uniqIfState(trace_id, error_type != '' OR error_message != '') AS error_runs
 FROM tracium.spans
 WHERE source = 'span'
-GROUP BY bucket_date, user_id, workspace_id, workflow_name, model;
+GROUP BY bucket_date, user_id, workspace_id, workflow_name, workflow_version, model;

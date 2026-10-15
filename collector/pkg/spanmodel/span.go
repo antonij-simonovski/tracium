@@ -41,6 +41,9 @@ type Span struct {
 	// ServiceName is the resource service.name; "unknown_service*" is stored as empty.
 	ServiceName string
 
+	// WorkflowVersion is the tracium.workflow.version the span ran under.
+	WorkflowVersion string
+
 	// Source is "span" for a per-call span or "metric" for a row synthesised from
 	// an OTLP token-usage metric. Empty is persisted as "span".
 	Source string
