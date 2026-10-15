@@ -50,6 +50,8 @@ export const IconMore         = (p: IconOnlyProps) => <Icon d="M5 12h.01M12 12h.
 export const IconUser         = (p: IconOnlyProps) => <Icon d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2M12 11a4 4 0 100-8 4 4 0 000 8z" {...p} />;
 export const IconLogout       = (p: IconOnlyProps) => <Icon d="M15 3h4a1 1 0 011 1v16a1 1 0 01-1 1h-4M10 17l5-5-5-5M15 12H3" {...p} />;
 export const IconMenu         = (p: IconOnlyProps) => <Icon d="M4 6h16M4 12h16M4 18h16" {...p} />;
+export const IconSun          = (p: IconOnlyProps) => <Icon d="M12 16a4 4 0 100-8 4 4 0 000 8zM12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" {...p} />;
+export const IconMoon         = (p: IconOnlyProps) => <Icon d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z" {...p} />;
 
 export function IconDot({ size = 6, color = 'currentColor' }: { size?: number; color?: string }) {
   return (

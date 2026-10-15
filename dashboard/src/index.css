@@ -1,6 +1,8 @@
 /* Design tokens — sourced from tracium-frontend themeTokens.ts / globals.css */
 
 :root {
+  color-scheme: dark;
+
   /* Surfaces */
   --background:    #0b0d0c;
   --surface:       #111413;
@@ -51,6 +53,52 @@
   /* Scrollbar */
   --scrollbar-thumb:       rgba(255, 255, 255, 0.08);
   --scrollbar-thumb-hover: rgba(255, 255, 255, 0.14);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --background:    #f6f8f7;
+  --surface:       #ffffff;
+  --surface-alt:   #f0f3f2;
+  --surface-active: #e7ecea;
+  --sidebar-bg:    #fbfcfb;
+
+  --foreground:        #0f1714;
+  --muted-foreground:  #5b6863;
+  --muted:             #5b6863;
+
+  --border:        rgba(0, 0, 0, 0.08);
+  --border-strong: rgba(0, 0, 0, 0.14);
+
+  --chart-grid:       rgba(0, 0, 0, 0.07);
+  --chart-tooltip-bg: #ffffff;
+
+  --accent:              #0e9f6e;
+  --accent-hover:        #0b8a5f;
+  --accent-soft:         rgba(14, 159, 110, 0.10);
+  --accent-contrast:     #ffffff;
+  --accent-glow:         rgba(14, 159, 110, 0.06);
+  --accent-border:       rgba(14, 159, 110, 0.40);
+  --accent-border-hover: rgba(14, 159, 110, 0.60);
+  --accent-strong:       #0e9f6e;
+
+  --success:    #0e9f6e;
+  --warning:    #c27803;
+  --error:      #d93636;
+  --info:       #3b6fd9;
+
+  --shadow:        rgba(0, 0, 0, 0.08);
+  --shadow-accent: rgba(14, 159, 110, 0.18);
+  --shadow-accent-btn:       rgba(14, 159, 110, 0.16);
+  --shadow-accent-btn-hover: rgba(14, 159, 110, 0.22);
+  --focus-ring: rgba(14, 159, 110, 0.30);
+
+  --auth-bg:          #eef2f0;
+  --auth-decorative:  #9cc9b6;
+
+  --scrollbar-thumb:       rgba(0, 0, 0, 0.12);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.22);
 }
 
 /* ── Resets & base ─────────────────────────────────────────────────────────── */

@@ -52,7 +52,7 @@
 }
 
 .card {
-  background: linear-gradient(180deg, var(--surface), #101413);
+  background: linear-gradient(180deg, var(--surface), var(--background));
   border: 1px solid var(--border-strong);
   border-radius: 16px;
   box-shadow:
@@ -65,7 +65,7 @@
   display: flex;
   padding: 6px;
   gap: 4px;
-  background: rgba(255, 255, 255, 0.02);
+  background: color-mix(in srgb, var(--foreground) 2%, transparent);
   border-bottom: 1px solid var(--border);
 }
 

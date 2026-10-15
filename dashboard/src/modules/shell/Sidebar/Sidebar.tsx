@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   IconHome,
   IconWorkflows,
@@ -8,6 +8,8 @@ import {
   IconSettings,
   IconLogout,
   IconX,
+  IconSun,
+  IconMoon,
   handleDialogKeyDown,
 } from '../../../common';
 import hover from '../../../common/styles/hover.module.css';
@@ -110,6 +112,13 @@ export function Sidebar({
   onClose,
 }: SidebarProps): React.ReactElement {
   const closeRef = useRef<HTMLButtonElement>(null);
+  const [theme, setTheme] = useState(document.documentElement.dataset.theme);
+  const toggleTheme = () => {
+    const next = theme === 'light' ? 'dark' : 'light';
+    document.documentElement.dataset.theme = next;
+    localStorage.setItem('tracium_theme', next);
+    setTheme(next);
+  };
   const drawerOpen = mobile && open;
   useEffect(() => {
     if (drawerOpen) closeRef.current?.focus();
@@ -240,6 +249,13 @@ export function Sidebar({
       </nav>
 
       <div style={{ padding: '12px', borderTop: '1px solid var(--border)' }}>
+        <NavItem
+          item={theme === 'light'
+            ? { id: 'theme', icon: <IconMoon size={16} />, label: 'Dark mode' }
+            : { id: 'theme', icon: <IconSun size={16} />, label: 'Light mode' }}
+          active={false}
+          onClick={toggleTheme}
+        />
         <NavItem
           item={{ id: 'settings', icon: <IconSettings size={16} />, label: 'Settings' }}
           active={currentView === 'settings'}
