@@ -56,7 +56,7 @@
   border: 1px solid var(--border-strong);
   border-radius: 16px;
   box-shadow:
-    0 24px 60px -20px rgba(0, 0, 0, 0.8),
+    0 24px 60px -20px var(--shadow-popover),
     0 0 0 1px var(--accent-glow) inset;
   overflow: hidden;
 }

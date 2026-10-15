@@ -125,10 +125,10 @@ export function Sidebar({
     localStorage.setItem('tracium_theme', next);
     setTheme(next);
   };
-  const [collapsedPref, setCollapsedPref] = useState(localStorage.getItem('tracium_sidebar') === 'collapsed');
+  const [collapsedPref, setCollapsedPref] = useState(!embedded && localStorage.getItem('tracium_sidebar') === 'collapsed');
   const collapsed = collapsedPref && !mobile;
   const toggleCollapsed = () => {
-    localStorage.setItem('tracium_sidebar', collapsedPref ? 'expanded' : 'collapsed');
+    if (!embedded) localStorage.setItem('tracium_sidebar', collapsedPref ? 'expanded' : 'collapsed');
     setCollapsedPref(!collapsedPref);
   };
   const drawerOpen = mobile && open;
@@ -152,7 +152,7 @@ export function Sidebar({
         transform: open ? 'translateX(0)' : 'translateX(-100%)',
         visibility: open ? 'visible' : 'hidden',
         transition: 'transform .22s ease, visibility .22s',
-        boxShadow: open ? '0 0 40px rgba(0,0,0,0.5)' : 'none',
+        boxShadow: open ? '0 0 40px var(--shadow-popover)' : 'none',
       }
     : embedded
       ? { height: '100%', minHeight: 0 }
@@ -295,21 +295,22 @@ export function Sidebar({
           rel="noopener noreferrer"
           aria-label="Star on GitHub"
           title={collapsed ? 'Star on GitHub' : undefined}
-          className={collapsed ? hover.text : undefined}
-          style={{ display: 'flex', justifyContent: collapsed ? 'center' : undefined, padding: '4px 10px 10px' }}
+          className={hover.text}
+          style={{ display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : undefined, gap: 10, padding: '7px 10px', fontSize: 14, textDecoration: 'none' }}
         >
-          {collapsed
-            ? <IconStar size={16} />
-            : <img src="https://img.shields.io/github/stars/antonij-tracium/tracium?label=Star&style=social" alt="" height={20} />}
+          <IconStar size={16} />
+          {!collapsed && 'Star on GitHub'}
         </a>
-        <NavItem
-          item={theme === 'light'
-            ? { id: 'theme', icon: <IconMoon size={16} />, label: 'Dark mode' }
-            : { id: 'theme', icon: <IconSun size={16} />, label: 'Light mode' }}
-          active={false}
-          onClick={toggleTheme}
-          collapsed={collapsed}
-        />
+        {!embedded && (
+          <NavItem
+            item={theme === 'light'
+              ? { id: 'theme', icon: <IconMoon size={16} />, label: 'Dark mode' }
+              : { id: 'theme', icon: <IconSun size={16} />, label: 'Light mode' }}
+            active={false}
+            onClick={toggleTheme}
+            collapsed={collapsed}
+          />
+        )}
         <NavItem
           item={{ id: 'settings', icon: <IconSettings size={16} />, label: 'Settings' }}
           active={currentView === 'settings'}

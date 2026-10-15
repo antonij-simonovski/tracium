@@ -343,7 +343,7 @@ function AttributeTab({
             position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 60,
             minWidth: 240, maxWidth: 360,
             background: 'var(--surface)', border: '1px solid var(--border-strong)',
-            borderRadius: 10, boxShadow: '0 12px 40px rgba(0,0,0,0.5)', overflow: 'hidden',
+            borderRadius: 10, boxShadow: '0 12px 40px var(--shadow-popover)', overflow: 'hidden',
             animation: 'fadeIn .12s ease',
           }}
         >

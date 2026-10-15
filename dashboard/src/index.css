@@ -41,6 +41,7 @@
 
   /* Shadows */
   --shadow:        rgba(0, 0, 0, 0.15);
+  --shadow-popover: rgba(0, 0, 0, 0.5);
   --shadow-accent: rgba(89, 247, 192, 0.20);
   --shadow-accent-btn:       rgba(89, 247, 192, 0.18);
   --shadow-accent-btn-hover: rgba(89, 247, 192, 0.22);
@@ -89,6 +90,7 @@
   --info:       #3b6fd9;
 
   --shadow:        rgba(0, 0, 0, 0.08);
+  --shadow-popover: rgba(0, 0, 0, 0.12);
   --shadow-accent: rgba(14, 159, 110, 0.18);
   --shadow-accent-btn:       rgba(14, 159, 110, 0.16);
   --shadow-accent-btn-hover: rgba(14, 159, 110, 0.22);
