@@ -24,7 +24,7 @@ OTLP can send to Tracium with no code changes.
 Requires Docker with Compose v2.
 
 ```bash
-git clone https://github.com/antonij-tracium/tracium
+git clone https://github.com/antonij-simonovski/tracium
 cd tracium
 cp .env.example .env
 # Fill in JWT_SECRET, CLICKHOUSE_PASSWORD, and POSTGRES_PASSWORD in .env.

@@ -7,7 +7,7 @@ global:
 collector:
   replicaCount: 2
   image:
-    repository: ghcr.io/antonij-tracium/collector
+    repository: ghcr.io/antonij-simonovski/collector
     tag: ""
   captureContent: true
   resources:
@@ -39,7 +39,7 @@ collector:
 api:
   replicaCount: 2
   image:
-    repository: ghcr.io/antonij-tracium/api
+    repository: ghcr.io/antonij-simonovski/api
     tag: ""
   resources:
     requests:
@@ -67,7 +67,7 @@ api:
 dashboard:
   replicaCount: 1
   image:
-    repository: ghcr.io/antonij-tracium/dashboard
+    repository: ghcr.io/antonij-simonovski/dashboard
     tag: ""
   resources:
     requests:
@@ -90,7 +90,7 @@ migrate:
   legacyWorkspaceId: ""
   legacyIngestionPaused: false
   image:
-    repository: ghcr.io/antonij-tracium/migrate
+    repository: ghcr.io/antonij-simonovski/migrate
     tag: ""
   resources:
     requests:
