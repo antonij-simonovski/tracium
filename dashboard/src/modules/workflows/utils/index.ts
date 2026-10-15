@@ -9,6 +9,7 @@ export {
   fmtPts,
   ptsColor,
   comparable,
+  currentVersion,
   previousVersion,
   defaultPair,
   overlap,

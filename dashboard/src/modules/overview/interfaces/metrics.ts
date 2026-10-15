@@ -73,6 +73,13 @@ export interface Anomaly {
   direction: AnomalyDirection;
   severity: AnomalySeverity;
   summary: string; // ready-to-read description
+  version_change: VersionChange | null; // version first seen on the day or the day before
+}
+
+export interface VersionChange {
+  workflow: string;
+  version: string;
+  first_seen_ms: number; // UTC midnight
 }
 
 export interface SetupCheck extends SetupIssue {

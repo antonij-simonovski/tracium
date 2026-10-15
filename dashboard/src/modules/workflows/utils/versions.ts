@@ -47,9 +47,20 @@ export function previousVersion(versions: WorkflowVersion[], v: WorkflowVersion)
     .reduce<WorkflowVersion | undefined>((best, o) => (!best || o.first_seen_ms > best.first_seen_ms ? o : best), undefined);
 }
 
+// The newest release still running: a straggler run of an old version after a
+// rollout doesn't make it current, while a rollback does once the newer one stops
+// for a day.
+export function currentVersion(versions: WorkflowVersion[]): WorkflowVersion | undefined {
+  const live = versions.filter(comparable);
+  const latest = Math.max(...live.map((v) => v.last_seen_ms));
+  return live
+    .filter((v) => v.last_seen_ms >= latest - DAY_MS)
+    .reduce<WorkflowVersion | undefined>((best, v) => (!best || v.first_seen_ms > best.first_seen_ms ? v : best), undefined);
+}
+
 // The current version and the one it replaced, as a [base, candidate] pair.
 export function defaultPair(versions: WorkflowVersion[]): [string, string] | null {
-  const current = versions.find(comparable);
+  const current = currentVersion(versions);
   const prev = current && previousVersion(versions, current);
   return current && prev ? [prev.version, current.version] : null;
 }

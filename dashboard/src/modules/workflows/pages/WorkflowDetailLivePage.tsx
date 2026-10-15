@@ -18,7 +18,7 @@ import {
   useWorkflowRuns,
   useWorkflowVersions,
 } from '../hooks/useWorkflowDetail';
-import { change, comparable, defaultPair, deriveRunOutcomes, fmtSeen, previousVersion, releaseMarkers } from '../utils';
+import { change, comparable, currentVersion, defaultPair, deriveRunOutcomes, fmtSeen, previousVersion, releaseMarkers } from '../utils';
 import { WorkflowDetailPage } from './WorkflowDetailPage';
 import type { MetaRowProps } from '../../../common';
 
@@ -69,7 +69,7 @@ export function WorkflowDetailLivePage({ workflowName, range, setView, setSelect
     setView('compare');
   };
 
-  const current = versions.find(comparable);
+  const current = currentVersion(versions);
   const pair = defaultPair(versions);
   const replaced = current && previousVersion(versions, current);
   const cprChange = current && replaced ? change(current.cost_per_run, replaced.cost_per_run) : 0;

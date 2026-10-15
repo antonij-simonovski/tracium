@@ -302,7 +302,8 @@ func TestMetricsAnomalies(t *testing.T) {
 		AnomalyItems: []model.Anomaly{
 			{Metric: "cost", Scope: "workflow", Workflow: "planner", BucketMs: 1_700_000_000_000,
 				Observed: 120, Expected: 10, Deviation: 110, Score: 8.1,
-				Direction: "spike", Severity: "critical", Summary: "Workflow \"planner\" cost rose to $120.00."},
+				Direction: "spike", Severity: "critical", Summary: "Workflow \"planner\" cost rose to $120.00.",
+				VersionChange: &model.VersionChange{Workflow: "planner", Version: "v2", FirstSeenMs: 1_700_000_000_000}},
 		},
 	}
 	h := newMetricsHandler(repo)
@@ -321,6 +322,9 @@ func TestMetricsAnomalies(t *testing.T) {
 	}
 	if len(got.Items) != 1 || got.Items[0].Severity != "critical" || got.Items[0].Workflow != "planner" {
 		t.Errorf("items = %+v, want one critical anomaly for planner", got.Items)
+	}
+	if vc := got.Items[0].VersionChange; vc == nil || vc.Version != "v2" {
+		t.Errorf("version_change = %+v, want planner v2", vc)
 	}
 }
 

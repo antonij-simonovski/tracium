@@ -2406,6 +2406,7 @@ components:
         - direction
         - severity
         - summary
+        - version_change
       properties:
         metric:
           type: string
@@ -2444,6 +2445,27 @@ components:
         summary:
           type: string
           description: One-line human-readable description of the anomaly.
+        version_change:
+          allOf: [{ $ref: "#/components/schemas/VersionChange" }]
+          nullable: true
+          description: >-
+            A workflow version first seen on the anomaly's day or the day before, or null.
+            Scope "workflow" names its own workflow's version; scope "workspace" names the
+            version of the workflow that carried the most of the metric that day (errored
+            runs for error_rate), and null when that workflow did not change version. A
+            workflow's first versioned day is not a change.
+
+    VersionChange:
+      type: object
+      required: [workflow, version, first_seen_ms]
+      properties:
+        workflow:
+          type: string
+        version:
+          type: string
+        first_seen_ms:
+          type: integer
+          description: The day the version was first seen, Unix epoch milliseconds (UTC midnight).
 
     SetupIssue:
       type: object
@@ -2453,7 +2475,8 @@ components:
           type: string
           description: >
             Stable identifier: no_llm_spans, unpriced_model, unmetered,
-            no_model, instant_llm_spans, error_without_detail, missing_root_span, unnamed_workflow, or rejected_<drop code>
+            no_model, instant_llm_spans, error_without_detail, missing_root_span, unnamed_workflow,
+            workflow_without_version, version_per_run, or rejected_<drop code>
             for spans the collector rejected (e.g. rejected_invalid_timestamp).
         severity:
           type: string

@@ -42,8 +42,15 @@ jobs:
           POSTGRES_DB: core_test
         ports: ['5432:5432']
         options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 3s --health-retries 10
+      clickhouse:
+        image: clickhouse/clickhouse-server:24.6
+        env:
+          CLICKHOUSE_PASSWORD: test-password
+        ports: ['8123:8123', '9000:9000']
+        options: --health-cmd "wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1" --health-interval 5s --health-timeout 3s --health-retries 15
     env:
       TEST_POSTGRES_DSN: postgres://postgres:test-password@localhost:5432/core_test?sslmode=disable
+      TEST_CLICKHOUSE_DSN: clickhouse://default:test-password@localhost:9000/tracium
     needs: changes
     if: ${{ needs.changes.outputs.go == 'true' || needs.changes.outputs.spec == 'true' || needs.changes.outputs.infra == 'true' }}
     runs-on: ubuntu-latest
@@ -57,6 +64,13 @@ jobs:
         run: |
           unformatted=$(gofmt -l api collector)
           if [ -n "$unformatted" ]; then echo "$unformatted"; exit 1; fi
+      - name: Migrate the ClickHouse schema
+        env:
+          CLICKHOUSE_HTTP: http://localhost:8123
+          CLICKHOUSE_PASSWORD: test-password
+          POSTGRES_DSN: ${{ env.TEST_POSTGRES_DSN }}
+          MIGRATIONS_DIR: collector/schema
+        run: bash deploy/docker/migrate/run-migrations.sh
       - name: Test every Go module
         run: |
           set -e
