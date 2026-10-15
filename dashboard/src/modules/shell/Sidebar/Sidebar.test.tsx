@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Sidebar } from './Sidebar';
 
 const props = {
@@ -12,7 +12,8 @@ const props = {
   deleteWorkspace: async () => {},
 };
 
-afterEach(() => localStorage.clear());
+beforeEach(() => vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response(JSON.stringify({ stargazers_count: 42 }))))));
+afterEach(() => { localStorage.clear(); vi.unstubAllGlobals(); });
 
 describe('Sidebar collapse', () => {
   it('hides labels when collapsed and remembers the choice', () => {
@@ -57,8 +58,9 @@ describe('Sidebar theme toggle', () => {
 });
 
 describe('Sidebar star link', () => {
-  it('links to the GitHub repo', () => {
+  it('links to the GitHub repo and shows its star count', async () => {
     render(<Sidebar {...props} />);
-    expect(screen.getByRole('link', { name: 'Star on GitHub' }).getAttribute('href')).toBe('https://github.com/antonij-tracium/tracium');
+    expect(screen.getByRole('link', { name: 'Star on GitHub' }).getAttribute('href')).toBe('https://github.com/antonij-simonovski/tracium');
+    expect(await screen.findByText('42')).toBeTruthy();
   });
 });

@@ -11,7 +11,7 @@ import {
   IconSun,
   IconMoon,
   IconPanel,
-  IconStar,
+  IconGithub,
   handleDialogKeyDown,
 } from '../../../common';
 import hover from '../../../common/styles/hover.module.css';
@@ -131,6 +131,13 @@ export function Sidebar({
     if (!embedded) localStorage.setItem('tracium_sidebar', collapsedPref ? 'expanded' : 'collapsed');
     setCollapsedPref(!collapsedPref);
   };
+  const [stars, setStars] = useState<number>();
+  useEffect(() => {
+    fetch('https://api.github.com/repos/antonij-simonovski/tracium')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => typeof d?.stargazers_count === 'number' && setStars(d.stargazers_count))
+      .catch(() => {});
+  }, []);
   const drawerOpen = mobile && open;
   useEffect(() => {
     if (drawerOpen) closeRef.current?.focus();
@@ -290,16 +297,40 @@ export function Sidebar({
 
       <div style={{ padding: '12px', borderTop: '1px solid var(--border)' }}>
         <a
-          href="https://github.com/antonij-tracium/tracium"
+          href="https://github.com/antonij-simonovski/tracium"
           target="_blank"
           rel="noopener noreferrer"
           aria-label="Star on GitHub"
           title={collapsed ? 'Star on GitHub' : undefined}
-          className={hover.text}
-          style={{ display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : undefined, gap: 10, padding: '7px 10px', fontSize: 14, textDecoration: 'none' }}
+          className={collapsed ? hover.text : hover.outlined}
+          style={collapsed
+            ? { display: 'flex', justifyContent: 'center', padding: '7px 10px' }
+            : {
+                display: 'inline-flex',
+                alignItems: 'stretch',
+                margin: '0 10px 8px',
+                border: '1px solid',
+                borderRadius: 6,
+                background: 'var(--surface-alt)',
+                fontSize: 12,
+                fontWeight: 600,
+                textDecoration: 'none',
+                overflow: 'hidden',
+              }}
         >
-          <IconStar size={16} />
-          {!collapsed && 'Star on GitHub'}
+          {collapsed ? <IconGithub size={16} /> : (
+            <>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 8px' }}>
+                <IconGithub size={14} />
+                Star
+              </span>
+              {stars !== undefined && (
+                <span style={{ display: 'flex', alignItems: 'center', padding: '3px 8px', borderLeft: '1px solid var(--border)', background: 'var(--surface)', fontVariantNumeric: 'tabular-nums' }}>
+                  {stars.toLocaleString()}
+                </span>
+              )}
+            </>
+          )}
         </a>
         {!embedded && (
           <NavItem
