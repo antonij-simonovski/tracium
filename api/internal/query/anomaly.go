@@ -340,28 +340,22 @@ ORDER BY first_seen, workflow_name, workflow_version`, bucketMsExpr, clause)
 }
 
 // attachVersionChanges gives each anomaly a version change from within
-// versionLeadMs before its bucket: its own workflow's latest for workflow-scoped
-// anomalies, and for workspace-wide ones the change whose workflow carried the
-// most of the anomaly's metric that day.
+// versionLeadMs before its bucket: its workflow's latest. A workspace-wide anomaly
+// takes the workflow that carried the most of its metric that day, and gets none
+// when that workflow did not change version.
 func attachVersionChanges(anomalies []model.Anomaly, changes []model.VersionChange, byWorkflow map[string]map[int64]dailyAgg) {
 	for i := range anomalies {
 		a := &anomalies[i]
-		var most float64
+		workflow := a.Workflow
+		if a.Scope == "workspace" {
+			workflow = topWorkflow(byWorkflow, a.BucketMs, a.Metric)
+		}
 		for j, v := range changes {
 			if v.FirstSeenMs > a.BucketMs {
 				break
 			}
-			if v.FirstSeenMs < a.BucketMs-versionLeadMs {
-				continue
-			}
-			if a.Scope == "workflow" {
-				if v.Workflow == a.Workflow {
-					a.VersionChange = &changes[j]
-				}
-				continue
-			}
-			if _, sup := metricValue(byWorkflow[v.Workflow][a.BucketMs], a.Metric); sup > most {
-				a.VersionChange, most = &changes[j], sup
+			if v.FirstSeenMs >= a.BucketMs-versionLeadMs && v.Workflow == workflow {
+				a.VersionChange = &changes[j]
 			}
 		}
 		if a.VersionChange != nil {
@@ -369,6 +363,24 @@ func attachVersionChanges(anomalies []model.Anomaly, changes []model.VersionChan
 				time.UnixMilli(a.VersionChange.FirstSeenMs).UTC().Format(dateFmt))
 		}
 	}
+}
+
+// topWorkflow is the workflow that carried the most of metric on the day at bucketMs
+// (errored runs for error_rate), ties broken by name; "" when none did.
+func topWorkflow(byWorkflow map[string]map[int64]dailyAgg, bucketMs int64, metric string) string {
+	var top string
+	var most float64
+	for name, days := range byWorkflow {
+		d := days[bucketMs]
+		_, carried := metricValue(d, metric)
+		if metric == "error_rate" {
+			carried = float64(d.errRuns)
+		}
+		if carried > most || (carried == most && carried > 0 && name < top) {
+			top, most = name, carried
+		}
+	}
+	return top
 }
 
 // sortAnomalies orders anomalies most-actionable first: by severity, then by

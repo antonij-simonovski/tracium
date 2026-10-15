@@ -113,10 +113,13 @@ func TestAttachVersionChanges(t *testing.T) {
 		{Workflow: "planner", Version: "v1", FirstSeenMs: 2 * day},
 		{Workflow: "rewrite-message", Version: "v2", FirstSeenMs: 9 * day},
 		{Workflow: "planner", Version: "v2", FirstSeenMs: 10 * day},
+		{Workflow: "planner", Version: "v3", FirstSeenMs: 13 * day},
+		{Workflow: "rewrite-message", Version: "v3", FirstSeenMs: 14 * day},
 	}
 	byWorkflow := map[string]map[int64]dailyAgg{
-		"planner":         {10 * day: {cost: 9, runs: 10}},
-		"rewrite-message": {10 * day: {cost: 1, runs: 40}},
+		"planner":         {10 * day: {cost: 9, runs: 10}, 13 * day: {runs: 3}, 14 * day: {runs: 50, errRuns: 1}},
+		"rewrite-message": {10 * day: {cost: 1, runs: 40}, 14 * day: {runs: 10, errRuns: 5}},
+		"steady":          {13 * day: {runs: 50}},
 	}
 	in := []model.Anomaly{
 		{Metric: "cost", Scope: "workflow", Workflow: "planner", BucketMs: 10 * day, Summary: "x."},
@@ -126,10 +129,14 @@ func TestAttachVersionChanges(t *testing.T) {
 		{Metric: "runs", Scope: "workspace", BucketMs: 11 * day},
 		{Metric: "cost", Scope: "workflow", Workflow: "planner", BucketMs: 5 * day},
 		{Metric: "cost", Scope: "workflow", Workflow: "planner", BucketMs: 12 * day},
+		// steady carried the day; planner's v3 there is not the cause.
+		{Metric: "runs", Scope: "workspace", BucketMs: 13 * day},
+		// rewrite-message carried the errors though planner carried the runs.
+		{Metric: "error_rate", Scope: "workspace", BucketMs: 14 * day},
 	}
 	attachVersionChanges(in, firsts, byWorkflow)
 
-	want := []string{"planner/v2", "rewrite-message/v2", "planner/v2", "rewrite-message/v2", "", "", ""}
+	want := []string{"planner/v2", "rewrite-message/v2", "planner/v2", "rewrite-message/v2", "", "", "", "", "rewrite-message/v3"}
 	for i, a := range in {
 		got := ""
 		if a.VersionChange != nil {

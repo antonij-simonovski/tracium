@@ -1,6 +1,6 @@
 import { fmtDelta, fmtMs, fmtNum, relativeTime } from '../../../common';
 import type { WorkflowVersion } from '../interfaces';
-import { change, comparable, deltaColor, fmtPts, fmtRunCost, fmtSeen, previousVersion, ptsColor, versionLabel } from '../utils';
+import { change, comparable, currentVersion, deltaColor, fmtPts, fmtRunCost, fmtSeen, previousVersion, ptsColor, versionLabel } from '../utils';
 
 interface VersionsTableProps {
   versions: WorkflowVersion[];
@@ -19,7 +19,7 @@ function Delta({ text, color }: { text: string; color: string }) {
 }
 
 export function VersionsTable({ versions, rangeLabel, onCompare }: VersionsTableProps) {
-  const current = versions.find(comparable)?.version;
+  const current = currentVersion(versions)?.version;
 
   return (
     <div style={{ marginBottom: 44 }}>

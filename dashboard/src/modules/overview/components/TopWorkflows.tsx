@@ -22,7 +22,7 @@ export function TopWorkflows({
 
   return (
     <div>
-      <SectionRule eyebrow="Volume" title="Most used workflows" subtitle={`By call count, ${rangeLabel(range)}`} />
+      <SectionRule eyebrow="Volume" title="Most used workflows" subtitle={rangeLabel(range)} />
       <div style={{ margin: '-4px 0' }}>
         {workflows.map((a, i) => {
           const pct = (a.calls / maxCalls) * 100;

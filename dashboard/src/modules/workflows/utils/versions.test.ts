@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { bucketIndex, change, defaultPair, overlap, previousVersion, fmtSeen, releaseMarkers } from './versions';
+import { bucketIndex, change, currentVersion, defaultPair, overlap, previousVersion, fmtSeen, releaseMarkers } from './versions';
 import type { WorkflowVersion } from '../interfaces';
 
 const DAY = 86_400_000;
@@ -23,6 +23,14 @@ describe('workflow versions', () => {
   it('pairs the current version with the one it replaced', () => {
     expect(defaultPair(VERSIONS)).toEqual(['v2', 'v3']);
     expect(defaultPair([ver('v1', 0, 3)])).toBeNull();
+  });
+
+  it('keeps the newest release current through straggler runs of an older one', () => {
+    // v1 ran an hour after v2 last did: still v2.
+    expect(currentVersion([ver('v1', 0, 7.04), ver('v2', 6, 7)])?.version).toBe('v2');
+    // Rolled back: v2 stopped two days before v1's latest run.
+    expect(currentVersion([ver('v1', 0, 9), ver('v2', 6, 7)])?.version).toBe('v1');
+    expect(currentVersion([ver('', 0, 9)])).toBeUndefined();
   });
 
   it('skips the unversioned runs when finding the previous version', () => {

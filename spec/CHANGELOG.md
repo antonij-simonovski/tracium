@@ -17,7 +17,7 @@ Breaking changes require a `schema_version` bump. Additive changes do not.
 - `span.json` lists `workflow_version`
 - Setup checks `workflow_without_version` (info: runs with no `tracium.workflow.version`) and `version_per_run` (warning: a workflow in a workspace with at least 20 versioned runs where more than half carry a distinct version)
 - The examples set `tracium.workflow.version`, and the demo seed ships two or three releases per workflow, with one unversioned workflow
-- `Anomaly.version_change`: a workflow version first seen on the anomaly's day or the day before (for workspace-wide anomalies, of the workflow that carried the most of the metric; a workflow's first versioned day does not count); the summary and the Overview outliers name it
+- `Anomaly.version_change`: a workflow version first seen on the anomaly's day or the day before (for workspace-wide anomalies, of the workflow that carried the most of the metric, errored runs for error rate, and none when that workflow did not change version; a workflow's first versioned day does not count); the summary and the Overview outliers name it
 - The smoke test checks versions end to end, and the upgrade test runs migration 014 on a 1.0.4 rollup
 
 ### Changed
