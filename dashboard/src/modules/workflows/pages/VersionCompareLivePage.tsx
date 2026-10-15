@@ -145,14 +145,17 @@ export function VersionCompareLivePage({ workflowName, base, candidate, range, o
   const versionsQuery = useWorkflowVersions(workflowName, range);
   const versions = versionsQuery.data?.items ?? [];
 
-  // Version-scoped series are raw-window only; the error series doubles as the
-  // per-bucket run count.
-  const needCost = !long && (picked.includes('cost') || picked.includes('cpr'));
-  const needLatency = !long && picked.includes('p95');
-  const needTokens = !long && picked.includes('tpr');
-  const errAll = useWorkflowErrorSeries(workflowName, range, !long);
-  const errA = useWorkflowErrorSeries(workflowName, range, !long, base);
-  const errB = useWorkflowErrorSeries(workflowName, range, !long, candidate);
+  // Latency isn't tracked over long ranges, so it isn't charted there. The error
+  // series doubles as the per-bucket run count.
+  const chartable = (id: MetricId) => !(long && id === 'p95');
+  const shown = picked.filter(chartable);
+  const charted: MetricId[] = shown.length ? shown : ['cpr'];
+  const needCost = charted.includes('cost') || charted.includes('cpr');
+  const needLatency = charted.includes('p95');
+  const needTokens = charted.includes('tpr');
+  const errAll = useWorkflowErrorSeries(workflowName, range);
+  const errA = useWorkflowErrorSeries(workflowName, range, true, base);
+  const errB = useWorkflowErrorSeries(workflowName, range, true, candidate);
   const costA = useWorkflowCostSeries(workflowName, range, needCost, base);
   const costB = useWorkflowCostSeries(workflowName, range, needCost, candidate);
   const latA = useWorkflowLatencySeries(workflowName, range, needLatency, base);
@@ -189,10 +192,10 @@ export function VersionCompareLivePage({ workflowName, base, candidate, range, o
     { id: 'err', label: 'Error rate', title: 'Error rate', a: A.error_rate, b: B.error_rate, fmt: Y_FMT.err, delta: fmtPts(B.error_rate, A.error_rate), color: ptsColor(B.error_rate, A.error_rate) },
     { id: 'tpr', label: 'Tokens / run', title: 'Tokens per run', a: A.tokens_per_run, b: B.tokens_per_run, fmt: Y_FMT.tpr, ...relDelta(A.tokens_per_run, B.tokens_per_run) },
   ];
-  const active = picked.map((id) => rows.find((r) => r.id === id)!);
+  const active = charted.map((id) => rows.find((r) => r.id === id)!);
   // A second pick shares the chart on the right axis; a third replaces the oldest.
   const toggle = (id: MetricId) =>
-    setPicked((p) => (p.includes(id) ? (p.length > 1 ? p.filter((m) => m !== id) : p) : [...p, id].slice(-2)));
+    setPicked(charted.includes(id) ? (charted.length > 1 ? charted.filter((m) => m !== id) : charted) : [...charted, id].slice(-2));
 
   const axis = errAll.data?.items ?? [];
   const bucketsMs = axis.map((b) => b.bucket_ms);
@@ -241,25 +244,23 @@ export function VersionCompareLivePage({ workflowName, base, candidate, range, o
   const chartLoading = errA.isLoading || errB.isLoading || (needCost && (costA.isLoading || costB.isLoading)) || (needLatency && (latA.isLoading || latB.isLoading)) || (needTokens && (tokA.isLoading || tokB.isLoading));
   const chartFailed = [errAll, errA, errB, costA, costB, latA, latB, tokA, tokB].some((q) => q.isError);
   const noRuns = metrics.every((m) => [...m.base, ...m.candidate].every((v) => v == null));
-  const showBand = !long && !chartFailed && !chartLoading && !noRuns && band != null;
-  const chart = long
-    ? <Centered minHeight={240}>Over-time charts need a range of 30 days or less.</Centered>
-    : chartFailed
-      ? <Centered minHeight={240}>Couldn't load the series</Centered>
-      : chartLoading
-        ? <Centered minHeight={240}><Spinner /></Centered>
-        : noRuns
-          ? <Centered minHeight={240}>No runs in this range.</Centered>
-          : (
-            <VersionLineChart
-              labels={labels}
-              metrics={metrics}
-              baseLabel={A.version}
-              candidateLabel={B.version}
-              band={band}
-              markers={markers}
-            />
-          );
+  const showBand = !chartFailed && !chartLoading && !noRuns && band != null;
+  const chart = chartFailed
+    ? <Centered minHeight={240}>Couldn't load the series</Centered>
+    : chartLoading
+      ? <Centered minHeight={240}><Spinner /></Centered>
+      : noRuns
+        ? <Centered minHeight={240}>No runs in this range.</Centered>
+        : (
+          <VersionLineChart
+            labels={labels}
+            metrics={metrics}
+            baseLabel={A.version}
+            candidateLabel={B.version}
+            band={band}
+            markers={markers}
+          />
+        );
 
   return (
     <div style={{ padding: '32px 40px 64px', maxWidth: 1480, margin: '0 auto' }}>
@@ -312,12 +313,13 @@ export function VersionCompareLivePage({ workflowName, base, candidate, range, o
               <span style={{ textAlign: 'right' }}>Change</span>
             </div>
             {rows.map((r) => {
-              const on = picked.includes(r.id);
+              const on = charted.includes(r.id);
               return (
                 <button
                   key={r.id}
                   onClick={() => toggle(r.id)}
                   aria-pressed={on}
+                  disabled={!chartable(r.id)}
                   className={hover.row}
                   style={{
                     display: 'grid',
@@ -380,7 +382,7 @@ export function VersionCompareLivePage({ workflowName, base, candidate, range, o
             </div>
           </div>
           <div style={{ paddingTop: 10 }}>{chart}</div>
-          {!long && traffic.length > 0 && (
+          {traffic.length > 0 && (
             <>
               <div style={{ ...eyebrow, margin: '16px 0 8px' }}>Share of runs</div>
               <TrafficStrip buckets={traffic} baseLabel={A.version} candidateLabel={B.version} />

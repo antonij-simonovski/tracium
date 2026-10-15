@@ -28,8 +28,8 @@ import (
 //   - workflow identity: the span's collector-derived workflow_name column, not the
 //     per-trace argMin fallback used on the raw path; for the resource
 //     service.name (the common case) these agree.
-//   - workflow version: likewise the span's own, which matches versionExpr only
-//     when every span carries the version (e.g. set as a resource attribute).
+//   - workflow version: likewise the span's own. The collector reads it from the
+//     resource only, so every span of a single-service run carries the same one.
 
 const dateFmt = "2006-01-02"
 
@@ -53,6 +53,63 @@ func rollupWindow(user string, workspaces []string, lo, hi time.Time, hiInclusiv
 	clause += wsClause
 	args = append(args, wsArgs...)
 	return clause, args
+}
+
+// rollupScope is rollupWindow over f's window plus its optional workflow and version filters.
+func rollupScope(f MetricsFilter) (string, []any) {
+	clause, args := rollupWindow(f.UserID, f.WorkspaceIDs, f.Start, f.End, true)
+	if f.Workflow != "" {
+		clause += " AND workflow_name = ?"
+		args = append(args, f.Workflow)
+	}
+	if f.Version != "" {
+		clause += " AND workflow_version = ?"
+		args = append(args, f.Version)
+	}
+	return clause, args
+}
+
+func workflowDetailRollupSQL(clause string) string {
+	return fmt.Sprintf(`SELECT toInt64(uniqMerge(runs)), sum(cost), toInt64(uniqIfMerge(error_runs)),
+    toInt64(sum(input_tokens)), toInt64(sum(output_tokens)),
+    topKWeightedIf(1)(model, span_count, model != '')[1]
+FROM tracium.metrics_daily WHERE %s`, clause)
+}
+
+// workflowDetailRollup serves WorkflowDetail over long windows. Latency stays
+// unset: the rollup has none. The last run, for the tool surface, is looked up on
+// raw spans over the window's trailing rollupThreshold only, so the scan stays as
+// cheap as a 30d one; a workflow idle that long shows no tools.
+func (r *ClickHouseRepository) workflowDetailRollup(ctx context.Context, f MetricsFilter) (model.WorkflowDetail, error) {
+	clause, args := rollupScope(f)
+	var (
+		d         model.WorkflowDetail
+		errRuns   int64
+		modelName string
+	)
+	if err := r.db.QueryRowContext(ctx, workflowDetailRollupSQL(clause), args...).Scan(
+		&d.Calls, &d.Cost, &errRuns, &d.InputTokens, &d.OutputTokens, &modelName); err != nil {
+		return model.WorkflowDetail{}, fmt.Errorf("clickhouse: workflow detail rollup: %w", err)
+	}
+	if d.Calls == 0 {
+		return model.WorkflowDetail{}, ErrNotFound
+	}
+	d.Name = f.Workflow
+	d.Cost = sanitize(d.Cost)
+	d.ErrorRate = float64(errRuns) / float64(d.Calls)
+	d.Model = modelName
+	d.Provider = providerFromModel(modelName)
+
+	lo := f.Start
+	if recent := f.End.Add(-rollupThreshold); recent.After(lo) {
+		lo = recent
+	}
+	rawClause, rawArgs := window(f.UserID, f.WorkspaceIDs, lo.UnixMilli(), f.End.UnixMilli())
+	q := `SELECT argMax(trace_id, start_time_ms) FROM ` + tableCalls + ` WHERE ` + rawClause + ` AND workflow_name = ?`
+	if err := r.db.QueryRowContext(ctx, q, append(rawArgs, f.Workflow)...).Scan(&d.LastTraceID); err != nil {
+		return model.WorkflowDetail{}, fmt.Errorf("clickhouse: workflow detail last run: %w", err)
+	}
+	return r.withTools(ctx, d, f.WorkspaceIDs)
 }
 
 // bucketMsExpr converts a Date column to the epoch-ms of its UTC midnight, matching
@@ -92,6 +149,11 @@ func costTotalRollupSQL(clause string) string {
 func costSeriesRollupSQL(clause string) string {
 	return fmt.Sprintf(`SELECT %s AS bucket_ms, %s AS value
 FROM tracium.metrics_daily_cost WHERE %s GROUP BY bucket_ms`, bucketMsExpr, costReconcileRollupExpr, clause)
+}
+
+func scopedCostSeriesRollupSQL(clause string) string {
+	return fmt.Sprintf(`SELECT %s AS bucket_ms, sum(cost) AS value
+FROM tracium.metrics_daily WHERE %s GROUP BY bucket_ms`, bucketMsExpr, clause)
 }
 
 // costTotalRollup sums per-day reconciled cost over the window (see
@@ -147,11 +209,16 @@ func (r *ClickHouseRepository) overviewKPIsRollup(ctx context.Context, f Metrics
 }
 
 func (r *ClickHouseRepository) costSeriesRollup(ctx context.Context, f MetricsFilter) ([]model.CostPoint, error) {
-	clause, args := rollupWindow(f.UserID, f.WorkspaceIDs, f.Start, f.End, true)
+	clause, args := rollupScope(f)
 	// Reconcile the two cost sources per day (see costReconcileRollupExpr) on the
 	// same day grid the long-window chart uses, so the chart and the KPI agree
-	// and metric-derived spend is included.
-	points, err := bucketSeries(ctx, r.db, f, costSeriesRollupSQL(clause), args, scanCostBucket, costPoint)
+	// and metric-derived spend is included. Metric rows carry no workflow or
+	// version, so scoped cost is span-only, as on the raw path.
+	q := costSeriesRollupSQL(clause)
+	if f.Workflow != "" || f.Version != "" {
+		q = scopedCostSeriesRollupSQL(clause)
+	}
+	points, err := bucketSeries(ctx, r.db, f, q, args, scanCostBucket, costPoint)
 	if err != nil {
 		return nil, fmt.Errorf("clickhouse: cost series rollup: %w", err)
 	}
@@ -171,7 +238,7 @@ func latencySeriesEmpty(f MetricsFilter) []model.LatencyPoint {
 }
 
 func (r *ClickHouseRepository) errorSeriesRollup(ctx context.Context, f MetricsFilter) ([]model.ErrorPoint, error) {
-	clause, args := rollupWindow(f.UserID, f.WorkspaceIDs, f.Start, f.End, true)
+	clause, args := rollupScope(f)
 	q := fmt.Sprintf(`SELECT %s AS bucket_ms,
     toInt64(uniqIfMerge(error_runs)) AS errors,
     toInt64(uniqMerge(runs))         AS total
@@ -192,7 +259,7 @@ FROM tracium.metrics_daily WHERE %s GROUP BY bucket_ms`, bucketMsExpr, clause)
 }
 
 func (r *ClickHouseRepository) tokenSeriesRollup(ctx context.Context, f MetricsFilter) ([]model.TokenPoint, error) {
-	clause, args := rollupWindow(f.UserID, f.WorkspaceIDs, f.Start, f.End, true)
+	clause, args := rollupScope(f)
 	points, err := bucketSeries(ctx, r.db, f, tokenSeriesRollupSQL(clause), args, scanTokenBucket, tokenPoint)
 	if err != nil {
 		return nil, fmt.Errorf("clickhouse: token series rollup: %w", err)

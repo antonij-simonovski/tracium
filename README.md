@@ -81,11 +81,10 @@ without code changes beyond the exporter settings above:
 
 ### Workflow versions
 
-Set `tracium.workflow.version` to compare cost, latency, errors and tokens
-between versions of a workflow (`GET /v1/metrics/workflows/{name}/versions`). Any string works: a semver, a git sha, a prompt version.
-Set it on the resource so every span carries it; long-range metrics then match
-the per-run ones. Keep it stable across runs: a timestamp or request id makes
-every run its own version.
+Set `tracium.workflow.version` on the resource to compare cost, latency, errors
+and tokens between versions of a workflow (`GET /v1/metrics/workflows/{name}/versions`).
+Any string works: a semver, a git sha, a prompt version. Keep it stable across
+runs: a timestamp or request id makes every run its own version.
 
 With any OTel SDK, through the environment:
 
@@ -105,9 +104,8 @@ In code, with the plain OTel SDK:
 resourceFromAttributes({ "service.name": "support-bot", "tracium.workflow.version": "v12" })
 ```
 
-or on the run's root span only, which versions the whole trace:
-`span.setAttribute("tracium.workflow.version", "v12")`. Runs without it are
-unversioned; no other attribute is read as a version.
+Only the resource attribute is read: a span attribute of the same name, or any
+other version attribute, is ignored. Runs without it are unversioned.
 
 Full documentation is at [docs.tracium.ai](https://docs.tracium.ai).
 

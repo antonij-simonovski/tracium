@@ -154,9 +154,9 @@ func TestFromOTLP_WorkflowVersion(t *testing.T) {
 		span, resource map[string]string
 		want           string
 	}{
-		{"span version wins over the resource", map[string]string{"tracium.workflow.version": "v12"}, map[string]string{"tracium.workflow.version": "v11"}, "v12"},
-		{"resource version when the span has none", nil, map[string]string{"tracium.workflow.version": "v11"}, "v11"},
-		{"blank span version falls back to the resource", map[string]string{"tracium.workflow.version": "  "}, map[string]string{"tracium.workflow.version": "v11"}, "v11"},
+		{"resource version", nil, map[string]string{"tracium.workflow.version": "v11"}, "v11"},
+		{"span version is ignored", map[string]string{"tracium.workflow.version": "v12"}, map[string]string{"tracium.workflow.version": "v11"}, "v11"},
+		{"span version alone is ignored", map[string]string{"tracium.workflow.version": "v12"}, nil, ""},
 		{"other version attributes are ignored", map[string]string{"traceloop.prompt.version": "3"}, map[string]string{"service.version": "1.4.0"}, ""},
 		{"no version", nil, nil, ""},
 	}
@@ -178,10 +178,10 @@ func TestFromOTLP_WorkflowVersion(t *testing.T) {
 }
 
 func TestFromOTLP_SanitizesWorkflowVersion(t *testing.T) {
-	s := ptrace.NewSpan()
-	s.Attributes().PutStr("tracium.workflow.version", "v1\n"+strings.Repeat("x", 200))
+	resource := pcommon.NewMap()
+	resource.PutStr("tracium.workflow.version", "v1\n"+strings.Repeat("x", 200))
 
-	row := fromOTLP(s, "", pcommon.NewMap())
+	row := fromOTLP(ptrace.NewSpan(), "", resource)
 
 	if strings.Contains(row.WorkflowVersion, "\n") || len(row.WorkflowVersion) != 128 {
 		t.Errorf("version = %q (%d bytes), want control characters dropped and 128 bytes", row.WorkflowVersion, len(row.WorkflowVersion))

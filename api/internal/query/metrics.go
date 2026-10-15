@@ -588,9 +588,8 @@ SETTINGS use_query_cache = 1, query_cache_ttl = 60`, workflowExpr, clause)
 
 // WorkflowDetail returns one workflow's headline metrics for the detail page (f.Workflow
 // names it), plus its current tool surface. Span-backed only: there
-// is no workflow-config store, so runtime params are not served. The window is bounded
-// like every other metric; callers keep it off the rollup (the handler rejects
-// rollup ranges) because per-workflow latency can't come from the daily rollup.
+// is no workflow-config store, so runtime params are not served. Long windows read
+// the daily rollup, which has no latency (see workflowDetailRollup).
 // Returns ErrNotFound when the workflow has no runs in the window.
 //
 // The inner query rolls spans up to traces (cost, duration, errored, tokens,
@@ -600,6 +599,9 @@ func (r *ClickHouseRepository) WorkflowDetail(ctx context.Context, f MetricsFilt
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 
+	if f.UseRollup() {
+		return r.workflowDetailRollup(ctx, f)
+	}
 	clause, args := window(f.UserID, f.WorkspaceIDs, f.Start.UnixMilli(), f.End.UnixMilli())
 	q := fmt.Sprintf(`
 SELECT
@@ -655,17 +657,21 @@ WHERE name = ?`, workflowExpr, modelExpr, clause)
 	d.Model = modelName
 	d.Provider = providerFromModel(modelName)
 	d.LastTraceID = lastTrace
+	return r.withTools(ctx, d, f.WorkspaceIDs)
+}
 
-	// The tool surface is the union of available_tools across the workflow's most
-	// recent run — cheap (one trace, bloom-indexed by trace_id) and representative
-	// of the current deployment. Empty when content/tool capture is off.
-	if lastTrace != "" {
-		spans, err := r.GetSpans(ctx, lastTrace, f.WorkspaceIDs)
-		if err != nil {
-			return model.WorkflowDetail{}, fmt.Errorf("clickhouse: workflow detail tools: %w", err)
-		}
-		d.Tools = unionTools(spans)
+// withTools sets the tool surface: the union of available_tools across the
+// workflow's most recent run — cheap (one trace, bloom-indexed by trace_id) and
+// representative of the current deployment. Empty when content/tool capture is off.
+func (r *ClickHouseRepository) withTools(ctx context.Context, d model.WorkflowDetail, workspaces []string) (model.WorkflowDetail, error) {
+	if d.LastTraceID == "" {
+		return d, nil
 	}
+	spans, err := r.GetSpans(ctx, d.LastTraceID, workspaces)
+	if err != nil {
+		return model.WorkflowDetail{}, fmt.Errorf("clickhouse: workflow detail tools: %w", err)
+	}
+	d.Tools = unionTools(spans)
 	return d, nil
 }
 

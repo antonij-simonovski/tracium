@@ -131,7 +131,9 @@ func fromOTLP(s ptrace.Span, serviceName string, resourceAttrs pcommon.Map) *spa
 			strAttr(attrs, attrTraceloopEntity),
 			s.Name(),
 		),
-		WorkflowVersion: workflowVersion(attrs, resourceAttrs),
+		// Resource only, so every span of a run carries the same version and the
+		// daily rollup, keyed per span, matches the per-run numbers.
+		WorkflowVersion: ingest.SanitizeIdentifier(strAttr(resourceAttrs, attrWorkflowVersion), ingest.MaxVersionBytes),
 		// ServiceName is the resource-level service.name, persisted verbatim (the
 		// OTel "unknown_service" default treated as absent). The query layer uses
 		// it as the stable in-flight fallback for a trace's display/workflow name.
@@ -218,14 +220,6 @@ func workflowName(serviceName, genaiAgent, traceloopWorkflow, traceloopEntity, s
 		}
 	}
 	return ""
-}
-
-// workflowVersion returns the span's tracium.workflow.version, else the resource's.
-func workflowVersion(spanAttrs, resourceAttrs pcommon.Map) string {
-	if v := ingest.SanitizeIdentifier(strAttr(spanAttrs, attrWorkflowVersion), ingest.MaxVersionBytes); v != "" {
-		return v
-	}
-	return ingest.SanitizeIdentifier(strAttr(resourceAttrs, attrWorkflowVersion), ingest.MaxVersionBytes)
 }
 
 // resourceServiceName returns the usable service.name, treating the OTel SDK

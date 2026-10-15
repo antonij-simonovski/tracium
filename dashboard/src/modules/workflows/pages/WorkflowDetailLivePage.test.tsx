@@ -126,4 +126,12 @@ describe('live workflow detail with versions', () => {
     expect(screen.getByText('last 7 days · v2 only')).toBeInTheDocument();
     expect(screen.getByText('1 failure')).toBeInTheDocument();
   });
+
+  it('serves long ranges from the rollup, versions included, without latency', async () => {
+    show('90d');
+    expect(await screen.findByRole('button', { name: 'Compare versions' })).toBeInTheDocument();
+    expect(screen.getByText("Latency isn't tracked over ranges longer than 30 days.")).toBeInTheDocument();
+    expect(api.getWorkflowVersions).toHaveBeenCalledWith('checkout', '90d');
+    expect(api.getLatencySeries).not.toHaveBeenCalled();
+  });
 });

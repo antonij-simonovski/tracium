@@ -92,7 +92,7 @@
     },
     "workflow_version": {
       "type": "string",
-      "description": "Version the span ran under: tracium.workflow.version on the span, else on the resource. Capped at 128 bytes; empty when none is set."
+      "description": "Version the span ran under: the resource's tracium.workflow.version. Capped at 128 bytes; empty when none is set."
     },
     "source": {
       "type": "string",

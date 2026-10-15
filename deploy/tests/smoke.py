@@ -161,12 +161,12 @@ def get(path):
 # The resource version covers every span.
 v1 = versioned_run([attr('tracium.workflow.version', 'v1')])
 v2 = versioned_run([attr('tracium.workflow.version', 'v2')], tokens=300)
-# A root-span version applies to the whole trace.
+# A span attribute is not read as a version; only the resource sets it.
 v3 = versioned_run([], root_attrs=[attr('tracium.workflow.version', 'v3')])
 # Other version attributes are not read as a workflow version.
 plain = versioned_run([attr('service.version', '1.4.0')],
                       child_attrs=[attr('traceloop.prompt.key', 'p'), attr('traceloop.prompt.version', '7')])
-expected = {v1: 'v1', v2: 'v2', v3: 'v3', plain: ''}
+expected = {v1: 'v1', v2: 'v2', v3: '', plain: ''}
 
 
 def traces_versioned():
@@ -182,13 +182,21 @@ filtered = get('/v1/traces?workflow=versioned-smoke&version=v2')['items']
 assert [t['trace_id'] for t in filtered] == [v2], filtered
 
 versions = {v['version']: v for v in get('/v1/metrics/workflows/versioned-smoke/versions?range=24h')['items']}
-assert set(versions) == {'v1', 'v2', 'v3', ''}, versions
+assert set(versions) == {'v1', 'v2', ''}, versions
 assert versions['v1']['calls'] == 1, versions['v1']
 assert versions['v2']['tokens_per_run'] == 310 and versions['v2']['p95_latency_ms'] is not None, versions['v2']
 
 # Long ranges read the daily rollup, which keys the version per span.
 rollup = {v['version']: v for v in get('/v1/metrics/workflows/versioned-smoke/versions?range=90d')['items']}
 assert rollup['v1']['calls'] == 1 and rollup['v1']['p95_latency_ms'] is None, rollup
+
+# The workflow detail and its series also serve long ranges from the rollup, without latency.
+detail = get('/v1/metrics/workflows/versioned-smoke?range=90d')
+assert detail['calls'] == len(expected) and detail['p95_latency_ms'] is None and detail['last_trace_id'], detail
+series = get('/v1/metrics/token-series?range=90d&workflow=versioned-smoke')
+assert sum(point['input_tokens'] for point in series['items']) == 600, series
+series = get('/v1/metrics/token-series?range=90d&workflow=versioned-smoke&version=v2')
+assert sum(point['input_tokens'] for point in series['items']) == 300, series
 
 series = get('/v1/metrics/cost-series?range=24h&workflow=versioned-smoke&version=v2')
 assert sum(point['value'] for point in series['items']) > 0, series

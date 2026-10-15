@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { bucketIndex, defaultPair, overlap, previousVersion, releaseMarkers } from './versions';
+import { bucketIndex, change, defaultPair, overlap, previousVersion, releaseMarkers } from './versions';
 import type { WorkflowVersion } from '../interfaces';
 
 const DAY = 86_400_000;
@@ -28,6 +28,11 @@ describe('workflow versions', () => {
   it('finds the span two versions ran together', () => {
     expect(overlap(VERSIONS[0], VERSIONS[2])).toEqual([5 * DAY, 6 * DAY]);
     expect(overlap(VERSIONS[0], VERSIONS[3])).toBeNull();
+  });
+
+  it('has no relative change from a zero base', () => {
+    expect(change(0.06, 0.04)).toBeCloseTo(0.5);
+    expect(change(0.05, 0)).toBeNaN();
   });
 
   it('places a timestamp in its bucket', () => {

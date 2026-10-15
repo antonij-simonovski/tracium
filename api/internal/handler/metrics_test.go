@@ -240,28 +240,20 @@ func TestMetricsWorkflowDetailNotFound(t *testing.T) {
 	}
 }
 
-// Per-workflow latency can't come from the daily rollup, so workflow-scoped requests
-// over rollup ranges (>30d) are rejected rather than silently degraded.
-func TestMetricsWorkflowDetailRejectsRollupRange(t *testing.T) {
-	h := newMetricsHandler(&mocks.MockMetricsRepository{})
+// Long ranges serve the workflow detail and its series, per version too, from the daily rollup.
+func TestMetricsWorkflowServesRollupRange(t *testing.T) {
+	h := newMetricsHandler(&mocks.MockMetricsRepository{WorkflowDetailV: model.WorkflowDetail{Name: "rewrite-message", Calls: 3}})
 
 	rr := httptest.NewRecorder()
 	serveAuthed(h.WorkflowDetail, rr, workflowDetailRequest("rewrite-message", "range=1y"))
-
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", rr.Code)
+	if rr.Code != http.StatusOK {
+		t.Errorf("detail: status = %d, want 200", rr.Code)
 	}
-}
 
-// The workflow query param on the series endpoints is likewise a raw-window feature.
-func TestMetricsSeriesWorkflowRejectsRollupRange(t *testing.T) {
-	h := newMetricsHandler(&mocks.MockMetricsRepository{})
-
-	rr := httptest.NewRecorder()
-	serveAuthed(h.CostSeries, rr, httptest.NewRequest(http.MethodGet, "/v1/metrics/cost-series?range=90d&workflow=rewrite-message", nil))
-
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", rr.Code)
+	rr = httptest.NewRecorder()
+	serveAuthed(h.CostSeries, rr, httptest.NewRequest(http.MethodGet, "/v1/metrics/cost-series?range=90d&workflow=rewrite-message&version=v2", nil))
+	if rr.Code != http.StatusOK {
+		t.Errorf("series: status = %d, want 200", rr.Code)
 	}
 }
 
@@ -401,17 +393,6 @@ func TestMetricsSeriesAcceptsWorkflowAndVersion(t *testing.T) {
 		if rr.Code != http.StatusOK {
 			t.Errorf("%s: status = %d, want 200", q, rr.Code)
 		}
-	}
-}
-
-func TestMetricsSeriesVersionRejectsRollupRange(t *testing.T) {
-	h := newMetricsHandler(&mocks.MockMetricsRepository{})
-
-	rr := httptest.NewRecorder()
-	serveAuthed(h.LatencySeries, rr, httptest.NewRequest(http.MethodGet, "/v1/metrics/latency-series?range=90d&version=v2", nil))
-
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", rr.Code)
 	}
 }
 

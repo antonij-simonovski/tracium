@@ -2,9 +2,7 @@ import { fmtCost } from '../../../common/utils/formatters';
 import type { ChartMarker } from '../../../common/interfaces';
 import type { WorkflowVersion } from '../interfaces';
 
-export const UNVERSIONED = 'unversioned';
-
-export const versionLabel = (version: string): string => version || UNVERSIONED;
+export const versionLabel = (version: string): string => version || 'unversioned';
 
 // Per-run costs sit around cents, where two decimals hide the change.
 export const fmtRunCost = (usd: number): string => (usd >= 0.01 && usd < 1 ? `$${usd.toFixed(4)}` : fmtCost(usd));
@@ -21,8 +19,9 @@ export function deltaColor(fraction: number): string {
   return fraction > 0 ? 'var(--error)' : 'var(--accent)';
 }
 
+// NaN when prev is 0: a rise from nothing has no relative size.
 export function change(next: number, prev: number): number {
-  return prev ? (next - prev) / prev : 0;
+  return prev ? (next - prev) / prev : NaN;
 }
 
 // Error-rate changes read in percentage points, not relative percent.

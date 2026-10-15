@@ -111,9 +111,8 @@ type TokenPoint struct {
 // window plus the tool surface from its most recent run. Span-backed
 // only — there is no workflow-config store, so runtime params (temperature,
 // retries, owner, …) are not served. P95LatencyMs is a pointer so it serialises
-// as null when undefined (no runs in the window). It is a raw-window payload
-// (≤30d): the handler rejects rollup ranges, since per-workflow latency can't be
-// derived from the daily rollup (same limitation as LatencySeries).
+// as null when undefined: no runs in the window, or a rollup range (>30d), where
+// latency can't be derived (same limitation as LatencySeries).
 type WorkflowDetail struct {
 	Name         string          `json:"name"`
 	Calls        int64           `json:"calls"`

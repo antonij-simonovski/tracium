@@ -18,21 +18,21 @@ const shared = (workspaceId: string | undefined, name: string, enabled: boolean)
   enabled,
 });
 
-export function useWorkflowDetail(name: string, range: string, enabled = true) {
+export function useWorkflowDetail(name: string, range: string) {
   const { metricsAPI, workspaceId } = useAPIClient();
   return useQuery({
     queryKey: ['workflows', 'detail', workspaceId, name, range],
     queryFn: () => metricsAPI.getWorkflowDetail(name, range),
-    ...shared(workspaceId, name, enabled),
+    ...shared(workspaceId, name, true),
   });
 }
 
-export function useWorkflowVersions(name: string, range: string, enabled = true) {
+export function useWorkflowVersions(name: string, range: string) {
   const { metricsAPI, workspaceId } = useAPIClient();
   return useQuery({
     queryKey: ['workflows', 'versions', workspaceId, name, range],
     queryFn: () => metricsAPI.getWorkflowVersions(name, range),
-    ...shared(workspaceId, name, enabled),
+    ...shared(workspaceId, name, true),
   });
 }
 

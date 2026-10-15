@@ -9,6 +9,7 @@ import {
   fmtCost,
   fmtNum,
   fmtPct,
+  isLongRange,
   plural,
   rangeLabel,
   SetupIssueNote,
@@ -78,6 +79,7 @@ export function WorkflowDetailPage(props: WorkflowDetailPageProps) {
   const errTone: StatTone = errorRate > ERR_BAD ? 'bad' : errorRate > ERR_WARN ? 'warn' : 'good';
   const windowLabel = rangeLabel(range);
   const hourly = range === '24h';
+  const long = isLongRange(range);
 
   const openTrace = (id: string) => {
     setSelected((s) => ({ ...s, traceId: id }));
@@ -174,7 +176,7 @@ export function WorkflowDetailPage(props: WorkflowDetailPageProps) {
         <StatTile label="Failed" value={fmtNum(failed)} tone={failed > 0 ? errTone : undefined} />
         <StatTile label="Success rate" value={calls > 0 ? fmtPct((completed / calls) * 100) : '—'} tone={calls > 0 ? errTone : undefined} />
         <StatTile label="Total cost" value={fmtCost(cost)} sub={calls > 0 ? `${fmtCost(cost / calls)} / run avg` : undefined} />
-        <StatTile label="p95 latency" value={p95Ms == null ? '—' : `${(p95Ms / 1000).toFixed(1)}s`} tone={p95Ms != null && p95Ms > 8000 ? 'warn' : undefined} />
+        <StatTile label="p95 latency" value={p95Ms == null ? '—' : `${(p95Ms / 1000).toFixed(1)}s`} sub={long ? 'not tracked over long ranges' : undefined} tone={p95Ms != null && p95Ms > 8000 ? 'warn' : undefined} />
       </div>
 
       <div
@@ -203,7 +205,9 @@ export function WorkflowDetailPage(props: WorkflowDetailPageProps) {
               <span><span style={{ display: 'inline-block', width: 8, height: 2, background: 'var(--warning)', verticalAlign: 'middle', marginRight: 4 }} />p99</span>
             </div>
           </div>
-          {loadErrors.latency ? <Centered minHeight={210}>Couldn't load latency</Centered> : <LatencyChart series={latencySeries} height={210} markers={markers} />}
+          {long
+            ? <Centered minHeight={210}>Latency isn't tracked over ranges longer than 30 days.</Centered>
+            : loadErrors.latency ? <Centered minHeight={210}>Couldn't load latency</Centered> : <LatencyChart series={latencySeries} height={210} markers={markers} />}
         </div>
       </div>
 

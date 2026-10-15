@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import {
   Centered,
-  EmptyState,
   Spinner,
   fmtDelta,
   fmtNum,
@@ -34,28 +33,19 @@ interface WorkflowDetailLivePageProps {
 }
 
 export function WorkflowDetailLivePage({ workflowName, range, setView, setSelected }: WorkflowDetailLivePageProps) {
-  // The detail endpoints reject rollup ranges, so skip the requests there.
-  const enabled = !isLongRange(range);
+  // Long ranges read the daily rollup, which has no latency.
+  const raw = !isLongRange(range);
   const [filter, setFilter] = useState<string | null>(null);
-  const versionsQuery = useWorkflowVersions(workflowName, range, enabled);
+  const versionsQuery = useWorkflowVersions(workflowName, range);
   const versions = versionsQuery.data?.items ?? [];
   const filtered = filter ? versions.find((v) => v.version === filter) : undefined;
   const version = filtered?.version;
 
-  const detail = useWorkflowDetail(workflowName, range, enabled);
-  const cost = useWorkflowCostSeries(workflowName, range, enabled, version);
-  const latency = useWorkflowLatencySeries(workflowName, range, enabled, version);
-  const errors = useWorkflowErrorSeries(workflowName, range, enabled, version);
-  const runs = useWorkflowRuns(workflowName, range, enabled, version);
-
-  if (!enabled) {
-    return (
-      <EmptyState
-        message="Workflow detail isn't available for long ranges"
-        description="Per-workflow latency isn't retained beyond 30 days. Switch to 24h, 7d, or 30d to see this workflow's detail."
-      />
-    );
-  }
+  const detail = useWorkflowDetail(workflowName, range);
+  const cost = useWorkflowCostSeries(workflowName, range, true, version);
+  const latency = useWorkflowLatencySeries(workflowName, range, raw, version);
+  const errors = useWorkflowErrorSeries(workflowName, range, true, version);
+  const runs = useWorkflowRuns(workflowName, range, true, version);
 
   if (detail.isLoading) {
     return (

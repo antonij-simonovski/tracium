@@ -36,12 +36,11 @@ attributes:
   - name: tracium.workflow.version
     description: >
       Version of the workflow the span ran under: any string, such as a semver,
-      a git sha or a prompt version. Set by the instrumentation, on the span or
-      the resource; the resource is best, since every span then carries it and
-      long-range (rollup) metrics match the per-trace ones. No other attribute
-      is read as a version. Stored as Span.workflow_version. A trace takes its
-      root span's version, else its earliest versioned span's. Capped at 128
-      bytes.
+      a git sha or a prompt version. Read from the resource only, so every span
+      of a run carries it and long-range (rollup) metrics match the per-trace
+      ones; a span attribute of this name is ignored, as is any other version
+      attribute. Stored as Span.workflow_version. A trace takes its root span's
+      version, else its earliest versioned span's. Capped at 128 bytes.
     type: string
     added_in_schema: 1
 

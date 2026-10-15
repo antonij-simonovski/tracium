@@ -12,10 +12,6 @@ func (r *ClickHouseRepository) WorkflowVersions(ctx context.Context, f MetricsFi
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 
-	return r.workflowVersions(ctx, f, limit)
-}
-
-func (r *ClickHouseRepository) workflowVersions(ctx context.Context, f MetricsFilter, limit int) ([]model.WorkflowVersion, error) {
 	if f.UseRollup() {
 		return r.workflowVersionsRollup(ctx, f, limit)
 	}
@@ -51,8 +47,7 @@ LIMIT ?`, workflowExpr, versionExpr, clause)
 	return r.scanVersions(ctx, q, append(args, f.Workflow, limit), true)
 }
 
-// workflowVersionsRollup keys versions per span, so it matches the raw path only
-// when every span carries the version (see the rollup.go caveats).
+// workflowVersionsRollup serves long windows; it has no latency (see the rollup.go caveats).
 func (r *ClickHouseRepository) workflowVersionsRollup(ctx context.Context, f MetricsFilter, limit int) ([]model.WorkflowVersion, error) {
 	clause, args := rollupWindow(f.UserID, f.WorkspaceIDs, f.Start, f.End, true)
 	q := fmt.Sprintf(`SELECT workflow_version,

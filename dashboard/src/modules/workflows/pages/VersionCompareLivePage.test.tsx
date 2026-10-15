@@ -98,11 +98,12 @@ describe('version compare', () => {
     expect(onSelect).toHaveBeenCalledWith('v2', 'v1');
   });
 
-  it('skips the version series over rollup ranges', async () => {
+  it('compares over rollup ranges without charting latency', async () => {
     show('90d');
-    expect(await screen.findByText('Over-time charts need a range of 30 days or less.')).toBeInTheDocument();
-    expect(api.getErrorSeries).not.toHaveBeenCalled();
-    expect(api.getCostSeries).not.toHaveBeenCalled();
+    expect(await screen.findByRole('button', { name: /p95 latency/ })).toBeDisabled();
+    expect(api.getErrorSeries).toHaveBeenCalledWith('90d', 'checkout', undefined, 'v3');
+    expect(api.getCostSeries).toHaveBeenCalledWith('90d', 'checkout', undefined, 'v2');
+    expect(api.getLatencySeries).not.toHaveBeenCalled();
   });
 
   it('explains when a version has no runs in the range', async () => {

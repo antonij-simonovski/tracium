@@ -213,7 +213,7 @@ export interface paths {
         };
         /**
          * Workflow detail
-         * @description One workflow's detail-page payload: its headline metrics over the range plus the version and tool surface of its most recent run. Span-backed only; there is no workflow-config store, so runtime params (temperature, retries, owner, …) are not served. A raw-window feature: ranges longer than 30d (90d, 1y) are rejected with a 400, since per-workflow latency cannot be derived from the daily rollup.
+         * @description One workflow's detail-page payload: its headline metrics over the range plus the tool surface of its most recent run. Span-backed only; there is no workflow-config store, so runtime params (temperature, retries, owner, …) are not served. Ranges longer than 30d (90d, 1y) are served from the daily rollup: runs and error runs are approximate, cost is span-only, latency is unset (avg_latency_ms 0, p95_latency_ms null), and the tool surface comes from a run in the last 30 days.
          */
         get: operations["getWorkflowDetail"];
         put?: never;
@@ -233,7 +233,7 @@ export interface paths {
         };
         /**
          * Workflow versions
-         * @description The versions of one workflow that ran in the range, with each version's runs, cost, latency, error rate and token use, most recently seen first. Runs without a version are listed as version "". Ranges up to 30d read each run's version per trace; longer ranges read the daily rollup, which keys versions per span and has no latency (p95_latency_ms is null). The two agree when the version is set on every span, e.g. as a resource attribute.
+         * @description The versions of one workflow that ran in the range, with each version's runs, cost, latency, error rate and token use, most recently seen first. Runs without a version are listed as version "". Ranges longer than 30d read the daily rollup, which has no latency (p95_latency_ms is null).
          */
         get: operations["listWorkflowVersions"];
         put?: never;
@@ -1089,9 +1089,9 @@ export interface components {
             calls: number;
             /** @description Total cost in USD over the window. */
             cost: number;
-            /** @description Mean end-to-end run duration in milliseconds. */
+            /** @description Mean end-to-end run duration in milliseconds; 0 over ranges longer than 30d. */
             avg_latency_ms: number;
-            /** @description p95 end-to-end run duration in milliseconds, or null when undefined (no runs in the window). */
+            /** @description p95 end-to-end run duration in milliseconds, or null when undefined (no runs in the window, or a range longer than 30d). */
             p95_latency_ms: number | null;
             /** @description Fraction of the workflow's runs that errored (0–1). */
             error_rate: number;
@@ -1347,9 +1347,9 @@ export interface components {
         UserFilter: string;
         /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
         WorkspaceFilter: string;
-        /** @description Optional: restrict the metric to a single workflow (the trace root name), powering the workflow detail page's charts. Only the series endpoints accept it; other metrics endpoints reject it with a 400. Workflow-scoped series are a raw-window feature; ranges longer than 30d (90d, 1y) are rejected with a 400, since per-workflow latency cannot be derived from the daily rollup. */
+        /** @description Optional: restrict the metric to a single workflow (the trace root name), powering the workflow detail page's charts. Only the series endpoints accept it; other metrics endpoints reject it with a 400. Over ranges longer than 30d (90d, 1y) the series read the daily rollup: cost is span-only and the latency series is empty, as it is unscoped. */
         WorkflowFilter: string;
-        /** @description Optional: restrict the metric to the runs of one workflow version (see Trace.workflow_version), alone or together with workflow. Accepted and limited to ranges up to 30d exactly like workflow. */
+        /** @description Optional: restrict the metric to the runs of one workflow version (see Trace.workflow_version), alone or together with workflow. */
         VersionFilter: string;
     };
     requestBodies: never;
@@ -1586,9 +1586,9 @@ export interface operations {
                 user_id?: components["parameters"]["UserFilter"];
                 /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
                 workspace_id?: components["parameters"]["WorkspaceFilter"];
-                /** @description Optional: restrict the metric to a single workflow (the trace root name), powering the workflow detail page's charts. Only the series endpoints accept it; other metrics endpoints reject it with a 400. Workflow-scoped series are a raw-window feature; ranges longer than 30d (90d, 1y) are rejected with a 400, since per-workflow latency cannot be derived from the daily rollup. */
+                /** @description Optional: restrict the metric to a single workflow (the trace root name), powering the workflow detail page's charts. Only the series endpoints accept it; other metrics endpoints reject it with a 400. Over ranges longer than 30d (90d, 1y) the series read the daily rollup: cost is span-only and the latency series is empty, as it is unscoped. */
                 workflow?: components["parameters"]["WorkflowFilter"];
-                /** @description Optional: restrict the metric to the runs of one workflow version (see Trace.workflow_version), alone or together with workflow. Accepted and limited to ranges up to 30d exactly like workflow. */
+                /** @description Optional: restrict the metric to the runs of one workflow version (see Trace.workflow_version), alone or together with workflow. */
                 version?: components["parameters"]["VersionFilter"];
             };
             header?: never;
@@ -1626,9 +1626,9 @@ export interface operations {
                 user_id?: components["parameters"]["UserFilter"];
                 /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
                 workspace_id?: components["parameters"]["WorkspaceFilter"];
-                /** @description Optional: restrict the metric to a single workflow (the trace root name), powering the workflow detail page's charts. Only the series endpoints accept it; other metrics endpoints reject it with a 400. Workflow-scoped series are a raw-window feature; ranges longer than 30d (90d, 1y) are rejected with a 400, since per-workflow latency cannot be derived from the daily rollup. */
+                /** @description Optional: restrict the metric to a single workflow (the trace root name), powering the workflow detail page's charts. Only the series endpoints accept it; other metrics endpoints reject it with a 400. Over ranges longer than 30d (90d, 1y) the series read the daily rollup: cost is span-only and the latency series is empty, as it is unscoped. */
                 workflow?: components["parameters"]["WorkflowFilter"];
-                /** @description Optional: restrict the metric to the runs of one workflow version (see Trace.workflow_version), alone or together with workflow. Accepted and limited to ranges up to 30d exactly like workflow. */
+                /** @description Optional: restrict the metric to the runs of one workflow version (see Trace.workflow_version), alone or together with workflow. */
                 version?: components["parameters"]["VersionFilter"];
             };
             header?: never;
@@ -1666,9 +1666,9 @@ export interface operations {
                 user_id?: components["parameters"]["UserFilter"];
                 /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
                 workspace_id?: components["parameters"]["WorkspaceFilter"];
-                /** @description Optional: restrict the metric to a single workflow (the trace root name), powering the workflow detail page's charts. Only the series endpoints accept it; other metrics endpoints reject it with a 400. Workflow-scoped series are a raw-window feature; ranges longer than 30d (90d, 1y) are rejected with a 400, since per-workflow latency cannot be derived from the daily rollup. */
+                /** @description Optional: restrict the metric to a single workflow (the trace root name), powering the workflow detail page's charts. Only the series endpoints accept it; other metrics endpoints reject it with a 400. Over ranges longer than 30d (90d, 1y) the series read the daily rollup: cost is span-only and the latency series is empty, as it is unscoped. */
                 workflow?: components["parameters"]["WorkflowFilter"];
-                /** @description Optional: restrict the metric to the runs of one workflow version (see Trace.workflow_version), alone or together with workflow. Accepted and limited to ranges up to 30d exactly like workflow. */
+                /** @description Optional: restrict the metric to the runs of one workflow version (see Trace.workflow_version), alone or together with workflow. */
                 version?: components["parameters"]["VersionFilter"];
             };
             header?: never;
@@ -1706,9 +1706,9 @@ export interface operations {
                 user_id?: components["parameters"]["UserFilter"];
                 /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
                 workspace_id?: components["parameters"]["WorkspaceFilter"];
-                /** @description Optional: restrict the metric to a single workflow (the trace root name), powering the workflow detail page's charts. Only the series endpoints accept it; other metrics endpoints reject it with a 400. Workflow-scoped series are a raw-window feature; ranges longer than 30d (90d, 1y) are rejected with a 400, since per-workflow latency cannot be derived from the daily rollup. */
+                /** @description Optional: restrict the metric to a single workflow (the trace root name), powering the workflow detail page's charts. Only the series endpoints accept it; other metrics endpoints reject it with a 400. Over ranges longer than 30d (90d, 1y) the series read the daily rollup: cost is span-only and the latency series is empty, as it is unscoped. */
                 workflow?: components["parameters"]["WorkflowFilter"];
-                /** @description Optional: restrict the metric to the runs of one workflow version (see Trace.workflow_version), alone or together with workflow. Accepted and limited to ranges up to 30d exactly like workflow. */
+                /** @description Optional: restrict the metric to the runs of one workflow version (see Trace.workflow_version), alone or together with workflow. */
                 version?: components["parameters"]["VersionFilter"];
             };
             header?: never;
@@ -1837,7 +1837,7 @@ export interface operations {
                     "application/json": components["schemas"]["WorkflowDetail"];
                 };
             };
-            /** @description Invalid range, or a range longer than 30d. */
+            /** @description Invalid range. */
             400: {
                 headers: {
                     [name: string]: unknown;

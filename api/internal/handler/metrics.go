@@ -77,7 +77,7 @@ func (h *MetricsHandler) rawFilter(w http.ResponseWriter, r *http.Request) (quer
 	return f, ok
 }
 
-// seriesFilter is baseFilter plus the optional workflow and version params, which need a raw range.
+// seriesFilter is baseFilter plus the optional workflow and version params.
 func (h *MetricsHandler) seriesFilter(w http.ResponseWriter, r *http.Request) (query.MetricsFilter, bool) {
 	f, ok := h.baseFilter(w, r)
 	if !ok {
@@ -85,10 +85,6 @@ func (h *MetricsHandler) seriesFilter(w http.ResponseWriter, r *http.Request) (q
 	}
 	f.Workflow = r.URL.Query().Get("workflow")
 	f.Version = r.URL.Query().Get("version")
-	if (f.Workflow != "" || f.Version != "") && f.UseRollup() {
-		respondError(w, http.StatusBadRequest, "BAD_REQUEST", "workflow and version filtering are available for ranges up to 30d")
-		return query.MetricsFilter{}, false
-	}
 	return f, true
 }
 
@@ -212,7 +208,7 @@ func (h *MetricsHandler) Workflows(w http.ResponseWriter, r *http.Request) {
 
 // WorkflowDetail handles GET /v1/metrics/workflows/{name}.
 func (h *MetricsHandler) WorkflowDetail(w http.ResponseWriter, r *http.Request) {
-	f, ok := workflowFilter(h.rawFilter)(w, r)
+	f, ok := workflowFilter(h.filter)(w, r)
 	if !ok {
 		return
 	}
