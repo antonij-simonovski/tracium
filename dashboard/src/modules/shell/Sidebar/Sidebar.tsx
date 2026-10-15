@@ -10,6 +10,8 @@ import {
   IconX,
   IconSun,
   IconMoon,
+  IconPanel,
+  IconStar,
   handleDialogKeyDown,
 } from '../../../common';
 import hover from '../../../common/styles/hover.module.css';
@@ -27,6 +29,7 @@ interface NavItemProps {
   item: NavItemData;
   active: boolean;
   onClick: () => void;
+  collapsed?: boolean;
 }
 
 interface SidebarProps {
@@ -57,10 +60,12 @@ const NAV_ITEMS: NavItemData[] = [
   { id: 'keys', icon: <IconKey size={16} />, label: 'API Keys' },
 ];
 
-function NavItem({ item, active, onClick }: NavItemProps): React.ReactElement {
+function NavItem({ item, active, onClick, collapsed }: NavItemProps): React.ReactElement {
   return (
     <button
       onClick={onClick}
+      title={collapsed ? item.label : undefined}
+      aria-label={collapsed ? item.label : undefined}
       onMouseEnter={(e) => {
         if (!active) {
           e.currentTarget.style.background = 'var(--surface-alt)';
@@ -76,6 +81,7 @@ function NavItem({ item, active, onClick }: NavItemProps): React.ReactElement {
       style={{
         display: 'flex',
         alignItems: 'center',
+        justifyContent: collapsed ? 'center' : undefined,
         gap: 10,
         width: '100%',
         padding: '7px 10px',
@@ -91,7 +97,7 @@ function NavItem({ item, active, onClick }: NavItemProps): React.ReactElement {
       }}
     >
       <span style={{ flexShrink: 0, opacity: active ? 1 : 0.65 }}>{item.icon}</span>
-      {item.label}
+      {!collapsed && item.label}
     </button>
   );
 }
@@ -118,6 +124,12 @@ export function Sidebar({
     document.documentElement.dataset.theme = next;
     localStorage.setItem('tracium_theme', next);
     setTheme(next);
+  };
+  const [collapsedPref, setCollapsedPref] = useState(localStorage.getItem('tracium_sidebar') === 'collapsed');
+  const collapsed = collapsedPref && !mobile;
+  const toggleCollapsed = () => {
+    localStorage.setItem('tracium_sidebar', collapsedPref ? 'expanded' : 'collapsed');
+    setCollapsedPref(!collapsedPref);
   };
   const drawerOpen = mobile && open;
   useEffect(() => {
@@ -167,7 +179,7 @@ export function Sidebar({
       {...(drawerOpen && { role: 'dialog', 'aria-modal': true, 'aria-label': 'Navigation' })}
       onKeyDown={drawerOpen ? (e) => handleDialogKeyDown(e, () => onClose?.()) : undefined}
       style={{
-        width: 240,
+        width: collapsed ? 64 : 240,
         maxWidth: '85vw',
         flexShrink: 0,
         background: 'var(--sidebar-bg)',
@@ -175,6 +187,7 @@ export function Sidebar({
         display: 'flex',
         flexDirection: 'column',
         overflowY: 'auto',
+        transition: 'width .18s ease',
         ...positioning,
       }}
     >
@@ -207,23 +220,49 @@ export function Sidebar({
           style={{
             display: 'flex',
             alignItems: 'center',
+            justifyContent: collapsed ? 'center' : 'space-between',
             gap: 10,
+            minHeight: 28,
             paddingBottom: 14,
             borderBottom: '1px solid var(--border)',
           }}
         >
-          <TraciumWordmark height={22} />
+          {!collapsed && <TraciumWordmark height={22} />}
+          {!mobile && (
+            <button
+              onClick={toggleCollapsed}
+              aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              aria-expanded={!collapsed}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 28,
+                height: 28,
+                background: 'transparent',
+                border: 'none',
+                borderRadius: 6,
+                color: 'var(--muted)',
+                cursor: 'pointer',
+              }}
+            >
+              <IconPanel size={16} />
+            </button>
+          )}
         </div>
 
-        <div style={{ paddingTop: 10 }}>
-          <WorkspaceSwitcher
-            workspace={workspace}
-            workspaces={workspaces}
-            setWorkspace={setWorkspace}
-            createWorkspace={createWorkspace}
-            deleteWorkspace={deleteWorkspace}
-          />
-        </div>
+        {!collapsed && (
+          <div style={{ paddingTop: 10 }}>
+            <WorkspaceSwitcher
+              workspace={workspace}
+              workspaces={workspaces}
+              setWorkspace={setWorkspace}
+              createWorkspace={createWorkspace}
+              deleteWorkspace={deleteWorkspace}
+            />
+          </div>
+        )}
       </div>
 
       <nav
@@ -244,30 +283,49 @@ export function Sidebar({
               ((currentView === 'trace' || currentView === 'compare') && item.id === 'workflows')
             }
             onClick={() => navigate(item.id)}
+            collapsed={collapsed}
           />
         ))}
       </nav>
 
       <div style={{ padding: '12px', borderTop: '1px solid var(--border)' }}>
+        <a
+          href="https://github.com/antonij-tracium/tracium"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Star on GitHub"
+          title={collapsed ? 'Star on GitHub' : undefined}
+          className={collapsed ? hover.text : undefined}
+          style={{ display: 'flex', justifyContent: collapsed ? 'center' : undefined, padding: '4px 10px 10px' }}
+        >
+          {collapsed
+            ? <IconStar size={16} />
+            : <img src="https://img.shields.io/github/stars/antonij-tracium/tracium?label=Star&style=social" alt="" height={20} />}
+        </a>
         <NavItem
           item={theme === 'light'
             ? { id: 'theme', icon: <IconMoon size={16} />, label: 'Dark mode' }
             : { id: 'theme', icon: <IconSun size={16} />, label: 'Light mode' }}
           active={false}
           onClick={toggleTheme}
+          collapsed={collapsed}
         />
         <NavItem
           item={{ id: 'settings', icon: <IconSettings size={16} />, label: 'Settings' }}
           active={currentView === 'settings'}
           onClick={() => navigate('settings')}
+          collapsed={collapsed}
         />
         {onLogout && (
           <button
             onClick={onLogout}
+            title={collapsed ? 'Log out' : undefined}
+            aria-label={collapsed ? 'Log out' : undefined}
             className={hover.danger}
             style={{
               display: 'flex',
               alignItems: 'center',
+              justifyContent: collapsed ? 'center' : undefined,
               gap: 10,
               width: '100%',
               marginTop: 8,
@@ -283,7 +341,7 @@ export function Sidebar({
             }}
           >
             <IconLogout size={15} />
-            Log out
+            {!collapsed && 'Log out'}
           </button>
         )}
       </div>
