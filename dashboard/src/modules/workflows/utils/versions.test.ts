@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { bucketIndex, change, defaultPair, overlap, previousVersion, releaseMarkers } from './versions';
+import { bucketIndex, change, defaultPair, overlap, previousVersion, fmtSeen, releaseMarkers } from './versions';
 import type { WorkflowVersion } from '../interfaces';
 
 const DAY = 86_400_000;
@@ -15,6 +15,11 @@ function ver(version: string, first: number, last: number): WorkflowVersion {
 const VERSIONS = [ver('v3', 5, 7), ver('', 0, 6), ver('v2', 2, 6), ver('v1', 0, 3)];
 
 describe('workflow versions', () => {
+  it('shows rollup days without a time of day', () => {
+    expect(fmtSeen(Date.UTC(2026, 9, 3))).not.toMatch(/\d:\d/);
+    expect(fmtSeen(Date.UTC(2026, 9, 3, 14, 30))).toMatch(/\d:\d/);
+  });
+
   it('pairs the current version with the one it replaced', () => {
     expect(defaultPair(VERSIONS)).toEqual(['v2', 'v3']);
     expect(defaultPair([ver('v1', 0, 3)])).toBeNull();

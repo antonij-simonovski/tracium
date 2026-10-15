@@ -29,7 +29,7 @@ export class MetricsAPI extends BaseAPIClient {
   }
 
   // The series accept an optional `workflow` to scope the chart to one workflow (the
-  // detail page), and `version` to one of its versions (raw ranges only, ≤30d).
+  // detail page), and `version` to one of its versions.
   // Omitted, they return the workspace-wide series as before.
   getCostSeries(range: string, workflow?: string, userId?: string, version?: string): Promise<PaginatedResponse<CostBucket>> {
     return this.get('/metrics/cost-series', { range, workflow, user_id: userId, version });

@@ -7,8 +7,13 @@ export const versionLabel = (version: string): string => version || 'unversioned
 // Per-run costs sit around cents, where two decimals hide the change.
 export const fmtRunCost = (usd: number): string => (usd >= 0.01 && usd < 1 ? `$${usd.toFixed(4)}` : fmtCost(usd));
 
+const DAY_MS = 86_400_000;
+
+// Long ranges come from the daily rollup as UTC midnights, which carry no time of day.
 export const fmtSeen = (ms: number): string =>
-  new Date(ms).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  ms % DAY_MS === 0
+    ? new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' })
+    : new Date(ms).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
 // Changes within ±5% read as noise and stay neutral.
 const NOISE = 0.05;
