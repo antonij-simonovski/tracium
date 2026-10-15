@@ -5,6 +5,13 @@
   </picture>
 </h1>
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/tracium-robot-dark.png">
+    <img alt="Tracium robot mascot" src="docs/assets/tracium-robot-light.png" width="400">
+  </picture>
+</p>
+
 **Open-source, self-hosted LLM observability.** Tracium is an OpenTelemetry-native
 backend for LLM apps: point any OTel-instrumented app at it and get accurate cost, token,
 latency, and error analytics per model, workflow, and end-client, built to stay
