@@ -14,4 +14,4 @@
 
 <!-- Anything a self-hoster must do or know when upgrading: new or changed env vars,
      Helm values, migrations, spec or API contract changes. Write "None" if nothing.
-     User-visible changes also belong in spec/CHANGELOG.md. -->
+     User-visible changes also belong in CHANGELOG.md. -->

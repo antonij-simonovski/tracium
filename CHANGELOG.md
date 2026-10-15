@@ -1,6 +1,6 @@
 # Changelog
 
-All schema and API changes are recorded here. Follow the format below when adding entries.
+All user-visible changes (schema, API, collector, dashboard, deployment) are recorded here. Follow the format below when adding entries.
 Breaking changes require a `schema_version` bump. Additive changes do not.
 
 ---

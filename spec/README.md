@@ -33,7 +33,6 @@ spec/
     tracium.yaml          ← tracium.* attributes written by the collector
   codegen/
     gen-ts-types.sh       ← generates TypeScript types in dashboard
-  CHANGELOG.md            ← all schema and API changes, version-tagged
   README.md               ← this file
 ```
 
@@ -51,7 +50,7 @@ These changes can be merged without a `schema_version` bump:
 ### What IS a breaking change
 
 These changes require incrementing `schema_version` in `span.json` or
-`trace.json`, a `CHANGELOG.md` entry, and announcement before merge:
+`trace.json`, a [`CHANGELOG.md`](../CHANGELOG.md) entry, and announcement before merge:
 
 - Renaming any field
 - Removing any field
@@ -100,7 +99,7 @@ the version number.
 
 Commit the generated output changes alongside your schema changes.
 
-### Step 5: Update CHANGELOG.md
+### Step 5: Update the root CHANGELOG.md
 
 Add a one-line bullet under `## [Unreleased]`, in `### Added`, `### Changed`,
 `### Fixed` or `### Removed`. Keep it an outline: name the change, and mark it
@@ -169,6 +168,6 @@ Do not hand-edit the file. Regenerate it:
 
 1. Run `./pricing/refresh-pricing.sh` (optionally pass a LiteLLM git ref to pin).
    It records the pinned commit in `source`.
-2. Add a `### Changed` entry to `CHANGELOG.md`.
+2. Add a `### Changed` entry to [`CHANGELOG.md`](../CHANGELOG.md).
 3. Commit. The collector reads this file at startup and picks up changes on
    next restart.
