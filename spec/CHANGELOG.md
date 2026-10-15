@@ -16,6 +16,7 @@ Breaking changes require a `schema_version` bump. Additive changes do not.
 - `GET /v1/metrics/token-series` returns input and output tokens per time bucket; the Usage page charts them
 - `span.json` lists `workflow_version`
 - The examples set `tracium.workflow.version`, and the demo seed ships two or three releases per workflow, with one unversioned workflow
+- `Anomaly.version_change`: a workflow version first seen on the anomaly's day or the day before; the summary and the Overview outliers name it
 - The smoke test checks versions end to end, and the upgrade test runs migration 014 on a 1.0.4 rollup
 
 ### Changed

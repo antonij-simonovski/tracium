@@ -107,3 +107,33 @@ func TestAnomalySummary(t *testing.T) {
 		}
 	}
 }
+
+func TestAttachVersionChanges(t *testing.T) {
+	firsts := []model.VersionChange{
+		{Workflow: "planner", Version: "v1", FirstSeenMs: 2 * day},
+		{Workflow: "rewrite-message", Version: "v2", FirstSeenMs: 9 * day},
+		{Workflow: "planner", Version: "v2", FirstSeenMs: 10 * day},
+	}
+	in := []model.Anomaly{
+		{Scope: "workflow", Workflow: "planner", BucketMs: 10 * day, Summary: "x."},
+		{Scope: "workflow", Workflow: "rewrite-message", BucketMs: 10 * day},
+		{Scope: "workspace", BucketMs: 10 * day},
+		{Scope: "workflow", Workflow: "planner", BucketMs: 5 * day},
+		{Scope: "workflow", Workflow: "planner", BucketMs: 12 * day},
+	}
+	attachVersionChanges(in, firsts)
+
+	want := []string{"planner/v2", "rewrite-message/v2", "planner/v2", "", ""}
+	for i, a := range in {
+		got := ""
+		if a.VersionChange != nil {
+			got = a.VersionChange.Workflow + "/" + a.VersionChange.Version
+		}
+		if got != want[i] {
+			t.Errorf("anomaly %d version change = %q, want %q", i, got, want[i])
+		}
+	}
+	if in[0].Summary != "x. Started near planner v2 (first seen 1970-01-11)." {
+		t.Errorf("summary = %q", in[0].Summary)
+	}
+}

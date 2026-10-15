@@ -1222,6 +1222,14 @@ export interface components {
             severity: "info" | "warning" | "critical";
             /** @description One-line human-readable description of the anomaly. */
             summary: string;
+            /** @description The workflow version first seen on the anomaly's day or the day before (of its own workflow when scope is "workflow"), or null. */
+            version_change: components["schemas"]["VersionChange"] | null;
+        };
+        VersionChange: {
+            workflow: string;
+            version: string;
+            /** @description The day the version was first seen, Unix epoch milliseconds (UTC midnight). */
+            first_seen_ms: number;
         };
         SetupIssue: {
             /** @description Stable identifier: no_llm_spans, unpriced_model, unmetered, no_model, instant_llm_spans, error_without_detail, missing_root_span, unnamed_workflow, or rejected_<drop code> for spans the collector rejected (e.g. rejected_invalid_timestamp). */
