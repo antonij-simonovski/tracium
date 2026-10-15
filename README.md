@@ -29,11 +29,6 @@
 
 ## How it works
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/tracium-how-it-works-dark.svg">
-  <img alt="Your app sends OTLP with an API key to the Tracium collector, which prices and tags each call and writes to ClickHouse; the dashboard reads it through the API. Everything runs on your infrastructure." src="docs/assets/tracium-how-it-works-light.svg" width="100%">
-</picture>
-
 Tracium is an OpenTelemetry backend, not an SDK: anything that exports OTLP can
 send to it. It reads the [GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/)
 and [OpenLLMetry](https://github.com/traceloop/openllmetry) attributes, so OpenAI,
@@ -41,10 +36,13 @@ Anthropic, Bedrock, Vertex AI, LangChain, LlamaIndex and more work out of the bo
 
 ## Features
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/tracium-features-dark.svg">
-  <img alt="Tracium features: anomaly detection, workflow versions, trace viewer, cost allocation, per-client metering and setup checks." src="docs/assets/tracium-features-light.svg" width="100%">
-</picture>
+- **Anomaly detection**: spikes and drops in cost, error rate and runs, linked to the workflow version that likely caused them.
+- **Workflow versions**: compare cost, latency and errors between releases of a prompt or agent.
+- **Trace viewer**: every step of a run with its prompt, completion, tokens, cost and timing.
+- **Cost allocation**: split spend by model, or by any attribute you attach (`team`, `environment`, …).
+- **Clients**: meter spend and failures per end client.
+- **Setup checks**: catch instrumentation gaps like unpriced models, with how to fix each.
+- **Self-hosted**: one `docker compose up` or a Helm chart; your prompts and traces never leave your infrastructure.
 
 ## Quickstart
 
