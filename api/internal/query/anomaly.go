@@ -122,6 +122,14 @@ func (r *ClickHouseRepository) Anomalies(ctx context.Context, f MetricsFilter) (
 		}
 	}
 
+	if len(out) > 0 {
+		firsts, err := r.versionFirstSeen(ctx, f, detectFrom-versionLeadMs)
+		if err != nil {
+			return nil, err
+		}
+		attachVersionChanges(out, firsts)
+	}
+
 	sortAnomalies(out)
 	if len(out) > anomalyResultLimit {
 		out = out[:anomalyResultLimit]
@@ -288,6 +296,56 @@ GROUP BY workflow_name, bucket_ms`, bucketMsExpr, clause, placeholders)
 		byWorkflow[name][bm] = d
 	}
 	return byWorkflow, rows.Err()
+}
+
+// versionLeadMs is how far before an anomaly's day a first-seen version still counts as near it.
+const versionLeadMs = 24 * 60 * 60 * 1000
+
+// versionFirstSeen returns workflow versions first seen at or after since, earliest first.
+func (r *ClickHouseRepository) versionFirstSeen(ctx context.Context, f MetricsFilter, since int64) ([]model.VersionChange, error) {
+	clause, args := rollupWindow(f.UserID, f.WorkspaceIDs, time.Unix(0, 0).UTC(), f.End, true)
+	q := fmt.Sprintf(`SELECT workflow_name, workflow_version, min(%s) AS first_seen
+FROM tracium.metrics_daily WHERE %s AND workflow_name != '' AND workflow_version != ''
+GROUP BY workflow_name, workflow_version HAVING first_seen >= ?
+ORDER BY first_seen, workflow_name, workflow_version`, bucketMsExpr, clause)
+
+	rows, err := r.db.QueryContext(ctx, q, append(args, since)...)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse: version first seen: %w", err)
+	}
+	defer rows.Close()
+
+	var out []model.VersionChange
+	for rows.Next() {
+		var v model.VersionChange
+		if err := rows.Scan(&v.Workflow, &v.Version, &v.FirstSeenMs); err != nil {
+			return nil, fmt.Errorf("clickhouse: scan version first seen: %w", err)
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+// attachVersionChanges gives each anomaly the latest version first seen within
+// versionLeadMs before its bucket, of its own workflow for workflow-scoped ones.
+func attachVersionChanges(anomalies []model.Anomaly, firsts []model.VersionChange) {
+	for i := range anomalies {
+		a := &anomalies[i]
+		for j := range firsts {
+			v := firsts[j]
+			if v.FirstSeenMs > a.BucketMs {
+				break
+			}
+			if v.FirstSeenMs < a.BucketMs-versionLeadMs || (a.Scope == "workflow" && v.Workflow != a.Workflow) {
+				continue
+			}
+			a.VersionChange = &firsts[j]
+		}
+		if a.VersionChange != nil {
+			a.Summary += fmt.Sprintf(" Started near %s %s (first seen %s).", a.VersionChange.Workflow, a.VersionChange.Version,
+				time.UnixMilli(a.VersionChange.FirstSeenMs).UTC().Format(dateFmt))
+		}
+	}
 }
 
 // sortAnomalies orders anomalies most-actionable first: by severity, then by

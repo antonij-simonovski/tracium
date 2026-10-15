@@ -11,7 +11,8 @@ package model
 // "info" | "warning" | "critical". Observed is the bucket's value, Expected the
 // baseline median, Deviation their difference, and Score the signed robust
 // z-score behind the ranking. Summary is a ready-to-read sentence; the dashboard
-// may reformat from the raw fields instead.
+// may reformat from the raw fields instead. VersionChange is the workflow version
+// first seen on the anomaly's day or the day before, or nil.
 type Anomaly struct {
 	Metric    string  `json:"metric"`
 	Scope     string  `json:"scope"`
@@ -24,6 +25,15 @@ type Anomaly struct {
 	Direction string  `json:"direction"`
 	Severity  string  `json:"severity"`
 	Summary   string  `json:"summary"`
+
+	VersionChange *VersionChange `json:"version_change"`
+}
+
+// VersionChange is a workflow version and the day it was first seen.
+type VersionChange struct {
+	Workflow    string `json:"workflow"`
+	Version     string `json:"version"`
+	FirstSeenMs int64  `json:"first_seen_ms"`
 }
 
 // KPI is a single headline metric with its period-over-period change.

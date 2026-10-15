@@ -2406,6 +2406,7 @@ components:
         - direction
         - severity
         - summary
+        - version_change
       properties:
         metric:
           type: string
@@ -2444,6 +2445,24 @@ components:
         summary:
           type: string
           description: One-line human-readable description of the anomaly.
+        version_change:
+          allOf: [{ $ref: "#/components/schemas/VersionChange" }]
+          nullable: true
+          description: >-
+            The workflow version first seen on the anomaly's day or the day before
+            (of its own workflow when scope is "workflow"), or null.
+
+    VersionChange:
+      type: object
+      required: [workflow, version, first_seen_ms]
+      properties:
+        workflow:
+          type: string
+        version:
+          type: string
+        first_seen_ms:
+          type: integer
+          description: The day the version was first seen, Unix epoch milliseconds (UTC midnight).
 
     SetupIssue:
       type: object

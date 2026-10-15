@@ -7,6 +7,7 @@ import {
   anomalyKey,
   zLabel,
   ratioLabel,
+  versionChangeLabel,
   bySeverity,
   groupIncidents,
   type Incident,
@@ -275,6 +276,7 @@ function OutlierRow({
           <span style={{ fontFamily: MONO, fontSize: 13, color: 'var(--muted)' }}>
             {target} · {bucketLabel(a.bucket_ms, range)}
           </span>
+          <VersionChangeNote anomaly={a} range={range} />
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 120, flex: narrow ? '1 1 auto' : '0 0 auto', textAlign: narrow ? 'left' : 'right', marginLeft: narrow ? 0 : 'auto' }}>
@@ -333,6 +335,7 @@ function IncidentCard({
   const target = incident.scope === 'workflow' ? incident.workflow : 'Workspace-wide';
   const n = incident.anomalies.length;
   const workflowAnom = incident.anomalies.find((a) => a.scope === 'workflow');
+  const versionAnom = incident.anomalies.find((a) => a.version_change);
 
   return (
     <div
@@ -365,6 +368,7 @@ function IncidentCard({
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: '1 1 auto', minWidth: 160 }}>
           <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--foreground)' }}>{target}</span>
           <span style={{ fontFamily: MONO, fontSize: 13, color: 'var(--muted)' }}>{bucketLabel(incident.bucket_ms, range)}</span>
+          {versionAnom && <VersionChangeNote anomaly={versionAnom} range={range} />}
         </div>
 
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', flex: narrow ? '1 1 100%' : '0 1 auto' }}>
@@ -435,6 +439,18 @@ function SeverityDot({ severity, size = 8 }: { severity: Anomaly['severity']; si
         boxShadow: severity === 'critical' ? `0 0 8px ${meta.border}` : 'none',
       }}
     />
+  );
+}
+
+function VersionChangeNote({ anomaly: a, range }: { anomaly: Anomaly; range: string }) {
+  if (!a.version_change) return null;
+  return (
+    <span
+      title={`First seen ${bucketLabel(a.version_change.first_seen_ms, range)}`}
+      style={{ fontFamily: MONO, fontSize: 12, color: 'var(--accent)' }}
+    >
+      {versionChangeLabel(a)}
+    </span>
   );
 }
 

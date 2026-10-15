@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { SEVERITY_META } from '../../../common';
 import type { Anomaly } from '../interfaces';
-import { anomalyChips, anomalyValue, bySeverity, groupIncidents, ratioLabel, toChartMarkers } from './anomalies';
+import { anomalyChips, anomalyValue, bySeverity, groupIncidents, ratioLabel, toChartMarkers, versionChangeLabel } from './anomalies';
 
 const DAY = 86_400_000;
 
@@ -18,6 +18,7 @@ function anom(over: Partial<Anomaly>): Anomaly {
     direction: 'spike',
     severity: 'warning',
     summary: '',
+    version_change: null,
     ...over,
   };
 }
@@ -128,5 +129,14 @@ describe('toChartMarkers', () => {
     const markers = toChartMarkers([a], axis, { onSelect: (x) => (picked = x) });
     markers[0].onClick?.();
     expect(picked).toBe(a);
+  });
+});
+
+describe('versionChangeLabel', () => {
+  const v = { workflow: 'rewrite-message', version: 'v2', first_seen_ms: 0 };
+  it('names only the version on its own workflow, and the workflow too workspace-wide', () => {
+    expect(versionChangeLabel(anom({}))).toBe('');
+    expect(versionChangeLabel(anom({ version_change: v }))).toBe('after v2');
+    expect(versionChangeLabel(anom({ scope: 'workspace', workflow: '', version_change: v }))).toBe('after rewrite-message v2');
   });
 });
