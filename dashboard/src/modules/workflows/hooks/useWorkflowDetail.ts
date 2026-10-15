@@ -36,12 +36,12 @@ export function useWorkflowVersions(name: string, range: string, enabled = true)
   });
 }
 
-export function useVersionComparison(name: string, base: string, candidate: string, range: string) {
+export function useWorkflowTokenSeries(name: string, range: string, enabled = true, version?: string) {
   const { metricsAPI, workspaceId } = useAPIClient();
   return useQuery({
-    queryKey: ['workflows', 'compare', workspaceId, name, range, base, candidate],
-    queryFn: () => metricsAPI.compareWorkflowVersions(name, base, candidate, range),
-    ...shared(workspaceId, name, true),
+    queryKey: ['workflows', 'token-series', workspaceId, name, range, version],
+    queryFn: () => metricsAPI.getTokenSeries(range, undefined, name, version),
+    ...shared(workspaceId, name, enabled),
   });
 }
 

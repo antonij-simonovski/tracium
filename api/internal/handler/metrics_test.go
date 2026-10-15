@@ -441,52 +441,6 @@ func TestMetricsWorkflowVersions(t *testing.T) {
 	}
 }
 
-func TestMetricsCompareVersions(t *testing.T) {
-	repo := &mocks.MockMetricsRepository{
-		Comparison: model.VersionComparison{
-			Base:       model.WorkflowVersion{Version: "v11"},
-			Candidate:  model.WorkflowVersion{Version: "v12"},
-			CostPerRun: model.KPI{Value: 0.07, Delta: 0.4, DeltaType: "bad"},
-		},
-	}
-	h := newMetricsHandler(repo)
-
-	rr := httptest.NewRecorder()
-	serveAuthed(h.CompareVersions, rr, workflowDetailRequest("planner", "range=7d&base=v11&candidate=v12"))
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rr.Code)
-	}
-	var got model.VersionComparison
-	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if got.Candidate.Version != "v12" || got.CostPerRun.DeltaType != "bad" {
-		t.Errorf("comparison = %+v, want v12 with a bad cost-per-run delta", got)
-	}
-}
-
-func TestMetricsCompareVersionsErrors(t *testing.T) {
-	for _, tc := range []struct {
-		name, query string
-		err         error
-		status      int
-	}{
-		{"missing candidate", "range=7d&base=v11", nil, http.StatusBadRequest},
-		{"same version twice", "range=7d&base=v11&candidate=v11", nil, http.StatusBadRequest},
-		{"unknown version", "range=7d&base=v11&candidate=v99", query.ErrNotFound, http.StatusNotFound},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			h := newMetricsHandler(&mocks.MockMetricsRepository{Err: tc.err})
-			rr := httptest.NewRecorder()
-			serveAuthed(h.CompareVersions, rr, workflowDetailRequest("planner", tc.query))
-			if rr.Code != tc.status {
-				t.Fatalf("status = %d, want %d", rr.Code, tc.status)
-			}
-		})
-	}
-}
-
 func TestMetricsAttributeEndpointsRejectRollupRange(t *testing.T) {
 	h := newMetricsHandler(&mocks.MockMetricsRepository{})
 	for path, hf := range map[string]http.HandlerFunc{

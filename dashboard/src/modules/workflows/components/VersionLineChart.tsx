@@ -4,13 +4,19 @@ import type { ChartMarker } from '../../../common/interfaces';
 
 type Series = (number | null)[];
 
-interface VersionLineChartProps {
-  labels: string[];
+export interface ChartMetric {
+  title: string;
   base: Series;
   candidate: Series;
+  fmt: (v: number) => string;
+}
+
+interface VersionLineChartProps {
+  labels: string[];
+  // One or two metrics; the second gets the right axis and dashed lines.
+  metrics: ChartMetric[];
   baseLabel: string;
   candidateLabel: string;
-  yFmt: (v: number) => string;
   // Bucket range both versions ran in, shaded behind the lines.
   band?: [number, number] | null;
   markers?: ChartMarker[];
@@ -19,8 +25,17 @@ interface VersionLineChartProps {
 
 const BASE_COLOR = 'var(--foreground)';
 const CANDIDATE_COLOR = 'var(--accent)';
+export const SECOND_METRIC_COLOR = 'var(--info)';
 
-export function VersionLineChart({ labels, base, candidate, baseLabel, candidateLabel, yFmt, band, markers = [], height = 240 }: VersionLineChartProps) {
+function scale(m: ChartMetric) {
+  const all = [...m.base, ...m.candidate].filter((v): v is number => v != null);
+  const hi = all.length ? Math.max(...all) : 1;
+  const lo = all.length ? Math.min(...all) : 0;
+  const spread = hi - lo || hi || 1;
+  return { max: hi + spread * 0.2, min: Math.max(0, lo - spread * 0.5) };
+}
+
+export function VersionLineChart({ labels, metrics, baseLabel, candidateLabel, band, markers = [], height = 240 }: VersionLineChartProps) {
   const [hover, setHover] = useState<number | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const width = useResize(ref);
@@ -30,18 +45,16 @@ export function VersionLineChart({ labels, base, candidate, baseLabel, candidate
   const innerW = Math.max(1, width - pad.left - pad.right);
   const innerH = height - pad.top - pad.bottom;
   const step = innerW / Math.max(1, n);
-  const all = [...base, ...candidate].filter((v): v is number => v != null);
-  const hi = all.length ? Math.max(...all) : 1;
-  const lo = all.length ? Math.min(...all) : 0;
-  const spread = hi - lo || hi || 1;
-  const max = hi + spread * 0.2;
-  const min = Math.max(0, lo - spread * 0.5);
+  const dual = metrics.length > 1;
+  const scales = metrics.map((m) => {
+    const { min, max } = scale(m);
+    return { min, max, y: (v: number) => pad.top + innerH - ((v - min) / (max - min || 1)) * innerH };
+  });
   const x = (i: number) => pad.left + (i + 0.5) * step;
-  const y = (v: number) => pad.top + innerH - ((v - min) / (max - min || 1)) * innerH;
   const ticks = 3;
   const labelStep = Math.max(1, Math.ceil(58 / step));
 
-  const path = (s: Series) => {
+  const path = (s: Series, y: (v: number) => number) => {
     let d = '';
     let pen = false;
     s.forEach((v, i) => {
@@ -59,10 +72,12 @@ export function VersionLineChart({ labels, base, candidate, baseLabel, candidate
     return -1;
   };
 
-  const lines = [
-    { s: base, color: BASE_COLOR, opacity: 0.55, width: 2, label: baseLabel },
-    { s: candidate, color: CANDIDATE_COLOR, opacity: 1, width: 2.25, label: candidateLabel },
-  ];
+  const lines = metrics.flatMap((m, mi) => [
+    { s: m.base, color: mi ? SECOND_METRIC_COLOR : BASE_COLOR, opacity: mi ? 0.45 : 0.55, width: 2, label: baseLabel, key: `${mi}-base`, mi, fmt: m.fmt, y: scales[mi].y },
+    { s: m.candidate, color: mi ? SECOND_METRIC_COLOR : CANDIDATE_COLOR, opacity: 1, width: 2.25, label: candidateLabel, key: `${mi}-candidate`, mi, fmt: m.fmt, y: scales[mi].y },
+  ]);
+  const tipW = dual ? 190 : 160;
+  const tipH = 28 + lines.length * 16 + (dual ? 2 * 16 : 0);
 
   return (
     <div ref={ref} style={{ position: 'relative', width: '100%' }} onMouseLeave={() => setHover(null)}>
@@ -79,13 +94,20 @@ export function VersionLineChart({ labels, base, candidate, baseLabel, candidate
           />
         )}
         {Array.from({ length: ticks + 1 }, (_, i) => {
-          const v = min + ((max - min) * i) / ticks;
+          const [left, right] = scales;
+          const v = left.min + ((left.max - left.min) * i) / ticks;
+          const yy = left.y(v);
           return (
             <g key={i}>
-              <line x1={pad.left} x2={width - pad.right} y1={y(v)} y2={y(v)} stroke="var(--chart-grid)" />
-              <text x={pad.left - 10} y={y(v) + 4} fill="var(--muted)" fontSize="12" textAnchor="end">
-                {yFmt(v)}
+              <line x1={pad.left} x2={width - pad.right} y1={yy} y2={yy} stroke="var(--chart-grid)" />
+              <text x={pad.left - 10} y={yy + 4} fill="var(--muted)" fontSize="12" textAnchor="end">
+                {metrics[0].fmt(v)}
               </text>
+              {right && (
+                <text x={width - pad.right + 10} y={yy + 4} fill={SECOND_METRIC_COLOR} fontSize="12">
+                  {metrics[1].fmt(right.min + ((right.max - right.min) * i) / ticks)}
+                </text>
+              )}
             </g>
           );
         })}
@@ -102,30 +124,31 @@ export function VersionLineChart({ labels, base, candidate, baseLabel, candidate
         ))}
 
         {lines.map((l) => (
-          <g key={l.label} opacity={l.opacity}>
-            <path d={path(l.s)} stroke={l.color} strokeWidth={l.width} fill="none" strokeLinejoin="round" strokeLinecap="round" />
+          <g key={l.key} opacity={l.opacity}>
+            <path d={path(l.s, l.y)} stroke={l.color} strokeWidth={l.width} strokeDasharray={l.mi ? '6 4' : undefined} fill="none" strokeLinejoin="round" strokeLinecap="round" />
             {step >= 10 &&
               l.s.map((v, i) =>
-                v == null ? null : <circle key={i} cx={x(i)} cy={y(v)} r={3.5} fill="var(--background)" stroke={l.color} strokeWidth={1.5} />,
+                v == null ? null : <circle key={i} cx={x(i)} cy={l.y(v)} r={3.5} fill="var(--background)" stroke={l.color} strokeWidth={1.5} />,
               )}
           </g>
         ))}
 
-        {lines.map((l) => {
+        {/* The right axis takes the end-label space when two metrics share the chart. */}
+        {!dual && lines.map((l) => {
           const j = last(l.s);
           // The label would sit on the other line where it carries on right after.
           const crowded = lines.some((o) => o !== l && o.s.slice(j + 1, j + 4).some((v) => v != null));
           if (j < 0 || crowded) return null;
           return (
             <text
-              key={`end-${l.label}`}
+              key={`end-${l.key}`}
               x={x(j) + 8}
-              y={y(l.s[j]!) + 4}
+              y={l.y(l.s[j]!) + 4}
               fill={l.color === BASE_COLOR ? 'var(--muted)' : l.color}
               fontSize="12"
               fontWeight="600"
             >
-              {yFmt(l.s[j]!)}
+              {l.fmt(l.s[j]!)}
             </text>
           );
         })}
@@ -142,24 +165,35 @@ export function VersionLineChart({ labels, base, candidate, baseLabel, candidate
         ))}
 
         {hover !== null && (() => {
-          const tx = Math.min(Math.max(x(hover), pad.left + 80), width - pad.right - 80);
-          const rows = lines.map((l) => ({ ...l, v: l.s[hover] }));
+          const half = tipW / 2;
+          const tx = Math.min(Math.max(x(hover), pad.left + half), width - pad.right - half);
+          let rowY = 20;
           return (
             <g style={{ pointerEvents: 'none' }}>
               <line x1={x(hover)} x2={x(hover)} y1={pad.top} y2={pad.top + innerH} stroke="var(--foreground)" strokeOpacity="0.12" strokeDasharray="3 3" />
               <g transform={`translate(${tx}, ${pad.top})`}>
-                <rect x="-80" y="0" width="160" height="64" rx="8" fill="var(--chart-tooltip-bg)" stroke="var(--border)" />
-                <text x="-68" y="18" fill="var(--muted)" fontSize="12">{labels[hover]}</text>
-                {rows.map((r, k) => (
-                  <g key={r.label} fontSize="13">
-                    <text x="-68" y={36 + k * 16} fill={r.color === BASE_COLOR ? 'var(--muted)' : r.color} fontFamily="var(--font-mono)">
-                      {r.label.length > 12 ? `${r.label.slice(0, 11)}…` : r.label}
-                    </text>
-                    <text x="68" y={36 + k * 16} fill="var(--foreground)" textAnchor="end" fontWeight="500">
-                      {r.v == null ? '—' : yFmt(r.v)}
-                    </text>
-                  </g>
-                ))}
+                <rect x={-half} y="0" width={tipW} height={tipH} rx="8" fill="var(--chart-tooltip-bg)" stroke="var(--border)" />
+                <text x={12 - half} y="18" fill="var(--muted)" fontSize="12">{labels[hover]}</text>
+                {lines.map((l) => {
+                  const title = dual && l.key.endsWith('-base') ? (rowY += 16) : null;
+                  const ry = (rowY += 16);
+                  const v = l.s[hover];
+                  return (
+                    <g key={l.key} fontSize="13">
+                      {title != null && (
+                        <text x={12 - half} y={title} fill={l.mi ? SECOND_METRIC_COLOR : 'var(--muted)'} fontSize="12">
+                          {metrics[l.mi].title}{l.mi ? ' (right)' : ''}
+                        </text>
+                      )}
+                      <text x={12 - half} y={ry} fill={l.color === BASE_COLOR ? 'var(--muted)' : l.color} opacity={l.mi && l.key.endsWith('-base') ? 0.7 : 1} fontFamily="var(--font-mono)">
+                        {l.label.length > 12 ? `${l.label.slice(0, 11)}…` : l.label}
+                      </text>
+                      <text x={half - 12} y={ry} fill="var(--foreground)" textAnchor="end" fontWeight="500">
+                        {v == null ? '—' : l.fmt(v)}
+                      </text>
+                    </g>
+                  );
+                })}
               </g>
             </g>
           );

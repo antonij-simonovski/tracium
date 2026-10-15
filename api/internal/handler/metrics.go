@@ -233,33 +233,6 @@ func (h *MetricsHandler) WorkflowVersions(w http.ResponseWriter, r *http.Request
 	serveList(w, r, workflowFilter(h.filter), "workflow versions", withLimit(h.repo.WorkflowVersions, workflowsLimit))
 }
 
-// CompareVersions handles GET /v1/metrics/workflows/{name}/versions/compare?base=v1&candidate=v2.
-func (h *MetricsHandler) CompareVersions(w http.ResponseWriter, r *http.Request) {
-	base, candidate := r.URL.Query().Get("base"), r.URL.Query().Get("candidate")
-	if base == "" || candidate == "" {
-		respondError(w, http.StatusBadRequest, "BAD_REQUEST", "the 'base' and 'candidate' query parameters are required")
-		return
-	}
-	if base == candidate {
-		respondError(w, http.StatusBadRequest, "BAD_REQUEST", "'base' and 'candidate' must name different versions")
-		return
-	}
-	f, ok := workflowFilter(h.filter)(w, r)
-	if !ok {
-		return
-	}
-	comparison, err := h.repo.CompareVersions(r.Context(), f, base, candidate)
-	if err != nil {
-		if errors.Is(err, query.ErrNotFound) {
-			respondError(w, http.StatusNotFound, "VERSION_NOT_FOUND", "version not found")
-			return
-		}
-		respondError(w, http.StatusInternalServerError, "INTERNAL", "failed to compare versions")
-		return
-	}
-	respondJSON(w, http.StatusOK, comparison)
-}
-
 // Failures handles GET /v1/metrics/failures. Total counts every failed run in
 // the window, not just the listed workflows.
 func (h *MetricsHandler) Failures(w http.ResponseWriter, r *http.Request) {

@@ -108,26 +108,25 @@ type TokenPoint struct {
 }
 
 // WorkflowDetail is one workflow's detail-page payload: its headline metrics over the
-// window plus the version and tool surface of its most recent run. Span-backed
+// window plus the tool surface from its most recent run. Span-backed
 // only — there is no workflow-config store, so runtime params (temperature,
 // retries, owner, …) are not served. P95LatencyMs is a pointer so it serialises
 // as null when undefined (no runs in the window). It is a raw-window payload
 // (≤30d): the handler rejects rollup ranges, since per-workflow latency can't be
 // derived from the daily rollup (same limitation as LatencySeries).
 type WorkflowDetail struct {
-	Name           string          `json:"name"`
-	Calls          int64           `json:"calls"`
-	Cost           float64         `json:"cost"`
-	AvgLatencyMs   float64         `json:"avg_latency_ms"`
-	P95LatencyMs   *float64        `json:"p95_latency_ms"`
-	ErrorRate      float64         `json:"error_rate"`
-	InputTokens    int64           `json:"input_tokens"`
-	OutputTokens   int64           `json:"output_tokens"`
-	Model          string          `json:"model"`    // modal model_normalized over the window
-	Provider       string          `json:"provider"` // inferred from the model id; "" when unrecognised
-	Tools          []AvailableTool `json:"tools"`    // union of available_tools from the latest run
-	LastTraceID    string          `json:"last_trace_id"`
-	CurrentVersion string          `json:"current_version"`
+	Name         string          `json:"name"`
+	Calls        int64           `json:"calls"`
+	Cost         float64         `json:"cost"`
+	AvgLatencyMs float64         `json:"avg_latency_ms"`
+	P95LatencyMs *float64        `json:"p95_latency_ms"`
+	ErrorRate    float64         `json:"error_rate"`
+	InputTokens  int64           `json:"input_tokens"`
+	OutputTokens int64           `json:"output_tokens"`
+	Model        string          `json:"model"`    // modal model_normalized over the window
+	Provider     string          `json:"provider"` // inferred from the model id; "" when unrecognised
+	Tools        []AvailableTool `json:"tools"`    // union of available_tools from the latest run
+	LastTraceID  string          `json:"last_trace_id"`
 }
 
 // WorkflowVersion is one version of a workflow over the window; P95LatencyMs is nil over rollup ranges.
@@ -141,16 +140,6 @@ type WorkflowVersion struct {
 	P95LatencyMs *float64 `json:"p95_latency_ms"`
 	ErrorRate    float64  `json:"error_rate"`
 	TokensPerRun float64  `json:"tokens_per_run"`
-}
-
-// VersionComparison holds each KPI as the candidate's value and its change from the base.
-type VersionComparison struct {
-	Base         WorkflowVersion `json:"base"`
-	Candidate    WorkflowVersion `json:"candidate"`
-	CostPerRun   KPI             `json:"cost_per_run"`
-	P95LatencyMs KPI             `json:"p95_latency_ms"`
-	ErrorRate    KPI             `json:"error_rate"`
-	TokensPerRun KPI             `json:"tokens_per_run"`
 }
 
 // Failure aggregates errored runs for one workflow. Pct is the fraction of that

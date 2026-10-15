@@ -79,7 +79,7 @@ export function WorkflowDetailLivePage({ workflowName, range, setView, setSelect
     setView('compare');
   };
 
-  const current = versions.find((v) => v.version === d.current_version);
+  const current = versions.find(comparable);
   const pair = defaultPair(versions);
   const replaced = current && previousVersion(versions, current);
   const cprChange = current && replaced ? change(current.cost_per_run, replaced.cost_per_run) : 0;
@@ -93,7 +93,7 @@ export function WorkflowDetailLivePage({ workflowName, range, setView, setSelect
   const configRows: MetaRowProps[] = [
     { label: 'model', value: d.model || '—', mono: true },
     ...(d.provider ? [{ label: 'provider', value: d.provider }] : []),
-    ...(d.current_version ? [{ label: 'version', value: d.current_version, mono: true, accent: true }] : []),
+    ...(current ? [{ label: 'version', value: current.version, mono: true, accent: true }] : []),
     { label: 'input tokens', value: fmtNum(d.input_tokens), mono: true },
     { label: 'output tokens', value: fmtNum(d.output_tokens), mono: true },
   ];
@@ -101,7 +101,7 @@ export function WorkflowDetailLivePage({ workflowName, range, setView, setSelect
   return (
     <WorkflowDetailPage
       name={d.name}
-      version={d.current_version || undefined}
+      version={current?.version}
       versionSince={current ? fmtSeen(current.first_seen_ms) : undefined}
       range={range}
       scope={filtered ? `${filtered.version} only` : versioned ? 'all versions' : undefined}

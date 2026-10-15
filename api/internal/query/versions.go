@@ -3,7 +3,6 @@ package query
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/tracium/api/internal/model"
 )
@@ -13,54 +12,14 @@ func (r *ClickHouseRepository) WorkflowVersions(ctx context.Context, f MetricsFi
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 
-	return r.workflowVersions(ctx, f, nil, limit)
+	return r.workflowVersions(ctx, f, limit)
 }
 
-// CompareVersions compares two versions of f.Workflow, or returns ErrNotFound when either has no runs.
-func (r *ClickHouseRepository) CompareVersions(ctx context.Context, f MetricsFilter, base, candidate string) (model.VersionComparison, error) {
-	ctx, cancel := r.withTimeout(ctx)
-	defer cancel()
-
-	versions, err := r.workflowVersions(ctx, f, []string{base, candidate}, 2)
-	if err != nil {
-		return model.VersionComparison{}, err
-	}
-	byVersion := make(map[string]model.WorkflowVersion, len(versions))
-	for _, v := range versions {
-		byVersion[v.Version] = v
-	}
-	b, okBase := byVersion[base]
-	c, okCandidate := byVersion[candidate]
-	if !okBase || !okCandidate {
-		return model.VersionComparison{}, ErrNotFound
-	}
-	return compareVersions(b, c), nil
-}
-
-func compareVersions(base, candidate model.WorkflowVersion) model.VersionComparison {
-	return model.VersionComparison{
-		Base:         base,
-		Candidate:    candidate,
-		CostPerRun:   kpi(candidate.CostPerRun, base.CostPerRun, true),
-		P95LatencyMs: kpi(valueOrZero(candidate.P95LatencyMs), valueOrZero(base.P95LatencyMs), true),
-		ErrorRate:    kpi(candidate.ErrorRate, base.ErrorRate, true),
-		TokensPerRun: kpi(candidate.TokensPerRun, base.TokensPerRun, true),
-	}
-}
-
-func valueOrZero(v *float64) float64 {
-	if v == nil {
-		return 0
-	}
-	return *v
-}
-
-func (r *ClickHouseRepository) workflowVersions(ctx context.Context, f MetricsFilter, only []string, limit int) ([]model.WorkflowVersion, error) {
+func (r *ClickHouseRepository) workflowVersions(ctx context.Context, f MetricsFilter, limit int) ([]model.WorkflowVersion, error) {
 	if f.UseRollup() {
-		return r.workflowVersionsRollup(ctx, f, only, limit)
+		return r.workflowVersionsRollup(ctx, f, limit)
 	}
 	clause, args := window(f.UserID, f.WorkspaceIDs, f.Start.UnixMilli(), f.End.UnixMilli())
-	onlyClause, onlyArgs := versionIn("version", only)
 	q := fmt.Sprintf(`
 SELECT
     version,
@@ -84,21 +43,18 @@ FROM (
     WHERE %s
     GROUP BY trace_id
 )
-WHERE name = ?%s
+WHERE name = ?
 GROUP BY version
 ORDER BY max(ts) DESC
-LIMIT ?`, workflowExpr, versionExpr, clause, onlyClause)
+LIMIT ?`, workflowExpr, versionExpr, clause)
 
-	qArgs := append(args, f.Workflow)
-	qArgs = append(qArgs, onlyArgs...)
-	return r.scanVersions(ctx, q, append(qArgs, limit), true)
+	return r.scanVersions(ctx, q, append(args, f.Workflow, limit), true)
 }
 
 // workflowVersionsRollup keys versions per span, so it matches the raw path only
 // when every span carries the version (see the rollup.go caveats).
-func (r *ClickHouseRepository) workflowVersionsRollup(ctx context.Context, f MetricsFilter, only []string, limit int) ([]model.WorkflowVersion, error) {
+func (r *ClickHouseRepository) workflowVersionsRollup(ctx context.Context, f MetricsFilter, limit int) ([]model.WorkflowVersion, error) {
 	clause, args := rollupWindow(f.UserID, f.WorkspaceIDs, f.Start, f.End, true)
-	onlyClause, onlyArgs := versionIn("workflow_version", only)
 	q := fmt.Sprintf(`SELECT workflow_version,
     min(%[1]s),
     max(%[1]s),
@@ -107,12 +63,10 @@ func (r *ClickHouseRepository) workflowVersionsRollup(ctx context.Context, f Met
     toFloat64(0),
     toInt64(uniqIfMerge(error_runs)),
     toInt64(sum(input_tokens) + sum(output_tokens))
-FROM tracium.metrics_daily WHERE %[2]s AND workflow_name = ?%[3]s
-GROUP BY workflow_version ORDER BY max(bucket_date) DESC LIMIT ?`, bucketMsExpr, clause, onlyClause)
+FROM tracium.metrics_daily WHERE %[2]s AND workflow_name = ?
+GROUP BY workflow_version ORDER BY max(bucket_date) DESC LIMIT ?`, bucketMsExpr, clause)
 
-	qArgs := append(args, f.Workflow)
-	qArgs = append(qArgs, onlyArgs...)
-	return r.scanVersions(ctx, q, append(qArgs, limit), false)
+	return r.scanVersions(ctx, q, append(args, f.Workflow, limit), false)
 }
 
 func (r *ClickHouseRepository) scanVersions(ctx context.Context, q string, args []any, withLatency bool) ([]model.WorkflowVersion, error) {
@@ -147,15 +101,4 @@ func (r *ClickHouseRepository) scanVersions(ctx context.Context, q string, args 
 		versions = append(versions, v)
 	}
 	return versions, rows.Err()
-}
-
-func versionIn(col string, versions []string) (string, []any) {
-	if len(versions) == 0 {
-		return "", nil
-	}
-	args := make([]any, len(versions))
-	for i, v := range versions {
-		args[i] = v
-	}
-	return " AND " + col + " IN (" + strings.TrimSuffix(strings.Repeat("?,", len(versions)), ",") + ")", args
 }

@@ -45,7 +45,6 @@ beforeEach(() => {
   api.getWorkflowDetail.mockResolvedValue({
     name: 'checkout', calls: 100, cost: 1, avg_latency_ms: 900, p95_latency_ms: 1500, error_rate: 0.13,
     input_tokens: 0, output_tokens: 0, model: 'gpt-4o', provider: '', tools: [], last_trace_id: '',
-    current_version: '',
   });
   api.getWorkflowVersions.mockResolvedValue(empty);
   api.getCostSeries.mockResolvedValue(empty);
@@ -99,7 +98,6 @@ describe('live workflow detail with versions', () => {
     api.getWorkflowDetail.mockResolvedValue({
       name: 'checkout', calls: 100, cost: 1, avg_latency_ms: 900, p95_latency_ms: 1500, error_rate: 0.13,
       input_tokens: 0, output_tokens: 0, model: 'gpt-4o', provider: '', tools: [], last_trace_id: '',
-      current_version: 'v3',
     });
     api.getWorkflowVersions.mockResolvedValue({ ...empty, items: [version('v3', 2000, 0.006), version('v2', 1000, 0.004)] });
   });
@@ -109,6 +107,13 @@ describe('live workflow detail with versions', () => {
     expect(await screen.findByText('Cost per run up since v3')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Compare versions' }));
     expect(nav.setView).toHaveBeenCalledWith('compare');
+    const update = nav.setSelected.mock.calls[0][0];
+    expect(update({})).toEqual({ workflow: 'checkout', base: 'v2', candidate: 'v3' });
+  });
+
+  it('compares a release with the version it replaced from the table', async () => {
+    show();
+    fireEvent.click(await screen.findByRole('button', { name: 'vs v2' }));
     const update = nav.setSelected.mock.calls[0][0];
     expect(update({})).toEqual({ workflow: 'checkout', base: 'v2', candidate: 'v3' });
   });

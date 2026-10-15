@@ -108,7 +108,6 @@ type MockMetricsRepository struct {
 	WorkflowRows    []model.Workflow
 	WorkflowDetailV model.WorkflowDetail
 	Versions        []model.WorkflowVersion
-	Comparison      model.VersionComparison
 	FailureItems    []model.Failure
 	FailuresTotal   int64
 	Models          []model.ModelCost
@@ -156,10 +155,6 @@ func (m *MockMetricsRepository) WorkflowDetail(_ context.Context, _ query.Metric
 
 func (m *MockMetricsRepository) WorkflowVersions(_ context.Context, _ query.MetricsFilter, _ int) ([]model.WorkflowVersion, error) {
 	return m.Versions, m.Err
-}
-
-func (m *MockMetricsRepository) CompareVersions(_ context.Context, _ query.MetricsFilter, _, _ string) (model.VersionComparison, error) {
-	return m.Comparison, m.Err
 }
 
 func (m *MockMetricsRepository) Failures(_ context.Context, _ query.MetricsFilter, _ int) ([]model.Failure, int64, error) {

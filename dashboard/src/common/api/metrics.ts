@@ -19,7 +19,7 @@ import type {
   WorkflowUsage,
   AttributeUsage,
 } from '../../modules/usage/interfaces';
-import type { Workflow, WorkflowDetail, WorkflowVersion, VersionComparison } from '../../modules/workflows/interfaces';
+import type { Workflow, WorkflowDetail, WorkflowVersion } from '../../modules/workflows/interfaces';
 
 // MetricsAPI reads the aggregated overview metrics. Each section is its own
 // endpoint so the dashboard can load and refresh them independently.
@@ -61,10 +61,6 @@ export class MetricsAPI extends BaseAPIClient {
     return this.get(`/metrics/workflows/${encodeURIComponent(name)}/versions`, { range });
   }
 
-  compareWorkflowVersions(name: string, base: string, candidate: string, range: string): Promise<VersionComparison> {
-    return this.get(`/metrics/workflows/${encodeURIComponent(name)}/versions/compare`, { range, base, candidate });
-  }
-
   getFailures(range: string): Promise<PaginatedResponse<FailureRow>> {
     return this.get('/metrics/failures', { range });
   }
@@ -85,8 +81,8 @@ export class MetricsAPI extends BaseAPIClient {
   }
 
   // Usage-page breakdowns. cost-series / kpis feed the rest of the page.
-  getTokenSeries(range: string, userId?: string): Promise<PaginatedResponse<TokenBucket>> {
-    return this.get('/metrics/token-series', { range, user_id: userId });
+  getTokenSeries(range: string, userId?: string, workflow?: string, version?: string): Promise<PaginatedResponse<TokenBucket>> {
+    return this.get('/metrics/token-series', { range, user_id: userId, workflow, version });
   }
 
   getModelCosts(range: string, userId?: string): Promise<PaginatedResponse<ModelCost>> {

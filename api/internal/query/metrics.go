@@ -587,7 +587,7 @@ SETTINGS use_query_cache = 1, query_cache_ttl = 60`, workflowExpr, clause)
 }
 
 // WorkflowDetail returns one workflow's headline metrics for the detail page (f.Workflow
-// names it), plus its current version and tool surface. Span-backed only: there
+// names it), plus its current tool surface. Span-backed only: there
 // is no workflow-config store, so runtime params are not served. The window is bounded
 // like every other metric; callers keep it off the rollup (the handler rejects
 // rollup ranges) because per-workflow latency can't come from the daily rollup.
@@ -611,13 +611,11 @@ SELECT
     toInt64(sum(in_tok))             AS input_tokens,
     toInt64(sum(out_tok))            AS output_tokens,
     topKIf(1)(model, model != '')[1] AS model,
-    argMax(trace_id, ts)             AS last_trace_id,
-    argMaxIf(version, ts, version != '') AS current_version
+    argMax(trace_id, ts)             AS last_trace_id
 FROM (
     SELECT
         trace_id,
         %s AS name,
-        %s AS version,
         argMin(%s, start_time_ms) AS model,
         sum(cost_usd)        AS cost,
         `+traceDurationExpr+` AS dur,
@@ -629,7 +627,7 @@ FROM (
     WHERE %s
     GROUP BY trace_id
 )
-WHERE name = ?`, workflowExpr, versionExpr, modelExpr, clause)
+WHERE name = ?`, workflowExpr, modelExpr, clause)
 
 	var (
 		d         model.WorkflowDetail
@@ -639,7 +637,7 @@ WHERE name = ?`, workflowExpr, versionExpr, modelExpr, clause)
 	)
 	err := r.db.QueryRowContext(ctx, q, append(args, f.Workflow)...).Scan(
 		&d.Calls, &d.Cost, &d.AvgLatencyMs, &p95, &d.ErrorRate,
-		&d.InputTokens, &d.OutputTokens, &modelName, &lastTrace, &d.CurrentVersion)
+		&d.InputTokens, &d.OutputTokens, &modelName, &lastTrace)
 	if err != nil {
 		return model.WorkflowDetail{}, fmt.Errorf("clickhouse: workflow detail: %w", err)
 	}

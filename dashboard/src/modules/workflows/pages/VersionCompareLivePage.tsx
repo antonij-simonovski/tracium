@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import {
   Centered,
-  DELTA_COLOR,
   EmptyState,
   Spinner,
   bucketLabel,
@@ -13,20 +12,18 @@ import {
   rangeLabel,
 } from '../../../common';
 import hover from '../../../common/styles/hover.module.css';
-import { APIError } from '../../../common/api/client';
 import {
-  useVersionComparison,
   useWorkflowCostSeries,
   useWorkflowErrorSeries,
   useWorkflowLatencySeries,
+  useWorkflowTokenSeries,
   useWorkflowVersions,
 } from '../hooks/useWorkflowDetail';
 import { TrafficStrip } from '../components/TrafficStrip';
 import { VersionDropdown } from '../components/VersionDropdown';
-import { VersionLineChart } from '../components/VersionLineChart';
-import type { Kpi } from '../../overview/interfaces';
+import { SECOND_METRIC_COLOR, VersionLineChart } from '../components/VersionLineChart';
 import type { WorkflowVersion } from '../interfaces';
-import { change, fmtPts, fmtRunCost, fmtSeen, overlap, ptsColor, releaseMarkers } from '../utils';
+import { change, deltaColor, fmtPts, fmtRunCost, fmtSeen, overlap, ptsColor, releaseMarkers } from '../utils';
 
 type MetricId = 'runs' | 'cost' | 'cpr' | 'p95' | 'err' | 'tpr';
 
@@ -39,7 +36,6 @@ interface Row {
   fmt: (v: number) => string;
   delta: string;
   color: string;
-  chartable: boolean;
 }
 
 interface VersionCompareLivePageProps {
@@ -59,11 +55,12 @@ const Y_FMT: Record<MetricId, (v: number) => string> = {
   tpr: (v) => fmtNum(Math.round(v)),
 };
 
-// The API marks a change neutral when the base has no value to compare against.
-const kpiDelta = (k: Kpi) => ({
-  delta: k.delta_type === 'neutral' ? '—' : fmtDelta(k.delta),
-  color: DELTA_COLOR[k.delta_type],
-});
+// Relative change from a to b; a rise is bad when toned. No base value, no change.
+function relDelta(a: number | null, b: number | null, toned = true) {
+  if (!a || b == null) return { delta: '—', color: 'var(--muted)' };
+  const c = change(b, a);
+  return { delta: fmtDelta(c), color: toned ? deltaColor(c) : 'var(--muted)' };
+}
 
 const eyebrow = { fontSize: 12, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)' } as const;
 
@@ -87,10 +84,21 @@ function BandLegend({ label }: { label: string }) {
   );
 }
 
-function Legend({ color, opacity = 1, label }: { color: string; opacity?: number; label: string }) {
+function Legend({ color, opacity = 1, dashed, label }: { color: string; opacity?: number; dashed?: boolean; label: string }) {
   return (
     <span style={{ whiteSpace: 'nowrap' }}>
-      <span style={{ display: 'inline-block', width: 10, height: 2, background: color, opacity, verticalAlign: 'middle', marginRight: 5 }} />
+      <span
+        style={{
+          display: 'inline-block',
+          width: dashed ? 14 : 10,
+          height: dashed ? 0 : 2,
+          borderTop: dashed ? `2px dashed ${color}` : undefined,
+          background: dashed ? undefined : color,
+          opacity,
+          verticalAlign: 'middle',
+          marginRight: 5,
+        }}
+      />
       {label}
     </span>
   );
@@ -132,15 +140,16 @@ function VersionCell({ v, label, versions, exclude, onChange, color, opacity, di
 }
 
 export function VersionCompareLivePage({ workflowName, base, candidate, range, onSelect }: VersionCompareLivePageProps) {
-  const [metric, setMetric] = useState<MetricId>('cpr');
+  const [picked, setPicked] = useState<MetricId[]>(['cpr']);
   const long = isLongRange(range);
-  const cmp = useVersionComparison(workflowName, base, candidate, range);
-  const versions = useWorkflowVersions(workflowName, range).data?.items ?? [];
+  const versionsQuery = useWorkflowVersions(workflowName, range);
+  const versions = versionsQuery.data?.items ?? [];
 
   // Version-scoped series are raw-window only; the error series doubles as the
   // per-bucket run count.
-  const needCost = !long && (metric === 'cost' || metric === 'cpr');
-  const needLatency = !long && metric === 'p95';
+  const needCost = !long && (picked.includes('cost') || picked.includes('cpr'));
+  const needLatency = !long && picked.includes('p95');
+  const needTokens = !long && picked.includes('tpr');
   const errAll = useWorkflowErrorSeries(workflowName, range, !long);
   const errA = useWorkflowErrorSeries(workflowName, range, !long, base);
   const errB = useWorkflowErrorSeries(workflowName, range, !long, candidate);
@@ -148,36 +157,42 @@ export function VersionCompareLivePage({ workflowName, base, candidate, range, o
   const costB = useWorkflowCostSeries(workflowName, range, needCost, candidate);
   const latA = useWorkflowLatencySeries(workflowName, range, needLatency, base);
   const latB = useWorkflowLatencySeries(workflowName, range, needLatency, candidate);
+  const tokA = useWorkflowTokenSeries(workflowName, range, needTokens, base);
+  const tokB = useWorkflowTokenSeries(workflowName, range, needTokens, candidate);
 
-  if (cmp.isLoading) {
+  if (versionsQuery.isLoading) {
     return (
       <Centered>
         <Spinner />
       </Centered>
     );
   }
-  if (!cmp.data) {
-    const missing = cmp.error instanceof APIError && cmp.error.isNotFound;
-    return missing ? (
+  if (!versionsQuery.data) {
+    return <Centered>Failed to load the comparison</Centered>;
+  }
+  const A = versions.find((v) => v.version === base);
+  const B = versions.find((v) => v.version === candidate);
+  if (!A || !B) {
+    return (
       <EmptyState
         message="Nothing to compare in this range"
         description={`${base} or ${candidate} has no runs in the ${rangeLabel(range)}. Try a longer range.`}
       />
-    ) : (
-      <Centered>Failed to load the comparison</Centered>
     );
   }
 
-  const { base: A, candidate: B } = cmp.data;
   const rows: Row[] = [
-    { id: 'runs', label: 'Runs', title: 'Runs', a: A.calls, b: B.calls, fmt: Y_FMT.runs, delta: fmtDelta(change(B.calls, A.calls)), color: 'var(--muted)', chartable: true },
-    { id: 'cost', label: 'Total cost', title: 'Cost', a: A.cost, b: B.cost, fmt: fmtCost, delta: fmtDelta(change(B.cost, A.cost)), color: 'var(--muted)', chartable: true },
-    { id: 'cpr', label: 'Cost / run', title: 'Cost per run', a: A.cost_per_run, b: B.cost_per_run, fmt: fmtRunCost, ...kpiDelta(cmp.data.cost_per_run), chartable: true },
-    { id: 'p95', label: 'p95 latency', title: 'p95 latency', a: A.p95_latency_ms, b: B.p95_latency_ms, fmt: fmtMs, ...kpiDelta(cmp.data.p95_latency_ms), chartable: true },
-    { id: 'err', label: 'Error rate', title: 'Error rate', a: A.error_rate, b: B.error_rate, fmt: Y_FMT.err, delta: fmtPts(B.error_rate, A.error_rate), color: ptsColor(B.error_rate, A.error_rate), chartable: true },
-    { id: 'tpr', label: 'Tokens / run', title: 'Tokens per run', a: A.tokens_per_run, b: B.tokens_per_run, fmt: Y_FMT.tpr, ...kpiDelta(cmp.data.tokens_per_run), chartable: false },
+    { id: 'runs', label: 'Runs', title: 'Runs', a: A.calls, b: B.calls, fmt: Y_FMT.runs, ...relDelta(A.calls, B.calls, false) },
+    { id: 'cost', label: 'Total cost', title: 'Cost', a: A.cost, b: B.cost, fmt: fmtCost, ...relDelta(A.cost, B.cost, false) },
+    { id: 'cpr', label: 'Cost / run', title: 'Cost per run', a: A.cost_per_run, b: B.cost_per_run, fmt: fmtRunCost, ...relDelta(A.cost_per_run, B.cost_per_run) },
+    { id: 'p95', label: 'p95 latency', title: 'p95 latency', a: A.p95_latency_ms, b: B.p95_latency_ms, fmt: fmtMs, ...relDelta(A.p95_latency_ms, B.p95_latency_ms) },
+    { id: 'err', label: 'Error rate', title: 'Error rate', a: A.error_rate, b: B.error_rate, fmt: Y_FMT.err, delta: fmtPts(B.error_rate, A.error_rate), color: ptsColor(B.error_rate, A.error_rate) },
+    { id: 'tpr', label: 'Tokens / run', title: 'Tokens per run', a: A.tokens_per_run, b: B.tokens_per_run, fmt: Y_FMT.tpr, ...relDelta(A.tokens_per_run, B.tokens_per_run) },
   ];
-  const active = rows.find((r) => r.id === metric)!;
+  const active = picked.map((id) => rows.find((r) => r.id === id)!);
+  // A second pick shares the chart on the right axis; a third replaces the oldest.
+  const toggle = (id: MetricId) =>
+    setPicked((p) => (p.includes(id) ? (p.length > 1 ? p.filter((m) => m !== id) : p) : [...p, id].slice(-2)));
 
   const axis = errAll.data?.items ?? [];
   const bucketsMs = axis.map((b) => b.bucket_ms);
@@ -186,9 +201,10 @@ export function VersionCompareLivePage({ workflowName, base, candidate, range, o
   const errAMap = byBucket(errA.data?.items);
   const errBMap = byBucket(errB.data?.items);
 
-  const seriesFor = (errs: typeof errAMap, cost: typeof costA, lat: typeof latA): (number | null)[] => {
+  const seriesFor = (metric: MetricId, errs: typeof errAMap, cost: typeof costA, lat: typeof latA, tok: typeof tokA): (number | null)[] => {
     const costs = byBucket(cost.data?.items);
     const lats = byBucket(lat.data?.items);
+    const toks = byBucket(tok.data?.items);
     return bucketsMs.map((ms) => {
       const e = errs.get(ms);
       if (!e || e.total === 0) return null;
@@ -198,12 +214,16 @@ export function VersionCompareLivePage({ workflowName, base, candidate, range, o
         case 'cost': return costs.get(ms)?.value ?? null;
         case 'cpr': { const c = costs.get(ms); return c ? c.value / e.total : null; }
         case 'p95': return lats.get(ms)?.p95 ?? null;
-        default: return null;
+        case 'tpr': { const t = toks.get(ms); return t ? (t.input_tokens + t.output_tokens) / e.total : null; }
       }
     });
   };
-  const sA = seriesFor(errAMap, costA, latA);
-  const sB = seriesFor(errBMap, costB, latB);
+  const metrics = active.map((r) => ({
+    title: r.title,
+    base: seriesFor(r.id, errAMap, costA, latA, tokA),
+    candidate: seriesFor(r.id, errBMap, costB, latB, tokB),
+    fmt: Y_FMT[r.id],
+  }));
 
   const both = bucketsMs.map((ms, i) => ((errAMap.get(ms)?.total ?? 0) > 0 && (errBMap.get(ms)?.total ?? 0) > 0 ? i : -1)).filter((i) => i >= 0);
   const ov = overlap(A, B);
@@ -218,32 +238,28 @@ export function VersionCompareLivePage({ workflowName, base, candidate, range, o
     total: b.total,
   }));
 
-  const chartLoading = errA.isLoading || errB.isLoading || (needCost && (costA.isLoading || costB.isLoading)) || (needLatency && (latA.isLoading || latB.isLoading));
-  const chartFailed = errAll.isError || errA.isError || errB.isError || costA.isError || costB.isError || latA.isError || latB.isError;
-  const noRuns = sA.every((v) => v == null) && sB.every((v) => v == null);
-  const showBand = !long && active.chartable && !chartFailed && !chartLoading && !noRuns && band != null;
+  const chartLoading = errA.isLoading || errB.isLoading || (needCost && (costA.isLoading || costB.isLoading)) || (needLatency && (latA.isLoading || latB.isLoading)) || (needTokens && (tokA.isLoading || tokB.isLoading));
+  const chartFailed = [errAll, errA, errB, costA, costB, latA, latB, tokA, tokB].some((q) => q.isError);
+  const noRuns = metrics.every((m) => [...m.base, ...m.candidate].every((v) => v == null));
+  const showBand = !long && !chartFailed && !chartLoading && !noRuns && band != null;
   const chart = long
     ? <Centered minHeight={240}>Over-time charts need a range of 30 days or less.</Centered>
-    : !active.chartable
-      ? <Centered minHeight={240}>Tokens per run isn't charted over time.</Centered>
-      : chartFailed
-        ? <Centered minHeight={240}>Couldn't load the series</Centered>
-        : chartLoading
-          ? <Centered minHeight={240}><Spinner /></Centered>
-          : noRuns
-            ? <Centered minHeight={240}>No runs in this range.</Centered>
-            : (
-              <VersionLineChart
-                labels={labels}
-                base={sA}
-                candidate={sB}
-                baseLabel={A.version}
-                candidateLabel={B.version}
-                yFmt={Y_FMT[metric]}
-                band={band}
-                markers={markers}
-              />
-            );
+    : chartFailed
+      ? <Centered minHeight={240}>Couldn't load the series</Centered>
+      : chartLoading
+        ? <Centered minHeight={240}><Spinner /></Centered>
+        : noRuns
+          ? <Centered minHeight={240}>No runs in this range.</Centered>
+          : (
+            <VersionLineChart
+              labels={labels}
+              metrics={metrics}
+              baseLabel={A.version}
+              candidateLabel={B.version}
+              band={band}
+              markers={markers}
+            />
+          );
 
   return (
     <div style={{ padding: '32px 40px 64px', maxWidth: 1480, margin: '0 auto' }}>
@@ -296,11 +312,11 @@ export function VersionCompareLivePage({ workflowName, base, candidate, range, o
               <span style={{ textAlign: 'right' }}>Change</span>
             </div>
             {rows.map((r) => {
-              const on = r.id === metric;
+              const on = picked.includes(r.id);
               return (
                 <button
                   key={r.id}
-                  onClick={() => setMetric(r.id)}
+                  onClick={() => toggle(r.id)}
                   aria-pressed={on}
                   className={hover.row}
                   style={{
@@ -345,7 +361,7 @@ export function VersionCompareLivePage({ workflowName, base, candidate, range, o
               );
             })}
           </div>
-          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '12px 10px 0' }}>Totals over the {rangeLabel(range)}. Click a row to chart it.</p>
+          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '12px 10px 0' }}>Totals over the {rangeLabel(range)}. Click up to two rows to chart them.</p>
         </div>
 
         <div style={{ flex: '3 1 440px', minWidth: 0 }}>
@@ -353,12 +369,13 @@ export function VersionCompareLivePage({ workflowName, base, candidate, range, o
             <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
               <span style={eyebrow}>Over time</span>
               <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--foreground)', letterSpacing: '-0.01em' }}>
-                {active.title} · {range === '24h' ? 'hourly' : 'daily'}, {rangeLabel(range)}
+                {active.map((r) => r.title).join(' vs ')} · {range === '24h' ? 'hourly' : 'daily'}, {rangeLabel(range)}
               </span>
             </div>
             <div style={{ display: 'flex', gap: 12, fontSize: 12.5, color: 'var(--muted)', fontFamily: 'var(--font-mono)', flexWrap: 'wrap' }}>
               <Legend color="var(--foreground)" opacity={0.5} label={A.version} />
               <Legend color="var(--accent)" label={B.version} />
+              {active[1] && <Legend color={SECOND_METRIC_COLOR} dashed label={`${active[1].title} (right axis)`} />}
               {showBand && ov && <BandLegend label={`Concurrent ${fmtSeen(ov[0])} – ${fmtSeen(ov[1])}`} />}
             </div>
           </div>

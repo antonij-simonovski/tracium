@@ -133,7 +133,6 @@ func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, invit
 		r.Get(version.Route(version.V1, "/metrics/workflows"), metricsHandler.Workflows)
 		r.Get(version.Route(version.V1, "/metrics/workflows/{name}"), metricsHandler.WorkflowDetail)
 		r.Get(version.Route(version.V1, "/metrics/workflows/{name}/versions"), metricsHandler.WorkflowVersions)
-		r.Get(version.Route(version.V1, "/metrics/workflows/{name}/versions/compare"), metricsHandler.CompareVersions)
 		r.Get(version.Route(version.V1, "/metrics/failures"), metricsHandler.Failures)
 		r.Get(version.Route(version.V1, "/metrics/model-costs"), metricsHandler.ModelCosts)
 		r.Get(version.Route(version.V1, "/metrics/usage-users"), metricsHandler.UserUsage)

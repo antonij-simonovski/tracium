@@ -186,18 +186,10 @@ assert set(versions) == {'v1', 'v2', 'v3', ''}, versions
 assert versions['v1']['calls'] == 1, versions['v1']
 assert versions['v2']['tokens_per_run'] == 310 and versions['v2']['p95_latency_ms'] is not None, versions['v2']
 
-compare = get('/v1/metrics/workflows/versioned-smoke/versions/compare?range=24h&base=v1&candidate=v2')
-assert compare['base']['version'] == 'v1' and compare['candidate']['version'] == 'v2', compare
-assert compare['tokens_per_run']['value'] == 310 and compare['tokens_per_run']['delta_type'] == 'bad', compare
-status, _ = request(API, '/v1/metrics/workflows/versioned-smoke/versions/compare?range=24h&base=v1&candidate=nope&workspace_id=' + ws, token=owner)
-assert status == 404, status
-
 # Long ranges read the daily rollup, which keys the version per span.
 rollup = {v['version']: v for v in get('/v1/metrics/workflows/versioned-smoke/versions?range=90d')['items']}
 assert rollup['v1']['calls'] == 1 and rollup['v1']['p95_latency_ms'] is None, rollup
 
-detail = get('/v1/metrics/workflows/versioned-smoke?range=24h')
-assert detail['current_version'] != '', detail
 series = get('/v1/metrics/cost-series?range=24h&workflow=versioned-smoke&version=v2')
 assert sum(point['value'] for point in series['items']) > 0, series
 print('PASS: register, login, workspace, ingest key issuance, mandatory-key OTLP ingestion (keyless/bogus rejected), dashboard API proxy, trace visibility, metrics, workflow versions, and cross-workspace isolation')

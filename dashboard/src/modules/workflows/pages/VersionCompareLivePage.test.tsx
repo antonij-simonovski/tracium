@@ -1,14 +1,13 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { APIError } from '../../../common/api/client';
 import { VersionCompareLivePage } from './VersionCompareLivePage';
 
 const api = vi.hoisted(() => ({
-  compareWorkflowVersions: vi.fn(),
   getCostSeries: vi.fn(),
   getLatencySeries: vi.fn(),
   getErrorSeries: vi.fn(),
+  getTokenSeries: vi.fn(),
   getWorkflowVersions: vi.fn(),
 }));
 vi.mock('../../../common/providers/APIProvider', () => ({
@@ -16,7 +15,6 @@ vi.mock('../../../common/providers/APIProvider', () => ({
 }));
 
 const empty = { items: [], total: 0, page: 1, page_size: 20 };
-const kpi = (delta: number, delta_type = 'neutral') => ({ value: 0, delta, delta_type });
 const version = (v: string, cpr: number, err: number) => ({
   version: v, first_seen_ms: 0, last_seen_ms: 1000, calls: 100, cost: 100 * cpr,
   cost_per_run: cpr, p95_latency_ms: 2500, error_rate: err, tokens_per_run: 1500,
@@ -35,17 +33,10 @@ function show(range = '7d', onSelect = vi.fn()) {
 beforeEach(() => {
   vi.resetAllMocks();
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} unobserve() {} });
-  api.compareWorkflowVersions.mockResolvedValue({
-    base: version('v2', 0.004, 0.002),
-    candidate: version('v3', 0.006, 0.006),
-    cost_per_run: kpi(0.5, 'bad'),
-    p95_latency_ms: kpi(0),
-    error_rate: kpi(2),
-    tokens_per_run: kpi(0),
-  });
   api.getCostSeries.mockResolvedValue(empty);
   api.getLatencySeries.mockResolvedValue(empty);
   api.getErrorSeries.mockResolvedValue(empty);
+  api.getTokenSeries.mockResolvedValue(empty);
   api.getWorkflowVersions.mockResolvedValue({
     ...empty,
     items: [version('v1', 0.003, 0.001), version('v2', 0.004, 0.002), version('v3', 0.006, 0.006)],
@@ -59,8 +50,31 @@ describe('version compare', () => {
     show();
     expect(await screen.findByRole('button', { name: /Cost \/ run/ })).toHaveTextContent('+50%');
     expect(screen.getByRole('button', { name: /Error rate/ })).toHaveTextContent('+0.4 pts');
-    expect(screen.getByRole('button', { name: /p95 latency/ })).toHaveTextContent('—');
-    expect(api.compareWorkflowVersions).toHaveBeenCalledWith('checkout', 'v2', 'v3', '7d');
+    expect(screen.getByRole('button', { name: /p95 latency/ })).toHaveTextContent('0%');
+  });
+
+  it('charts tokens per run for each version', async () => {
+    show();
+    fireEvent.click(await screen.findByRole('button', { name: /Tokens \/ run/ }));
+    expect(api.getTokenSeries).toHaveBeenCalledWith('7d', undefined, 'checkout', 'v2');
+    expect(api.getTokenSeries).toHaveBeenCalledWith('7d', undefined, 'checkout', 'v3');
+  });
+
+  it('charts up to two metrics, dropping the oldest pick', async () => {
+    show();
+    const cpr = await screen.findByRole('button', { name: /Cost \/ run/ });
+    const p95 = screen.getByRole('button', { name: /p95 latency/ });
+    const err = screen.getByRole('button', { name: /Error rate/ });
+    fireEvent.click(p95);
+    expect(cpr).toHaveAttribute('aria-pressed', 'true');
+    expect(p95).toHaveAttribute('aria-pressed', 'true');
+    expect(api.getLatencySeries).toHaveBeenCalledWith('7d', 'checkout', 'v3');
+    fireEvent.click(err);
+    expect(cpr).toHaveAttribute('aria-pressed', 'false');
+    expect(err).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(err);
+    fireEvent.click(p95);
+    expect(p95).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('swaps base and candidate', async () => {
@@ -92,7 +106,7 @@ describe('version compare', () => {
   });
 
   it('explains when a version has no runs in the range', async () => {
-    api.compareWorkflowVersions.mockRejectedValue(new APIError('not found', 404, 'not_found'));
+    api.getWorkflowVersions.mockResolvedValue({ ...empty, items: [version('v2', 0.004, 0.002)] });
     show();
     expect(await screen.findByText('Nothing to compare in this range')).toBeInTheDocument();
   });

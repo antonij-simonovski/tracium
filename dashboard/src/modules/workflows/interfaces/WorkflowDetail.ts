@@ -19,6 +19,4 @@ export interface WorkflowDetail {
   provider: string;
   tools: AvailableTool[];
   last_trace_id: string;
-  // The version of the most recent versioned run; '' when no run has one.
-  current_version: string;
 }

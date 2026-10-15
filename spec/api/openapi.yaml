@@ -446,53 +446,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
-  /v1/metrics/workflows/{name}/versions/compare:
-    get:
-      operationId: compareWorkflowVersions
-      summary: Compare two workflow versions
-      description: >
-        Two versions of one workflow side by side over the same range, with the
-        candidate's change from the base on cost per run, p95 latency, error
-        rate and tokens per run. Reads the same data as the versions list.
-      tags:
-        - Metrics
-      parameters:
-        - $ref: "#/components/parameters/WorkflowName"
-        - name: base
-          in: query
-          required: true
-          description: The version to compare against.
-          schema:
-            type: string
-        - name: candidate
-          in: query
-          required: true
-          description: The version compared to base.
-          schema:
-            type: string
-        - $ref: "#/components/parameters/Range"
-        - $ref: "#/components/parameters/UserFilter"
-        - $ref: "#/components/parameters/WorkspaceFilter"
-      responses:
-        "200":
-          description: The comparison.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/VersionComparison"
-        "400":
-          description: Invalid range, or base or candidate missing.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "404":
-          description: base or candidate has no runs in the window.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
   /v1/metrics/failures:
     get:
       operationId: getFailures
@@ -2197,7 +2150,6 @@ components:
         - provider
         - tools
         - last_trace_id
-        - current_version
       properties:
         name:
           type: string
@@ -2250,9 +2202,6 @@ components:
         last_trace_id:
           type: string
           description: The workflow's most recent trace in the window, for deep-linking.
-        current_version:
-          type: string
-          description: The version of the workflow's most recent versioned run in the window; empty when no run has one.
 
     WorkflowVersion:
       type: object
@@ -2302,33 +2251,6 @@ components:
           type: number
           minimum: 0
           description: Mean input plus output tokens per run.
-
-    VersionComparison:
-      type: object
-      required:
-        - base
-        - candidate
-        - cost_per_run
-        - p95_latency_ms
-        - error_rate
-        - tokens_per_run
-      properties:
-        base:
-          $ref: "#/components/schemas/WorkflowVersion"
-        candidate:
-          $ref: "#/components/schemas/WorkflowVersion"
-        cost_per_run:
-          $ref: "#/components/schemas/Kpi"
-        p95_latency_ms:
-          $ref: "#/components/schemas/Kpi"
-        error_rate:
-          $ref: "#/components/schemas/Kpi"
-        tokens_per_run:
-          $ref: "#/components/schemas/Kpi"
-      description: >-
-        Each Kpi holds the candidate's value and its change from the base; a
-        rise is bad for all four. p95_latency_ms is a neutral 0 over ranges
-        longer than 30d.
 
     Failure:
       type: object

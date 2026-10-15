@@ -82,8 +82,7 @@ without code changes beyond the exporter settings above:
 ### Workflow versions
 
 Set `tracium.workflow.version` to compare cost, latency, errors and tokens
-between versions of a workflow (`GET /v1/metrics/workflows/{name}/versions` and
-`/versions/compare`). Any string works: a semver, a git sha, a prompt version.
+between versions of a workflow (`GET /v1/metrics/workflows/{name}/versions`). Any string works: a semver, a git sha, a prompt version.
 Set it on the resource so every span carries it; long-range metrics then match
 the per-run ones. Keep it stable across runs: a timestamp or request id makes
 every run its own version.

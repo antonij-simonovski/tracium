@@ -244,26 +244,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/metrics/workflows/{name}/versions/compare": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Compare two workflow versions
-         * @description Two versions of one workflow side by side over the same range, with the candidate's change from the base on cost per run, p95 latency, error rate and tokens per run. Reads the same data as the versions list.
-         */
-        get: operations["compareWorkflowVersions"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/metrics/failures": {
         parameters: {
             query?: never;
@@ -1127,8 +1107,6 @@ export interface components {
             tools: components["schemas"]["AvailableTool"][];
             /** @description The workflow's most recent trace in the window, for deep-linking. */
             last_trace_id: string;
-            /** @description The version of the workflow's most recent versioned run in the window; empty when no run has one. */
-            current_version: string;
         };
         WorkflowVersion: {
             /** @description The workflow version; empty for the runs that carry none. */
@@ -1149,15 +1127,6 @@ export interface components {
             error_rate: number;
             /** @description Mean input plus output tokens per run. */
             tokens_per_run: number;
-        };
-        /** @description Each Kpi holds the candidate's value and its change from the base; a rise is bad for all four. p95_latency_ms is a neutral 0 over ranges longer than 30d. */
-        VersionComparison: {
-            base: components["schemas"]["WorkflowVersion"];
-            candidate: components["schemas"]["WorkflowVersion"];
-            cost_per_run: components["schemas"]["Kpi"];
-            p95_latency_ms: components["schemas"]["Kpi"];
-            error_rate: components["schemas"]["Kpi"];
-            tokens_per_run: components["schemas"]["Kpi"];
         };
         Failure: {
             /** @description Workflow name (the trace root span name). */
@@ -1918,58 +1887,6 @@ export interface operations {
             };
             /** @description Invalid range. */
             400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    compareWorkflowVersions: {
-        parameters: {
-            query: {
-                /** @description The version to compare against. */
-                base: string;
-                /** @description The version compared to base. */
-                candidate: string;
-                /** @description Time window for the metric. Defaults to 7d. 24h is bucketed hourly; 7d/30d/90d/1y daily. Ranges longer than 30d (90d, 1y) are served from the daily rollup, so latency percentiles are not available for them. */
-                range?: components["parameters"]["Range"];
-                /** @description Optional business filter (the operator's end-client). Empty means all clients. */
-                user_id?: components["parameters"]["UserFilter"];
-                /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
-                workspace_id?: components["parameters"]["WorkspaceFilter"];
-            };
-            header?: never;
-            path: {
-                /** @description The workflow name (the trace root span name). */
-                name: components["parameters"]["WorkflowName"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The comparison. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["VersionComparison"];
-                };
-            };
-            /** @description Invalid range, or base or candidate missing. */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description base or candidate has no runs in the window. */
-            404: {
                 headers: {
                     [name: string]: unknown;
                 };
