@@ -61,9 +61,23 @@ An app running in a container reaches these at `host.docker.internal`, not
 (find it with `docker network ls`, usually `tracium_default`) and send to
 `http://collector:4318`.
 
-**Ingest key.** Ask the user to open the dashboard, register, create a
-workspace, and create an API key on the API keys screen, then give you the key
-(`trc_...`). You cannot do this for them. Check the key:
+**Ingest key.** On the local Docker install, ask the user for the email to
+sign in with, then create the account, a workspace and a key in one step:
+
+```bash
+docker compose exec -T api ./bootstrap --email <their email>
+```
+
+It prints the key (`trc_...`) on stdout. For a new account it also prints a
+generated password on stderr: give it to the user for the dashboard and tell
+them to change it in the dashboard settings. An existing account keeps its
+password and its first workspace; each run adds a new key.
+
+On an existing or hosted Tracium, ask the user to open the dashboard, create a
+workspace if they have none, and create an API key on the API keys screen, then
+give you the key. You cannot do this for them.
+
+Check the key:
 
 ```bash
 curl -s -o /dev/null -w '%{http_code}\n' -X POST "${TRACIUM_OTLP_ENDPOINT:-http://localhost:4318}/v1/traces" \
