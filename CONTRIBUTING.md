@@ -44,7 +44,7 @@ make up              # run the full stack from source
 make build-collector # assemble the collector via OCB
 ```
 
-`make up` is `docker compose -f docker-compose.yml -f compose.build.yaml up --build`.
+`make up` is `docker compose -f docker-compose.yml -f compose.build.yaml -f compose.dev.yaml up --build`, which also publishes ClickHouse on 127.0.0.1:8123 and Postgres on 127.0.0.1:5432.
 Plain `docker compose up` pulls the release images (amd64 and arm64) pinned by
 `TRACIUM_VERSION` in `.env` instead. Either way, schema migrations run
 automatically before the app services start.
