@@ -1,10 +1,3 @@
-<h1>
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/tracium-logo-dark.svg">
-    <img alt="Tracium" src="docs/assets/tracium-logo-light.svg" height="44">
-  </picture>
-</h1>
-
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/tracium-robot-dark.png">
@@ -12,49 +5,56 @@
   </picture>
 </p>
 
-**Open-source, self-hosted LLM observability.** Tracium is an OpenTelemetry-native
-backend for LLM apps: point any OTel-instrumented app at it and get accurate cost, token,
-latency, and error analytics per model, workflow, and end-client, built to stay
-fast from the first span to hundreds of millions.
+<h3 align="center">Open-source, self-hosted LLM observability</h3>
+
+<p align="center">
+  Know what every model call costs, how long it takes, and when it fails,<br>
+  per model, workflow, and end client. Built on OpenTelemetry.
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache%202.0-0e9f6e"></a>
+  <a href="https://github.com/antonij-simonovski/tracium/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/antonij-simonovski/tracium?color=0e9f6e"></a>
+  <a href="https://github.com/antonij-simonovski/tracium/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/antonij-simonovski/tracium?color=0e9f6e"></a>
+</p>
+
+<p align="center">
+  <a href="https://docs.tracium.ai">Docs</a> ·
+  <a href="#quickstart">Quickstart</a> ·
+  <a href="CONTRIBUTING.md">Contributing</a> ·
+  <a href="CHANGELOG.md">Changelog</a>
+</p>
 
 ![Tracium dashboard: overview, workflows, usage and clients](docs/assets/tracium-readme.gif)
 
-It doesn't wrap the OTel SDK, it *is* an OTel backend: any app already exporting
-OTLP can send to Tracium with no code changes.
+## How it works
 
-- **License:** Apache 2.0.
-- **Self-hosted:** runs on your infrastructure; one `docker compose up` brings up
-  the whole stack, and your prompts and traces never leave it.
+Tracium is an OpenTelemetry backend, not an SDK: anything that exports OTLP can
+send to it. It reads the [GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/)
+and [OpenLLMetry](https://github.com/traceloop/openllmetry) attributes, so OpenAI,
+Anthropic, Bedrock, Vertex AI, LangChain, LlamaIndex and more work out of the box.
+
+## Features
+
+- **Anomaly detection**: spikes and drops in cost, error rate and runs, linked to the workflow version that likely caused them.
+- **Workflow versions**: compare cost, latency and errors between releases of a prompt or agent.
+- **Trace viewer**: every step of a run with its prompt, completion, tokens, cost and timing.
+- **Cost allocation**: split spend by model, or by any attribute you attach (`team`, `environment`, …).
+- **Clients**: meter spend and failures per end client.
+- **Setup checks**: catch instrumentation gaps like unpriced models, with how to fix each.
+- **Self-hosted**: one `docker compose up` or a Helm chart; your prompts and traces never leave your infrastructure.
 
 ## Quickstart
 
 Requires Docker with Compose v2.
 
 ```bash
-git clone https://github.com/antonij-simonovski/tracium
-cd tracium
-cp .env.example .env
-# Fill in JWT_SECRET, CLICKHOUSE_PASSWORD, and POSTGRES_PASSWORD in .env.
-# Generate a separate value for each with: openssl rand -hex 32
+git clone https://github.com/antonij-simonovski/tracium && cd tracium
+cp .env.example .env   # set JWT_SECRET, CLICKHOUSE_PASSWORD, POSTGRES_PASSWORD (openssl rand -hex 32)
 docker compose up
 ```
 
-This pulls the release images (amd64 and arm64) pinned by `TRACIUM_VERSION` in
-`.env`. To build from your checkout instead, run
-`docker compose -f docker-compose.yml -f compose.build.yaml up --build` (or `make up`).
-Schema migrations run automatically before the app services start.
-
-| Service | URL / port | Purpose |
-|---|---|---|
-| Dashboard | http://localhost:3000 | Trace viewer + overview UI |
-| API | http://localhost:8090 | REST API (`/v1/...`) the dashboard reads |
-| Collector (OTLP gRPC) | `localhost:4317` | Point your app's OTLP exporter here |
-| Collector (OTLP HTTP) | `localhost:4318` | Same, HTTP/protobuf |
-| Collector (health) | http://localhost:13133/ | Liveness / readiness |
-
-Open the dashboard, create an account, and create your first workspace. Open the
-workspace's **API keys** screen, create a key, and copy the `trc_…` token; it is
-shown only once. In your instrumented app, set:
+Open http://localhost:3000, create a workspace and an API key, then point your app at Tracium:
 
 ```bash
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
@@ -62,164 +62,15 @@ OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
 OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer YOUR_API_KEY"
 ```
 
-The key authenticates the sender and decides which workspace the telemetry lands
-in, so senders set no workspace attribute. Every OTLP request needs one: a request
-with no key, or an unknown or revoked one, is rejected with 401 and nothing is
-stored. Keys can also be issued with `POST /v1/workspaces/{id}/api-keys`; see
-[securing the collector](deploy/docs/collector-auth.md).
+No app yet? Run `cd dashboard && npm run seed` and sign in as `demo@tracium.ai` / `tracium-demo-1234`,
+or try one of the [examples](examples/).
 
-### Works with
+## Learn more
 
-Tracium reads the [OpenTelemetry GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/)
-(`gen_ai.request.model`, `gen_ai.usage.input_tokens`, …) and the attributes
-[OpenLLMetry](https://github.com/traceloop/openllmetry) emits, so these work
-without code changes beyond the exporter settings above:
+[Documentation](https://docs.tracium.ai) ·
+[Configuration and development](CONTRIBUTING.md) ·
+[Kubernetes](deploy/README.md) ·
+[Upgrading](deploy/docs/upgrading.md) ·
+[Security](SECURITY.md)
 
-- **OpenLLMetry** (Python and JS/TS): auto-instruments OpenAI, Anthropic,
-  Bedrock, Vertex AI, LangChain, LlamaIndex and more, and its
-  `workflow`/`task`/`agent`/`tool` decorators become Tracium workflows.
-- **OpenTelemetry GenAI instrumentations**, such as
-  `opentelemetry-instrumentation-openai-v2`.
-- **Your own spans**: set the `gen_ai.*` attributes on any OTel span. See
-  [span setup](https://docs.tracium.ai/#otel-setup) for how runs,
-  latency and cached tokens are counted, and
-  [`spec/attributes/genai.yaml`](spec/attributes/genai.yaml) for the span
-  attributes Tracium reads.
-
-### Workflow versions
-
-Set `tracium.workflow.version` on the resource to compare cost, latency, errors
-and tokens between versions of a workflow (`GET /v1/metrics/workflows/{name}/versions`).
-Any string works: a semver, a git sha, a prompt version. Keep it stable across
-runs: a timestamp or request id makes every run its own version.
-
-With any OTel SDK, through the environment:
-
-```bash
-OTEL_RESOURCE_ATTRIBUTES=tracium.workflow.version=v12
-```
-
-With OpenLLMetry:
-
-```python
-Traceloop.init(resource_attributes={"tracium.workflow.version": "v12"})
-```
-
-In code, with the plain OTel SDK:
-
-```js
-resourceFromAttributes({ "service.name": "support-bot", "tracium.workflow.version": "v12" })
-```
-
-Only the resource attribute is read: a span attribute of the same name, or any
-other version attribute, is ignored. Runs without it are unversioned.
-
-Full documentation is at [docs.tracium.ai](https://docs.tracium.ai).
-
-Runnable senders are in [`examples/`](examples/); each needs `TRACIUM_API_KEY`:
-
-| Example | What it sends |
-|---|---|
-| [`node/genai-span.mjs`](examples/node/genai-span.mjs) | A two-call workflow with hand-set GenAI attributes; no LLM key needed |
-| [`openai_to_tracium.py`](examples/openai_to_tracium.py) | A multi-step OpenAI agent with tool calls, via OpenLLMetry |
-| [`failed_span_to_tracium.py`](examples/failed_span_to_tracium.py) | A batch job whose last OpenAI call fails |
-
-```bash
-cd examples/node && npm install
-TRACIUM_API_KEY=trc_... npm start
-```
-
-**Want data to look at right away?** With the stack up, seed a demo account,
-workspaces, and ~1,500 realistic traces in one command (requires Node.js 18+):
-
-```bash
-cd dashboard && npm run seed
-```
-
-Then sign in at http://localhost:3000 with `demo@tracium.ai` / `tracium-demo-1234`.
-See [dashboard/README.md](dashboard/README.md#seed-demo-data) for options.
-
-## Architecture
-
-```
-your app ──OTLP──▶ collector ──▶ ClickHouse ◀── api ◀──REST── dashboard
-(gRPC/HTTP)      (enrich: cost,    (spans +      (bounded          (trace viewer)
-                  user, model)      rollups)      reads)
-                                   Postgres ◀── api (users, auth, config)
-```
-
-The collector is a generic OpenTelemetry Collector distribution plus two Tracium
-components; all domain logic sits behind an `enrich.Enricher` seam. **Storage split:** ClickHouse
-holds span/trace data (time-partitioned, daily rollup so query cost tracks the
-window, not total rows); Postgres holds config and accounts.
-
-| Directory | Language | Responsibility |
-|---|---|---|
-| [`collector/`](collector/) | Go | Receive OTLP, enrich, write to ClickHouse (see [ARCHITECTURE.md](collector/ARCHITECTURE.md)) |
-| [`api/`](api/) | Go | Serve trace/metric data to the dashboard (REST) |
-| [`dashboard/`](dashboard/) | React + TS | Trace viewer UI |
-| [`spec/`](spec/) | JSON/YAML | Source of truth for API contracts + schemas |
-| [`deploy/`](deploy/) | YAML/Helm | Helm chart, migration runner, infra config |
-
-Each directory has its own `README.md` with the details.
-
-## Configuration
-
-- **`JWT_SECRET` is required.** It signs and verifies auth tokens with one key, so
-  generate a unique one per deployment (`openssl rand -hex 32`).
-- **Network:** Compose binds published ports to `127.0.0.1`. The dashboard sends
-  API requests to its own origin, so it works behind a reverse proxy without
-  rebuilding the frontend.
-- **Retention:** `RETENTION_DAYS` (default 90; `0` keeps data forever).
-- **Cost allocation:** any custom OTLP attribute your apps attach (e.g. `team`,
-  `user.id`, `environment`) is retained and becomes a dimension you can allocate
-  spend by with `GET /v1/metrics/usage-by-attribute?key=team`, or the dashboard's
-  cost-allocation picker.
-- **Clients:** tag spans with `tracium.user.id` (span or resource attribute) to
-  meter spend per end client. The dashboard's **Clients** page lists them, and
-  each client's detail page breaks down its spend, runs, failure rate, latency,
-  models, workflows and recent traces. It's a metering label, not an access
-  boundary.
-- **Prompt/completion capture is ON by default** so the viewer can show
-  inputs/outputs; set `CAPTURE_CONTENT=false` in `.env` (Helm:
-  `collector.captureContent=false`) if you don't want that text stored.
-
-## Kubernetes
-
-Helm chart in [`deploy/helm/tracium`](deploy/helm/tracium/); steps in
-[`deploy/README.md`](deploy/README.md).
-
-## Scope and upgrades
-
-Live traces, overview metrics, per-client usage, workspace creation, and
-workspace access checks are available.
-
-Workspace owners invite teammates by email from **Settings → Members** (or
-`POST /v1/workspaces/{id}/invites`). Tracium doesn't send email: the owner gets a
-single-use link (`/invite/<token>`, valid for 7 days) to share, and the invitee
-accepts it after signing in or signing up with the invited address. Owners can
-list and revoke open invites and remove members from the same screen.
-
-Signed-in users change their password under **Settings → Account** (or
-`POST /v1/auth/password`); there is no email-based reset, so an operator resets
-a forgotten password with the API image's CLI:
-
-```bash
-docker compose exec api ./reset-password --email you@example.com
-```
-
-It prints a generated password unless you pass `--password`. Profile editing,
-workspace editing, and retention controls in the UI are unavailable; the UI
-labels these limitations. Configure retention in the deployment.
-
-Existing installations must follow [the upgrade guide](deploy/docs/upgrading.md)
-before adopting workspace scoping. The migration preserves legacy aggregates and
-requires an explicit destination workspace rather than guessing data ownership.
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md). Security reports: [SECURITY.md](SECURITY.md).
-
-## License
-
-Apache 2.0. See [LICENSE](LICENSE).
+Apache 2.0. Contributions welcome, see [CONTRIBUTING.md](CONTRIBUTING.md).
