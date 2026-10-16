@@ -27,6 +27,12 @@ export interface LatencyBucket {
   p99: number | null; // all ms
 }
 
+export interface TokenBucket {
+  bucket_ms: number;
+  input_tokens: number;
+  output_tokens: number;
+}
+
 export interface ErrorBucket {
   bucket_ms: number;
   errors: number; // runs that errored within the bucket
@@ -67,6 +73,13 @@ export interface Anomaly {
   direction: AnomalyDirection;
   severity: AnomalySeverity;
   summary: string; // ready-to-read description
+  version_change: VersionChange | null; // version first seen on the day or the day before
+}
+
+export interface VersionChange {
+  workflow: string;
+  version: string;
+  first_seen_ms: number; // UTC midnight
 }
 
 export interface SetupCheck extends SetupIssue {

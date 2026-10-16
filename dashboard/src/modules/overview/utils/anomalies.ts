@@ -23,6 +23,13 @@ export function zLabel(score: number): string {
   return `${Math.abs(score).toFixed(1)}σ`;
 }
 
+// Workflow-scoped anomalies already name the workflow, so only the version is shown.
+export function versionChangeLabel(a: Anomaly): string {
+  const v = a.version_change;
+  if (!v) return '';
+  return a.scope === 'workflow' ? `after ${v.version}` : `after ${v.workflow} ${v.version}`;
+}
+
 // The model carries no id; this one drives selection and dismissal.
 export function anomalyKey(a: Anomaly): string {
   return `${a.metric}:${a.scope}:${a.workflow}:${a.bucket_ms}`;

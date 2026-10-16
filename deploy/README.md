@@ -15,15 +15,15 @@ deploy/
 ## Kubernetes (Helm)
 
 Each release attaches a packaged chart (`tracium-<version>.tgz`) that requests
-that release's images from `ghcr.io/antonij-tracium`. Create the secrets the
+that release's images from `ghcr.io/antonij-simonovski`. Create the secrets the
 chart references, then install it:
 
 ```bash
 kubectl create secret generic tracium-clickhouse-secret --from-literal=password=$(openssl rand -hex 16)
 kubectl create secret generic tracium-postgres-secret   --from-literal=password=$(openssl rand -hex 16)
 kubectl create secret generic tracium-api-jwt           --from-literal=jwt-secret=$(openssl rand -hex 32)
-VERSION=1.0.4
-helm install tracium "https://github.com/antonij-tracium/tracium/releases/download/v$VERSION/tracium-$VERSION.tgz"
+VERSION=1.1.0
+helm install tracium "https://github.com/antonij-simonovski/tracium/releases/download/v$VERSION/tracium-$VERSION.tgz"
 ```
 
 Don't pass `--wait`: schema migrations run as a post-install hook, and the API

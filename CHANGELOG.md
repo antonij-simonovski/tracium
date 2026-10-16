@@ -1,11 +1,31 @@
 # Changelog
 
-All schema and API changes are recorded here. Follow the format below when adding entries.
+All user-visible changes (schema, API, collector, dashboard, deployment) are recorded here. Follow the format below when adding entries.
 Breaking changes require a `schema_version` bump. Additive changes do not.
 
 ---
 
-## [Unreleased]
+## [1.1.0] - 2026-10-16
+
+### Added
+- Workflow versions. A span's version is the resource's `tracium.workflow.version`; span attributes are not read. It is stored in the new `tracium.spans.workflow_version` column and added to the `metrics_daily` key (migration 014)
+- `Trace.workflow_version`: the root span's version, else the earliest versioned span's
+- `GET /v1/metrics/workflows/{name}/versions` lists a workflow's versions with runs, cost per run, p95 latency, error rate and tokens per run
+- `version` filter on `GET /v1/traces` and the series endpoints
+- Workflow detail, its series and the `version` filter serve 90d and 1y from the daily rollup, with latency unset, so the workflow and version compare pages work on long ranges
+- `GET /v1/metrics/token-series` returns input and output tokens per time bucket; the Usage page charts them
+- `span.json` lists `workflow_version`
+- Setup checks `workflow_without_version` (info: runs with no `tracium.workflow.version`) and `version_per_run` (warning: a workflow in a workspace with at least 20 versioned runs where more than half carry a distinct version)
+- The examples set `tracium.workflow.version`, and the demo seed ships two or three releases per workflow, with one unversioned workflow
+- `Anomaly.version_change`: a workflow version first seen on the anomaly's day or the day before (for workspace-wide anomalies, of the workflow that carried the most of the metric, errored runs for error rate, and none when that workflow did not change version; a workflow's first versioned day does not count); the summary and the Overview outliers name it
+- The smoke test checks versions end to end, and the upgrade test runs migration 014 on a 1.0.4 rollup
+- Dashboard light mode, toggled from the sidebar; the default theme follows the system preference
+- Collapsible dashboard sidebar
+- Sidebar GitHub star button with the live star count
+
+### Changed
+- Migration 014 rebuilds `metrics_daily` with the version column in its sorting key and keeps the original as `metrics_daily_pre_version`. Stop ingestion while it runs; existing rollup rows read as unversioned.
+- The repository moved to `antonij-simonovski/tracium`. Images are now published as `ghcr.io/antonij-simonovski/{collector,api,dashboard,migrate}`; `docker-compose.yml` and the Helm chart point there, and the old `ghcr.io/antonij-tracium` paths no longer resolve. Update any image overrides
 
 ---
 

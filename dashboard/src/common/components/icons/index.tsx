@@ -50,6 +50,10 @@ export const IconMore         = (p: IconOnlyProps) => <Icon d="M5 12h.01M12 12h.
 export const IconUser         = (p: IconOnlyProps) => <Icon d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2M12 11a4 4 0 100-8 4 4 0 000 8z" {...p} />;
 export const IconLogout       = (p: IconOnlyProps) => <Icon d="M15 3h4a1 1 0 011 1v16a1 1 0 01-1 1h-4M10 17l5-5-5-5M15 12H3" {...p} />;
 export const IconMenu         = (p: IconOnlyProps) => <Icon d="M4 6h16M4 12h16M4 18h16" {...p} />;
+export const IconSun          = (p: IconOnlyProps) => <Icon d="M12 16a4 4 0 100-8 4 4 0 000 8zM12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" {...p} />;
+export const IconPanel        = (p: IconOnlyProps) => <Icon d="M5 4h14a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V5a1 1 0 011-1zM9 4v16" {...p} />;
+export const IconGithub       = (p: IconOnlyProps) => <Icon d={<path fill="currentColor" stroke="none" d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.56v-1.97c-3.2.7-3.87-1.54-3.87-1.54-.52-1.33-1.28-1.69-1.28-1.69-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.03 1.76 2.69 1.25 3.35.96.1-.74.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.68 0-1.26.45-2.28 1.18-3.09-.12-.29-.51-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 015.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.18 1.83 1.18 3.09 0 4.41-2.69 5.38-5.25 5.67.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0023.5 12C23.5 5.65 18.35.5 12 .5z" />} {...p} />;
+export const IconMoon         = (p: IconOnlyProps) => <Icon d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z" {...p} />;
 
 export function IconDot({ size = 6, color = 'currentColor' }: { size?: number; color?: string }) {
   return (

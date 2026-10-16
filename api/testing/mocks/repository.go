@@ -103,9 +103,11 @@ type MockMetricsRepository struct {
 	Cost            []model.CostPoint
 	Latency         []model.LatencyPoint
 	Errors          []model.ErrorPoint
+	Tokens          []model.TokenPoint
 	Workflows       []model.WorkflowCost
 	WorkflowRows    []model.Workflow
 	WorkflowDetailV model.WorkflowDetail
+	Versions        []model.WorkflowVersion
 	FailureItems    []model.Failure
 	FailuresTotal   int64
 	Models          []model.ModelCost
@@ -135,6 +137,10 @@ func (m *MockMetricsRepository) ErrorSeries(_ context.Context, _ query.MetricsFi
 	return m.Errors, m.Err
 }
 
+func (m *MockMetricsRepository) TokenSeries(_ context.Context, _ query.MetricsFilter) ([]model.TokenPoint, error) {
+	return m.Tokens, m.Err
+}
+
 func (m *MockMetricsRepository) TopWorkflows(_ context.Context, _ query.MetricsFilter, _ int) ([]model.WorkflowCost, error) {
 	return m.Workflows, m.Err
 }
@@ -145,6 +151,10 @@ func (m *MockMetricsRepository) ListWorkflows(_ context.Context, _ query.Metrics
 
 func (m *MockMetricsRepository) WorkflowDetail(_ context.Context, _ query.MetricsFilter) (model.WorkflowDetail, error) {
 	return m.WorkflowDetailV, m.Err
+}
+
+func (m *MockMetricsRepository) WorkflowVersions(_ context.Context, _ query.MetricsFilter, _ int) ([]model.WorkflowVersion, error) {
+	return m.Versions, m.Err
 }
 
 func (m *MockMetricsRepository) Failures(_ context.Context, _ query.MetricsFilter, _ int) ([]model.Failure, int64, error) {

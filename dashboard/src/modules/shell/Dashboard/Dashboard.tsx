@@ -5,7 +5,7 @@ import { Sidebar } from '../Sidebar';
 import { TopBar } from '../TopBar';
 import { CommandPalette } from '../CommandPalette';
 import { OverviewPage, OverviewLivePage } from '../../overview';
-import { WorkflowsPage, WorkflowsLivePage, WorkflowDetailDemoPage, WorkflowDetailLivePage, WORKFLOWS } from '../../workflows';
+import { WorkflowsPage, WorkflowsLivePage, WorkflowDetailDemoPage, WorkflowDetailLivePage, VersionCompareLivePage, WORKFLOWS } from '../../workflows';
 import { TraceDetailDashPage } from '../../trace-inspector';
 import { TraceDetailView } from '../../trace-explorer';
 import { UsersPage, UsersLivePage, UserDetailPage, UsagePage, UsageLivePage, USERS } from '../../usage';
@@ -29,7 +29,7 @@ export interface DashboardProps {
   onSessionRenewed?: (token: string) => void;
 }
 
-const VIEWS_WITH_RANGE: ViewId[] = ['overview', 'workflows', 'usage', 'users', 'user'];
+const VIEWS_WITH_RANGE: ViewId[] = ['overview', 'workflows', 'compare', 'usage', 'users', 'user'];
 const NO_PAGES: readonly ExtensionPage[] = [];
 
 function WorkspaceEmptyState({ onCreate }: { onCreate: () => void }) {
@@ -224,6 +224,11 @@ export function Dashboard({ embedded = false, onLogout, onSessionRenewed, extens
     if (view === 'workflows')     return selected.workflow
       ? [{ label: 'Workflows', onClick: () => { setSelected(s => { const n = { ...s }; delete n.workflow; return n; }); setView('workflows'); } }, { label: selected.workflow }]
       : [{ label: 'Workflows' }];
+    if (view === 'compare')    return [
+      { label: 'Workflows', onClick: () => { setSelected(s => { const n = { ...s }; delete n.workflow; delete n.base; delete n.candidate; return n; }); setView('workflows'); } },
+      ...(selected.workflow ? [{ label: selected.workflow, onClick: () => { setSelected(s => { const n = { ...s }; delete n.base; delete n.candidate; return n; }); setView('workflows'); } }] : []),
+      { label: 'Compare' },
+    ];
     if (view === 'usage')      return [{ label: 'Usage' }];
     if (view === 'users')    return [{ label: 'Clients' }];
     if (view === 'user')     return [{ label: 'Clients', onClick: () => setView('users') }, { label: selected.user || 'Client detail' }];
@@ -312,10 +317,19 @@ export function Dashboard({ embedded = false, onLogout, onSessionRenewed, extens
           {view === 'workflows'      && (selected.workflow
             ? (embedded
               ? <WorkflowDetailDemoPage workflow={WORKFLOWS.find(a => a.name === selected.workflow) ?? WORKFLOWS[0]} range={range} setView={setView} setSelected={setSelected} />
-              : <WorkflowDetailLivePage workflowName={selected.workflow} range={range} setView={setView} setSelected={setSelected} />)
+              : <WorkflowDetailLivePage key={selected.workflow} workflowName={selected.workflow} range={range} setView={setView} setSelected={setSelected} />)
             : (embedded
               ? <WorkflowsPage workflows={WORKFLOWS} range={range} setView={setView} setSelected={setSelected} workspaceName={workspace?.name} />
               : <WorkflowsLivePage range={range} setView={setView} setSelected={setSelected} workspaceName={workspace?.name} />))}
+          {view === 'compare'     && (selected.workflow && selected.base && selected.candidate && !embedded
+            ? <VersionCompareLivePage
+                workflowName={selected.workflow}
+                base={selected.base}
+                candidate={selected.candidate}
+                range={range}
+                onSelect={(base, candidate) => setSelected(s => ({ ...s, base, candidate }))}
+              />
+            : <EmptyState message="No versions selected" description="Pick two versions on a workflow's page to compare them." />)}
           {view === 'trace'       && (embedded
             ? <TraceDetailDashPage setView={setView} />
             : selected.traceId

@@ -2,6 +2,7 @@ package clickhousespanexporter
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"go.opentelemetry.io/collector/pdata/pcommon"
@@ -144,6 +145,46 @@ func TestWorkflowName_DerivationPriority(t *testing.T) {
 					tt.service, tt.genaiAgent, tt.traceloopWorkflow, tt.traceloopEntity, tt.spanName, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestFromOTLP_WorkflowVersion(t *testing.T) {
+	tests := []struct {
+		name           string
+		span, resource map[string]string
+		want           string
+	}{
+		{"resource version", nil, map[string]string{"tracium.workflow.version": "v11"}, "v11"},
+		{"span version is ignored", map[string]string{"tracium.workflow.version": "v12"}, map[string]string{"tracium.workflow.version": "v11"}, "v11"},
+		{"span version alone is ignored", map[string]string{"tracium.workflow.version": "v12"}, nil, ""},
+		{"other version attributes are ignored", map[string]string{"traceloop.prompt.version": "3"}, map[string]string{"service.version": "1.4.0"}, ""},
+		{"no version", nil, nil, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := ptrace.NewSpan()
+			for k, v := range tt.span {
+				s.Attributes().PutStr(k, v)
+			}
+			resource := pcommon.NewMap()
+			for k, v := range tt.resource {
+				resource.PutStr(k, v)
+			}
+			if got := fromOTLP(s, "", resource).WorkflowVersion; got != tt.want {
+				t.Errorf("version = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFromOTLP_SanitizesWorkflowVersion(t *testing.T) {
+	resource := pcommon.NewMap()
+	resource.PutStr("tracium.workflow.version", "v1\n"+strings.Repeat("x", 200))
+
+	row := fromOTLP(ptrace.NewSpan(), "", resource)
+
+	if strings.Contains(row.WorkflowVersion, "\n") || len(row.WorkflowVersion) != 128 {
+		t.Errorf("version = %q (%d bytes), want control characters dropped and 128 bytes", row.WorkflowVersion, len(row.WorkflowVersion))
 	}
 }
 

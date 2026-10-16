@@ -94,7 +94,7 @@ function Palette({ onClose, onSelect }: Omit<CommandPaletteProps, 'open'>): Reac
           background: 'var(--surface)',
           border: '1px solid var(--border-strong)',
           borderRadius: 12,
-          boxShadow: '0 24px 60px rgba(0,0,0,0.6)',
+          boxShadow: '0 24px 60px var(--shadow-popover)',
           overflow: 'hidden',
         }}
       >

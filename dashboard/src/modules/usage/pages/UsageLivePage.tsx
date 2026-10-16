@@ -16,6 +16,9 @@ import { useKpis, useCostSeries, useErrorSeries } from '../../overview/hooks/use
 import {
   DailyChart,
   DailyChartLegend,
+  TokenChart,
+  TokenChartLegend,
+  TokenMix,
   ModelsList,
   UsageMasthead,
   Breakdown,
@@ -24,6 +27,7 @@ import {
 import type { BreakdownTab, SortKey } from '../components';
 import {
   useModelCosts,
+  useTokenSeries,
   useUserUsage,
   useWorkflowUsage,
   useAttributeKeys,
@@ -33,6 +37,7 @@ import type { UserSummary, AttributeSummary, UserUsage, AttributeUsage } from '.
 import {
   UNATTRIBUTED,
   toDailySeries,
+  toTokenSeries,
   toModelSummaries,
   toWorkflowSummaries,
   sumCost,
@@ -82,6 +87,7 @@ export function UsageLivePage({ range, setView, setSelected }: UsageLivePageProp
   const cost = useCostSeries(range);
   const errors = useErrorSeries(range);
   const models = useModelCosts(range);
+  const tokens = useTokenSeries(range);
   const users = useUserUsage(range);
   const workflows = useWorkflowUsage(range);
   const attrEnabled = !isLongRange(range);
@@ -119,6 +125,8 @@ export function UsageLivePage({ range, setView, setSelected }: UsageLivePageProp
 
   const dailySeries =
     cost.data && errors.data ? toDailySeries(cost.data.items, errors.data.items, range) : [];
+  const tokenSeries =
+    tokens.data && errors.data ? toTokenSeries(tokens.data.items, errors.data.items, range) : [];
   const modelRows = models.data ? toModelSummaries(models.data.items) : [];
   const totalTokens = models.data
     ? modelRows.reduce((s, m) => s + m.inputTokens + m.outputTokens, 0)
@@ -139,6 +147,7 @@ export function UsageLivePage({ range, setView, setSelected }: UsageLivePageProp
       cost.dataUpdatedAt,
       errors.dataUpdatedAt,
       models.dataUpdatedAt,
+      tokens.dataUpdatedAt,
       users.dataUpdatedAt,
       workflows.dataUpdatedAt,
     ) || undefined;
@@ -173,6 +182,31 @@ export function UsageLivePage({ range, setView, setSelected }: UsageLivePageProp
           <Panel eyebrow="Models" title="Where it goes" scroll={!stacked}>
             <Section isLoading={models.isLoading} isError={models.isError} minHeight={200}>
               <ModelsList models={modelRows} />
+            </Section>
+          </Panel>
+        }
+      />
+
+      <PanelFrame
+        left={
+          <Panel eyebrow="Tokens" title="Tokens in vs out" right={<TokenChartLegend />}>
+            <Section
+              isLoading={tokens.isLoading || errors.isLoading}
+              isError={tokens.isError || errors.isError}
+              minHeight={200}
+            >
+              <TokenChart series={tokenSeries} />
+            </Section>
+          </Panel>
+        }
+        right={
+          <Panel eyebrow="Mix" title="Token mix">
+            <Section
+              isLoading={tokens.isLoading || errors.isLoading}
+              isError={tokens.isError || errors.isError}
+              minHeight={200}
+            >
+              <TokenMix series={tokenSeries} />
             </Section>
           </Panel>
         }

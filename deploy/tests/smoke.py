@@ -128,4 +128,76 @@ for suffix in ('', '/spans'):
 
 status, kpis = request(API, '/v1/metrics/kpis?range=24h&workspace_id=' + ws, token=owner)
 assert status == 200 and kpis['runs']['value'] > 0, (status, kpis)
-print('PASS: register, login, workspace, ingest key issuance, mandatory-key OTLP ingestion (keyless/bogus rejected), dashboard API proxy, trace visibility, metrics, and cross-workspace isolation')
+
+
+def versioned_run(resource, root_attrs=(), child_attrs=(), tokens=100):
+    """Send a two-span run of the versioned-smoke workflow and return its trace id."""
+    trace = secrets.token_hex(16)
+    now = time.time_ns()
+    root_id = secrets.token_hex(8)
+    root = {'traceId': trace, 'spanId': root_id, 'name': 'versioned-smoke', 'kind': 1,
+            'startTimeUnixNano': str(now - 2_000_000_000), 'endTimeUnixNano': str(now),
+            'attributes': [attr('traceloop.workflow.name', 'versioned-smoke'), *root_attrs]}
+    child = {'traceId': trace, 'spanId': secrets.token_hex(8), 'parentSpanId': root_id,
+             'name': 'chat gpt-4o-mini', 'kind': 3,
+             'startTimeUnixNano': str(now - 1_000_000_000), 'endTimeUnixNano': str(now),
+             'attributes': [attr('gen_ai.request.model', 'gpt-4o-mini'),
+                            {'key': 'gen_ai.usage.input_tokens', 'value': {'intValue': str(tokens)}},
+                            {'key': 'gen_ai.usage.output_tokens', 'value': {'intValue': '10'}},
+                            *child_attrs]}
+    payload = {'resourceSpans': [{'resource': {'attributes': [attr('service.name', 'versioned-smoke'), *resource]},
+               'scopeSpans': [{'spans': [root, child]}]}]}
+    status, result = request(OTLP, '/v1/traces', payload, token=ws_key)
+    assert status == 200, (status, result)
+    return trace
+
+
+def get(path):
+    status, result = request(API, path + ('&' if '?' in path else '?') + 'workspace_id=' + ws, token=owner)
+    assert status == 200, (path, status, result)
+    return result
+
+
+# The resource version covers every span.
+v1 = versioned_run([attr('tracium.workflow.version', 'v1')])
+v2 = versioned_run([attr('tracium.workflow.version', 'v2')], tokens=300)
+# A span attribute is not read as a version; only the resource sets it.
+v3 = versioned_run([], root_attrs=[attr('tracium.workflow.version', 'v3')])
+# Other version attributes are not read as a workflow version.
+plain = versioned_run([attr('service.version', '1.4.0')],
+                      child_attrs=[attr('traceloop.prompt.key', 'p'), attr('traceloop.prompt.version', '7')])
+expected = {v1: 'v1', v2: 'v2', v3: '', plain: ''}
+
+
+def traces_versioned():
+    rows = {t['trace_id']: t for t in get('/v1/traces?workflow=versioned-smoke&page_size=50')['items']}
+    return len(rows) == len(expected) and rows
+
+
+rows = eventually(traces_versioned)
+for trace, want in expected.items():
+    assert rows[trace]['workflow_version'] == want, (trace, rows[trace], want)
+
+filtered = get('/v1/traces?workflow=versioned-smoke&version=v2')['items']
+assert [t['trace_id'] for t in filtered] == [v2], filtered
+
+versions = {v['version']: v for v in get('/v1/metrics/workflows/versioned-smoke/versions?range=24h')['items']}
+assert set(versions) == {'v1', 'v2', ''}, versions
+assert versions['v1']['calls'] == 1, versions['v1']
+assert versions['v2']['tokens_per_run'] == 310 and versions['v2']['p95_latency_ms'] is not None, versions['v2']
+
+# Long ranges read the daily rollup, which keys the version per span.
+rollup = {v['version']: v for v in get('/v1/metrics/workflows/versioned-smoke/versions?range=90d')['items']}
+assert rollup['v1']['calls'] == 1 and rollup['v1']['p95_latency_ms'] is None, rollup
+
+# The workflow detail and its series also serve long ranges from the rollup, without latency.
+detail = get('/v1/metrics/workflows/versioned-smoke?range=90d')
+assert detail['calls'] == len(expected) and detail['p95_latency_ms'] is None and detail['last_trace_id'], detail
+series = get('/v1/metrics/token-series?range=90d&workflow=versioned-smoke')
+assert sum(point['input_tokens'] for point in series['items']) == 600, series
+series = get('/v1/metrics/token-series?range=90d&workflow=versioned-smoke&version=v2')
+assert sum(point['input_tokens'] for point in series['items']) == 300, series
+
+series = get('/v1/metrics/cost-series?range=24h&workflow=versioned-smoke&version=v2')
+assert sum(point['value'] for point in series['items']) > 0, series
+print('PASS: register, login, workspace, ingest key issuance, mandatory-key OTLP ingestion (keyless/bogus rejected), dashboard API proxy, trace visibility, metrics, workflow versions, and cross-workspace isolation')

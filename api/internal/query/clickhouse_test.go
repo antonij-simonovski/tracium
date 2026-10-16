@@ -50,6 +50,18 @@ func TestTraceFilterSQLHasNoSourcePredicate(t *testing.T) {
 	}
 }
 
+func TestTraceFilterSQLVersion(t *testing.T) {
+	f := TraceFilter{StartAfter: time.UnixMilli(100), Workflow: "planner", Version: "v12"}
+	clause, args := traceFilterSQL(f)
+
+	if !strings.Contains(clause, "HAVING "+workflowExpr+" = ? AND "+versionExpr+" = ?") {
+		t.Errorf("clause = %q, want workflow and version in HAVING", clause)
+	}
+	if n := len(args); n < 2 || args[n-2] != "planner" || args[n-1] != "v12" {
+		t.Errorf("args = %v, want planner then v12 last", args)
+	}
+}
+
 func TestTraceDetailScopeHasNoSourcePredicate(t *testing.T) {
 	clause, _ := traceDetailScope("trace", []string{"workspace"})
 	if strings.Contains(clause, "source") {

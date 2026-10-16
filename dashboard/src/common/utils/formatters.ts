@@ -22,8 +22,9 @@ export const fmtMs = (n: number): string =>
   n >= 1000 ? (n / 1000).toFixed(2) + 's' : Math.round(n) + 'ms';
 
 // Signed percentage for a fractional change (0.124 → "+12.4%"). Changes that
-// round to zero read "0%" rather than "+0%" or "-0%".
+// round to zero read "0%" rather than "+0%" or "-0%"; no defined change reads "—".
 export function fmtDelta(fraction: number): string {
+  if (!Number.isFinite(fraction)) return '—';
   const pct = Math.round(Math.abs(fraction) * 1000) / 10;
   if (pct === 0) return '0%';
   return `${fraction > 0 ? '+' : '-'}${pct}%`;

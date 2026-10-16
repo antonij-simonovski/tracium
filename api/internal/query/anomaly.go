@@ -112,14 +112,23 @@ func (r *ClickHouseRepository) Anomalies(ctx context.Context, f MetricsFilter) (
 	if err != nil {
 		return nil, err
 	}
+	var byWorkflow map[string]map[int64]dailyAgg
 	if len(workflows) > 0 {
-		byWorkflow, err := r.anomalyWorkflowSeries(ctx, f, baseStart, workflows)
+		byWorkflow, err = r.anomalyWorkflowSeries(ctx, f, baseStart, workflows)
 		if err != nil {
 			return nil, err
 		}
 		for _, name := range workflows {
 			out = append(out, detectSeries(f, "workflow", name, axis, byWorkflow[name], detectFrom, minSev)...)
 		}
+	}
+
+	if len(out) > 0 {
+		changes, err := r.versionChanges(ctx, f, baseStart, detectFrom-versionLeadMs)
+		if err != nil {
+			return nil, err
+		}
+		attachVersionChanges(out, changes, byWorkflow)
 	}
 
 	sortAnomalies(out)
@@ -183,22 +192,26 @@ func detectSeries(f MetricsFilter, scope, workflow string, axis []int64, byBucke
 func seriesPoints(axis []int64, byBucket map[int64]dailyAgg, metric string) []anomaly.Point {
 	pts := make([]anomaly.Point, len(axis))
 	for i, bm := range axis {
-		d := byBucket[bm]
-		var v, sup float64
-		switch metric {
-		case "cost":
-			v, sup = d.cost, d.cost
-		case "runs":
-			v, sup = float64(d.runs), float64(d.runs)
-		case "error_rate":
-			sup = float64(d.runs)
-			if d.runs > 0 {
-				v = float64(d.errRuns) / float64(d.runs)
-			}
-		}
+		v, sup := metricValue(byBucket[bm], metric)
 		pts[i] = anomaly.Point{BucketMs: bm, Value: sanitize(v), Support: sup}
 	}
 	return pts
+}
+
+// metricValue is one bucket's value for metric and the volume behind it.
+func metricValue(d dailyAgg, metric string) (v, sup float64) {
+	switch metric {
+	case "cost":
+		v, sup = d.cost, d.cost
+	case "runs":
+		v, sup = float64(d.runs), float64(d.runs)
+	case "error_rate":
+		sup = float64(d.runs)
+		if d.runs > 0 {
+			v = float64(d.errRuns) / float64(d.runs)
+		}
+	}
+	return v, sup
 }
 
 // anomalyDailySeries loads the workspace-wide daily aggregates over [baseStart, End].
@@ -288,6 +301,86 @@ GROUP BY workflow_name, bucket_ms`, bucketMsExpr, clause, placeholders)
 		byWorkflow[name][bm] = d
 	}
 	return byWorkflow, rows.Err()
+}
+
+// versionLeadMs is how far before an anomaly's day a version change still counts as near it.
+const versionLeadMs = 24 * 60 * 60 * 1000
+
+// versionChanges returns the workflow versions first seen at or after since,
+// earliest first. History is read from baseStart, the series' own lead-in, and
+// release is workspace-wide, so the client filter does not apply. A workflow's
+// first versioned day is when it started sending versions, not a change, so it
+// is skipped.
+func (r *ClickHouseRepository) versionChanges(ctx context.Context, f MetricsFilter, baseStart time.Time, since int64) ([]model.VersionChange, error) {
+	clause, args := rollupWindow("", f.WorkspaceIDs, baseStart, f.End, true)
+	q := fmt.Sprintf(`SELECT workflow_name, workflow_version, first_seen FROM (
+    SELECT workflow_name, workflow_version, first_seen, min(first_seen) OVER (PARTITION BY workflow_name) AS adopted
+    FROM (SELECT workflow_name, workflow_version, min(%s) AS first_seen
+        FROM tracium.metrics_daily WHERE %s AND workflow_name != '' AND workflow_version != ''
+        GROUP BY workflow_name, workflow_version)
+)
+WHERE first_seen > adopted AND first_seen >= ?
+ORDER BY first_seen, workflow_name, workflow_version`, bucketMsExpr, clause)
+
+	rows, err := r.db.QueryContext(ctx, q, append(args, since)...)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse: version changes: %w", err)
+	}
+	defer rows.Close()
+
+	var out []model.VersionChange
+	for rows.Next() {
+		var v model.VersionChange
+		if err := rows.Scan(&v.Workflow, &v.Version, &v.FirstSeenMs); err != nil {
+			return nil, fmt.Errorf("clickhouse: scan version change: %w", err)
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+// attachVersionChanges gives each anomaly a version change from within
+// versionLeadMs before its bucket: its workflow's latest. A workspace-wide anomaly
+// takes the workflow that carried the most of its metric that day, and gets none
+// when that workflow did not change version.
+func attachVersionChanges(anomalies []model.Anomaly, changes []model.VersionChange, byWorkflow map[string]map[int64]dailyAgg) {
+	for i := range anomalies {
+		a := &anomalies[i]
+		workflow := a.Workflow
+		if a.Scope == "workspace" {
+			workflow = topWorkflow(byWorkflow, a.BucketMs, a.Metric)
+		}
+		for j, v := range changes {
+			if v.FirstSeenMs > a.BucketMs {
+				break
+			}
+			if v.FirstSeenMs >= a.BucketMs-versionLeadMs && v.Workflow == workflow {
+				a.VersionChange = &changes[j]
+			}
+		}
+		if a.VersionChange != nil {
+			a.Summary += fmt.Sprintf(" Started near %s %s (first seen %s).", a.VersionChange.Workflow, a.VersionChange.Version,
+				time.UnixMilli(a.VersionChange.FirstSeenMs).UTC().Format(dateFmt))
+		}
+	}
+}
+
+// topWorkflow is the workflow that carried the most of metric on the day at bucketMs
+// (errored runs for error_rate), ties broken by name; "" when none did.
+func topWorkflow(byWorkflow map[string]map[int64]dailyAgg, bucketMs int64, metric string) string {
+	var top string
+	var most float64
+	for name, days := range byWorkflow {
+		d := days[bucketMs]
+		_, carried := metricValue(d, metric)
+		if metric == "error_rate" {
+			carried = float64(d.errRuns)
+		}
+		if carried > most || (carried == most && carried > 0 && name < top) {
+			top, most = name, carried
+		}
+	}
+	return top
 }
 
 // sortAnomalies orders anomalies most-actionable first: by severity, then by

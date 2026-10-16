@@ -10,4 +10,5 @@ export interface Trace {
   span_count: number;
   has_error: boolean;
   total_cost_usd: number;
+  workflow_version?: string;
 }

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { KpiStrip, Panel, PanelFrame, SectionHead, fmtCost, fmtDelta, fmtNum, fmtTokens } from '../../../common';
 import type { KpiItem } from '../../../common';
-import { DailyChart, DailyChartLegend, ModelsList, UsageMasthead, Breakdown, TabPill } from '../components';
+import { DailyChart, DailyChartLegend, TokenChart, TokenChartLegend, TokenMix, ModelsList, UsageMasthead, Breakdown, TabPill } from '../components';
 import type { BreakdownTab, SortKey } from '../components';
 import { USAGE_DATA } from '../data';
 
@@ -69,6 +69,19 @@ export default function UsagePage() {
         right={
           <Panel eyebrow="Models" title="Where it goes">
             <ModelsList models={data.models} />
+          </Panel>
+        }
+      />
+
+      <PanelFrame
+        left={
+          <Panel eyebrow="Tokens" title="Tokens in vs out" right={<TokenChartLegend />}>
+            <TokenChart series={data.tokenSeries} />
+          </Panel>
+        }
+        right={
+          <Panel eyebrow="Mix" title="Token mix">
+            <TokenMix series={data.tokenSeries} />
           </Panel>
         }
       />
