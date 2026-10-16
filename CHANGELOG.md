@@ -5,6 +5,13 @@ Breaking changes require a `schema_version` bump. Additive changes do not.
 
 ---
 
+## [Unreleased]
+
+### Added
+- `GET /v1/metrics/setup-checks` also accepts a workspace ingest key (`trc_...`) as the bearer token, scoped to the key's workspace, so a coding agent can verify instrumentation without a dashboard login. Every other route still requires a session token
+
+---
+
 ## [1.1.0] - 2026-10-16
 
 ### Added

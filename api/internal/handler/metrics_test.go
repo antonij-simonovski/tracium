@@ -450,3 +450,21 @@ func TestMetricsAnomaliesRejectsBadFilters(t *testing.T) {
 		}
 	}
 }
+
+func TestWorkspaceScopeForIngestKey(t *testing.T) {
+	for _, tt := range []struct {
+		requested string
+		want      int
+	}{{"", http.StatusOK}, {"ws-key", http.StatusOK}, {"ws-other", http.StatusForbidden}} {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req = req.WithContext(middleware.ContextWithPrincipal(req.Context(), &model.Principal{WorkspaceID: "ws-key"}))
+		rr := httptest.NewRecorder()
+		scope, ok := resolveWorkspaceScope(rr, req, nil, tt.requested)
+		if tt.want == http.StatusOK && (!ok || len(scope) != 1 || scope[0] != "ws-key") {
+			t.Errorf("requested %q: scope = %v, want [ws-key]", tt.requested, scope)
+		}
+		if tt.want != http.StatusOK && (ok || rr.Code != tt.want) {
+			t.Errorf("requested %q: status = %d, want %d", tt.requested, rr.Code, tt.want)
+		}
+	}
+}

@@ -78,7 +78,7 @@ func (s *Service) Revoke(ctx context.Context, id, workspaceID string) error {
 // sender and decide where its spans land.
 func (s *Service) Verify(ctx context.Context, token string) (string, error) {
 	token = strings.TrimSpace(token)
-	if !tokens.Valid(tokenPrefix, token) {
+	if !tokens.Valid(TokenPrefix, token) {
 		return "", ErrInvalidKey
 	}
 	key, err := s.store.FindActiveByHash(ctx, tokens.Hash(token))

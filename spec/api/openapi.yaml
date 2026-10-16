@@ -525,8 +525,14 @@ paths:
         rejected at ingest, with how to fix each. Checks that affected no span
         are omitted. Results are ordered most severe first, then by spans
         affected. Reads raw spans, so ranges longer than 30d are rejected.
+        The only endpoint that also accepts a workspace ingest key
+        (`trc_...`) as the bearer token; the key reads only its own
+        workspace.
       tags:
         - Metrics
+      security:
+        - bearerAuth: []
+        - ingestKey: []
       parameters:
         - $ref: "#/components/parameters/Range"
         - $ref: "#/components/parameters/WorkspaceFilter"
@@ -539,6 +545,18 @@ paths:
                 $ref: "#/components/schemas/PaginatedSetupCheckResponse"
         "400":
           description: Invalid range, or one longer than 30d.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Missing or invalid bearer token or ingest key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: The workspace is not the caller's, or not the ingest key's.
           content:
             application/json:
               schema:
@@ -1408,6 +1426,10 @@ components:
       type: http
       scheme: bearer
       description: JWT or opaque bearer token issued by the Tracium auth service.
+    ingestKey:
+      type: http
+      scheme: bearer
+      description: Workspace ingest key (`trc_...`), accepted only by GET /v1/metrics/setup-checks.
 
   parameters:
     WorkflowName:

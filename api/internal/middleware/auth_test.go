@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/tracium/api/internal/apikey"
 	"github.com/tracium/api/internal/model"
 )
 
@@ -58,6 +59,51 @@ func TestAuth(t *testing.T) {
 			var body model.ErrorResponse
 			if w.Header().Get("Content-Type") != "application/json" || json.Unmarshal(w.Body.Bytes(), &body) != nil || body.Code != tt.code {
 				t.Fatalf("not a JSON error: %q %s", w.Header().Get("Content-Type"), w.Body.String())
+			}
+		})
+	}
+}
+
+type fakeKeys struct{}
+
+func (fakeKeys) Verify(_ context.Context, token string) (string, error) {
+	switch token {
+	case "trc_good":
+		return "ws-1", nil
+	case "trc_db-down":
+		return "", errors.New("connection refused")
+	}
+	return "", apikey.ErrInvalidKey
+}
+
+func TestIngestKeyOr(t *testing.T) {
+	for _, tt := range []struct {
+		name, header, user, workspace string
+		want                          int
+	}{
+		{"valid key", "Bearer trc_good", "", "ws-1", http.StatusNoContent},
+		{"invalid key", "Bearer trc_bad", "", "", http.StatusUnauthorized},
+		{"key store down", "Bearer trc_db-down", "", "", http.StatusServiceUnavailable},
+		{"session token", "Bearer good", "u-1", "", http.StatusNoContent},
+		{"invalid session token", "Bearer bad", "", "", http.StatusUnauthorized},
+		{"missing header", "", "", "", http.StatusUnauthorized},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				p, ok := PrincipalFromContext(r.Context())
+				if !ok || p.UserID != tt.user || p.WorkspaceID != tt.workspace {
+					t.Errorf("principal = %+v, want user %q workspace %q", p, tt.user, tt.workspace)
+				}
+				w.WriteHeader(http.StatusNoContent)
+			})
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
+			if tt.header != "" {
+				r.Header.Set("Authorization", tt.header)
+			}
+			w := httptest.NewRecorder()
+			IngestKeyOr(fakeKeys{}, Auth(fakeAuthenticator{}))(next).ServeHTTP(w, r)
+			if w.Code != tt.want {
+				t.Fatalf("status = %d, want %d", w.Code, tt.want)
 			}
 		})
 	}

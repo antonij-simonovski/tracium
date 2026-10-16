@@ -200,14 +200,21 @@ Skip if the user named one repository.
 ## Step 7: Verify
 
 For each repository, run the app, a test, or a small script that makes one real
-LLM call through an instrumented path. Then ask the user to open the dashboard
-and confirm:
+LLM call through an instrumented path. Wait a few seconds, then read the setup
+checks with the ingest key:
 
-- the run appears under the right workflow name and version,
-- it has a cost, not $0,
-- the Setup checks on the Overview page are clear.
+```bash
+curl -s -H "Authorization: Bearer $TRACIUM_API_KEY" \
+  'http://localhost:8090/v1/metrics/setup-checks?range=1h'
+```
 
-Fix what they report. The checks name the problem and the fix: no LLM spans,
+`items` lists each problem with its `code`, `severity`, `message` and an
+`example_trace_id`. An empty list means the checks are clear. The key reads
+only this endpoint, so ask the user to open the dashboard and confirm the run
+appears under the right workflow name and version, with a cost, not $0. An
+empty list before the run shows up there only means nothing arrived yet.
+
+Fix what the checks and the user report, then check again. The checks name the problem and the fix: no LLM spans,
 unpriced model, missing model, unmetered streams, instant LLM spans, errors
 without detail, missing root span, unnamed workflow, workflow without version,
 version per run, and spans rejected at ingest.
