@@ -536,6 +536,16 @@ paths:
       parameters:
         - $ref: "#/components/parameters/Range"
         - $ref: "#/components/parameters/WorkspaceFilter"
+        - name: since
+          in: query
+          required: false
+          description: >
+            RFC 3339 timestamp. Only spans from this time on are checked, so a
+            fix can be verified without older spans still reporting the
+            problem. Earlier than the range start means the range start.
+          schema:
+            type: string
+            format: date-time
       responses:
         "200":
           description: Setup checks that found a problem.
@@ -544,7 +554,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/PaginatedSetupCheckResponse"
         "400":
-          description: Invalid range, or one longer than 30d.
+          description: Invalid range or since, or a range longer than 30d.
           content:
             application/json:
               schema:

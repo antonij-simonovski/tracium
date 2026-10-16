@@ -27,7 +27,9 @@ Ask the user, in one message:
 
 ## Step 2: Start Tracium
 
-Skip to the ingest key if the user gave you an existing URL.
+Skip to the ingest key if the user gave you an existing Tracium. Ask them for
+its OTLP ingest URL and its API URL, and use them wherever this guide says
+`http://localhost:4318` and `http://localhost:8090`.
 
 From the Tracium clone (Docker with Compose v2 required):
 
@@ -54,14 +56,17 @@ The local endpoints, bound to 127.0.0.1:
 | API | http://localhost:8090 |
 
 An app running in a container reaches these at `host.docker.internal`, not
-`localhost`.
+`localhost`. On Linux that does not work, because the ports are bound to
+127.0.0.1. Attach the app's container to Tracium's Compose network instead
+(find it with `docker network ls`, usually `tracium_default`) and send to
+`http://collector:4318`.
 
 **Ingest key.** Ask the user to open the dashboard, register, create a
 workspace, and create an API key on the API keys screen, then give you the key
 (`trc_...`). You cannot do this for them. Check the key:
 
 ```bash
-curl -s -o /dev/null -w '%{http_code}\n' -X POST http://localhost:4318/v1/traces \
+curl -s -o /dev/null -w '%{http_code}\n' -X POST "${TRACIUM_OTLP_ENDPOINT:-http://localhost:4318}/v1/traces" \
   -H "Authorization: Bearer $TRACIUM_API_KEY" -H 'Content-Type: application/json' \
   -d '{"resourceSpans":[]}'
 ```
@@ -139,6 +144,22 @@ over OTLP/HTTP to `<tracium>/v1/traces` with the header
 `Authorization: Bearer <key>`, and metrics to `<tracium>/v1/metrics` if the user
 wants them. See `examples/openai_to_tracium.py` for a complete Python setup.
 
+**No GenAI instrumentation for the language** (common in Go, Java, Rust,
+Ruby, PHP): wrap each LLM call in a span of kind CLIENT yourself, named
+`chat <model>`, and set these attributes from the request and response:
+
+| Attribute | Value |
+|---|---|
+| `gen_ai.operation.name` | `chat`, `embeddings`, ... |
+| `gen_ai.request.model` | Model requested |
+| `gen_ai.response.model` | Model the response names |
+| `gen_ai.usage.input_tokens` | Input tokens from the response's usage |
+| `gen_ai.usage.output_tokens` | Output tokens from the response's usage |
+| `gen_ai.response.finish_reasons` | Finish reasons, as a string array |
+| `gen_ai.is_streaming` | `true` for streamed calls |
+
+Without the model and token counts the run has no cost.
+
 **B. OpenTelemetry SDK already configured.** Keep the existing provider,
 sampler, propagators, resource and exporters exactly as they are.
 
@@ -199,13 +220,16 @@ Skip if the user named one repository.
 
 ## Step 7: Verify
 
-For each repository, run the app, a test, or a small script that makes one real
-LLM call through an instrumented path. Wait a few seconds, then read the setup
-checks with the ingest key:
+For each repository, note the time, then run the app, a test, or a small
+script that makes one real LLM call through an instrumented path. Wait a few
+seconds, then read the setup checks for spans since that time with the ingest
+key:
 
 ```bash
+SINCE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+# run the instrumented call here, then:
 curl -s -H "Authorization: Bearer $TRACIUM_API_KEY" \
-  'http://localhost:8090/v1/metrics/setup-checks?range=1h'
+  "${TRACIUM_API_URL:-http://localhost:8090}/v1/metrics/setup-checks?range=24h&since=$SINCE"
 ```
 
 `items` lists each problem with its `code`, `severity`, `message` and an
@@ -214,7 +238,8 @@ only this endpoint, so ask the user to open the dashboard and confirm the run
 appears under the right workflow name and version, with a cost, not $0. An
 empty list before the run shows up there only means nothing arrived yet.
 
-Fix what the checks and the user report, then check again. The checks name the problem and the fix: no LLM spans,
+Fix what the checks and the user report, then check again with a new `SINCE`.
+The checks name the problem and the fix: no LLM spans,
 unpriced model, missing model, unmetered streams, instant LLM spans, errors
 without detail, missing root span, unnamed workflow, workflow without version,
 version per run, and spans rejected at ingest.
