@@ -5,7 +5,7 @@ Breaking changes require a `schema_version` bump. Additive changes do not.
 
 ---
 
-## [1.1.0] - Unreleased
+## [1.1.0] - 2026-10-16
 
 ### Added
 - Workflow versions. A span's version is the resource's `tracium.workflow.version`; span attributes are not read. It is stored in the new `tracium.spans.workflow_version` column and added to the `metrics_daily` key (migration 014)

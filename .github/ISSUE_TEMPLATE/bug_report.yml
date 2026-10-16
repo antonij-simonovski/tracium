@@ -20,7 +20,7 @@ body:
     attributes:
       label: Tracium version
       description: Release tag or commit SHA
-      placeholder: 1.0.4
+      placeholder: 1.1.0
     validations:
       required: true
   - type: dropdown
