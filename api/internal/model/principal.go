@@ -6,7 +6,8 @@ type Principal struct {
 	UserID   string
 	TenantID string
 	Role     string
-	// WorkspaceID is set instead of UserID when a workspace ingest key
-	// authenticated the request; the key reads only that workspace.
+	// WorkspaceID is set when a workspace ingest key authenticated the request.
+	// The key reads only that workspace, and UserID is the key's creator, whose
+	// entitlements apply.
 	WorkspaceID string
 }

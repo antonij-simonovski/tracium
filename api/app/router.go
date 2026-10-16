@@ -144,7 +144,7 @@ func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, invit
 
 	// Setup checks also accept the workspace's ingest key, so a coding agent can
 	// verify instrumentation without a dashboard login.
-	r.With(middleware.IngestKeyOr(apiKeyService, chi.Chain(middleware.Auth(authenticator), services.Gate("telemetry.read")).Handler)).
+	r.With(middleware.IngestKeyOr(apiKeyService, middleware.Auth(authenticator)), services.Gate("telemetry.read")).
 		Get(version.Route(version.V1, "/metrics/setup-checks"), metricsHandler.SetupChecks)
 
 	return r

@@ -58,14 +58,14 @@ func Auth(authenticator Authenticator) func(http.Handler) http.Handler {
 	}
 }
 
-// KeyVerifier resolves a workspace ingest key to the workspace it grants.
-type KeyVerifier interface {
-	Verify(ctx context.Context, token string) (string, error)
+// KeyLookup resolves a workspace ingest key to the active key.
+type KeyLookup interface {
+	Lookup(ctx context.Context, token string) (*model.APIKey, error)
 }
 
-// IngestKeyOr authenticates a bearer ingest key as a principal scoped to the
-// key's workspace and hands every other request to fallback.
-func IngestKeyOr(keys KeyVerifier, fallback func(http.Handler) http.Handler) func(http.Handler) http.Handler {
+// IngestKeyOr authenticates a bearer ingest key as its creator, scoped to the
+// key's workspace, and hands every other request to fallback.
+func IngestKeyOr(keys KeyLookup, fallback func(http.Handler) http.Handler) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		other := fallback(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -74,7 +74,7 @@ func IngestKeyOr(keys KeyVerifier, fallback func(http.Handler) http.Handler) fun
 				other.ServeHTTP(w, r)
 				return
 			}
-			workspaceID, err := keys.Verify(r.Context(), token)
+			key, err := keys.Lookup(r.Context(), token)
 			if errors.Is(err, apikey.ErrInvalidKey) {
 				WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "invalid api key")
 				return
@@ -83,7 +83,7 @@ func IngestKeyOr(keys KeyVerifier, fallback func(http.Handler) http.Handler) fun
 				WriteError(w, http.StatusServiceUnavailable, "UNAVAILABLE", "could not verify the api key")
 				return
 			}
-			ctx := context.WithValue(r.Context(), principalKey, &model.Principal{WorkspaceID: workspaceID})
+			ctx := context.WithValue(r.Context(), principalKey, &model.Principal{UserID: key.CreatedBy, WorkspaceID: key.WorkspaceID})
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

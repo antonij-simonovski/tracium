@@ -66,14 +66,14 @@ func TestAuth(t *testing.T) {
 
 type fakeKeys struct{}
 
-func (fakeKeys) Verify(_ context.Context, token string) (string, error) {
+func (fakeKeys) Lookup(_ context.Context, token string) (*model.APIKey, error) {
 	switch token {
 	case "trc_good":
-		return "ws-1", nil
+		return &model.APIKey{WorkspaceID: "ws-1", CreatedBy: "u-key"}, nil
 	case "trc_db-down":
-		return "", errors.New("connection refused")
+		return nil, errors.New("connection refused")
 	}
-	return "", apikey.ErrInvalidKey
+	return nil, apikey.ErrInvalidKey
 }
 
 func TestIngestKeyOr(t *testing.T) {
@@ -81,7 +81,7 @@ func TestIngestKeyOr(t *testing.T) {
 		name, header, user, workspace string
 		want                          int
 	}{
-		{"valid key", "Bearer trc_good", "", "ws-1", http.StatusNoContent},
+		{"valid key", "Bearer trc_good", "u-key", "ws-1", http.StatusNoContent},
 		{"invalid key", "Bearer trc_bad", "", "", http.StatusUnauthorized},
 		{"key store down", "Bearer trc_db-down", "", "", http.StatusServiceUnavailable},
 		{"session token", "Bearer good", "u-1", "", http.StatusNoContent},

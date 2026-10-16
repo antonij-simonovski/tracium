@@ -163,3 +163,28 @@ func TestIngestKeyReadsOnlySetupChecks(t *testing.T) {
 		}
 	}
 }
+
+type denyReads struct{ user string }
+
+func (d denyReads) Check(_ context.Context, s extension.Subject, feature string) (extension.Decision, error) {
+	return extension.Decision{Allowed: feature != "telemetry.read" || s.UserID != d.user}, nil
+}
+
+func TestIngestKeyFollowsCreatorEntitlements(t *testing.T) {
+	var cfg Config
+	cfg.Default()
+	keys := apikey.NewService(keyStore{})
+	lapsed, _ := keys.Create(context.Background(), "ws-1", "lapsed", "agent")
+	paying, _ := keys.Create(context.Background(), "ws-1", "paying", "agent")
+	repo := repository{mocks.NewMockTraceRepository(), &mocks.MockMetricsRepository{}}
+	router := newRouter(cfg, repo, &mocks.MockWorkspaceStore{}, nil, nil, tokenAuth{}, nil, keys, nil, Options{Entitlements: denyReads{"lapsed"}})
+	for token, want := range map[string]int{lapsed.Token: 403, paying.Token: 200} {
+		r := httptest.NewRequest("GET", "/v1/metrics/setup-checks", nil)
+		r.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, r)
+		if w.Code != want {
+			t.Errorf("%.8s: %d want %d", token, w.Code, want)
+		}
+	}
+}

@@ -527,7 +527,7 @@ paths:
         affected. Reads raw spans, so ranges longer than 30d are rejected.
         The only endpoint that also accepts a workspace ingest key
         (`trc_...`) as the bearer token; the key reads only its own
-        workspace.
+        workspace, and the entitlements of the user who created it apply.
       tags:
         - Metrics
       security:
@@ -556,7 +556,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "403":
-          description: The workspace is not the caller's, or not the ingest key's.
+          description: The workspace is not the caller's, or not the ingest key's, or the caller (for a key, its creator) is not entitled to read telemetry.
           content:
             application/json:
               schema:

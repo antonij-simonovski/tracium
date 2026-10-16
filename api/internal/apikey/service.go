@@ -77,16 +77,22 @@ func (s *Service) Revoke(ctx context.Context, id, workspaceID string) error {
 // what the ingest path (via the collector's verify call) uses to authenticate a
 // sender and decide where its spans land.
 func (s *Service) Verify(ctx context.Context, token string) (string, error) {
-	token = strings.TrimSpace(token)
-	if !tokens.Valid(TokenPrefix, token) {
-		return "", ErrInvalidKey
-	}
-	key, err := s.store.FindActiveByHash(ctx, tokens.Hash(token))
+	key, err := s.Lookup(ctx, token)
 	if err != nil {
-		if errors.Is(err, ErrNotFound) {
-			return "", ErrInvalidKey
-		}
 		return "", err
 	}
 	return key.WorkspaceID, nil
+}
+
+// Lookup is Verify returning the whole key, including who created it.
+func (s *Service) Lookup(ctx context.Context, token string) (*model.APIKey, error) {
+	token = strings.TrimSpace(token)
+	if !tokens.Valid(TokenPrefix, token) {
+		return nil, ErrInvalidKey
+	}
+	key, err := s.store.FindActiveByHash(ctx, tokens.Hash(token))
+	if errors.Is(err, ErrNotFound) {
+		return nil, ErrInvalidKey
+	}
+	return key, err
 }
