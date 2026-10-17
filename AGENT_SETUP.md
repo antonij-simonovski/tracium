@@ -154,9 +154,9 @@ and ask them to confirm or change it. Ask about all of them in one message.
 | Clients | Spend and failures per end client | Which ID identifies an end client, per repository. Set as `tracium.user.id` |
 | Cost allocation | Spend split by any attribute | Which attributes to add, such as `team`, `environment` or `feature` |
 | Prompt capture | Prompts and completions in the trace viewer | Whether prompt and completion text may be stored, given PII and compliance, and in which environments (for example local only) |
-| Token metrics | Cost totals that stay correct under trace sampling | On or off. On is recommended when traces are sampled |
+| Token metrics | LLM cost totals that stay correct under trace sampling | On or off. On is recommended when traces are sampled |
 | Pricing | Correct cost for every model | Fine-tuned, self-hosted or renamed models that need a price entry |
-| Other paid AI services | Visibility into non-LLM spend | Whether to trace them, and what to record. See "Non-LLM services" |
+| Non-LLM costs | Paid tools and APIs (OCR, speech, search, scraping, GPU jobs) counted in run and workflow cost | Which non-model calls cost money, and how the code knows the cost of each. See "Non-LLM services" |
 
 ### Choosing workflows
 
@@ -195,21 +195,23 @@ code supports more than one reading.
 - Some users want Tracium to receive only GenAI spans (and other paid AI
   calls), not HTTP, database, storage or queue spans. Do this by filtering at
   export (a span processor or exporter wrapper that forwards only spans with
-  `gen_ai.request.model`, plus the agreed services), not by skipping the other
-  spans: the unexported spans still carry trace context and baggage to their
-  children. Tell the user the cost of this: traces arrive without their root
-  span (the `missing_root_span` check), and run latency covers only the
-  exported calls.
+  `gen_ai.request.model` or `tracium.cost_usd`, plus the agreed services), not
+  by skipping the other spans: the unexported spans still carry trace context
+  and baggage to their children. Tell the user the cost of this: traces arrive
+  without their root span (the `missing_root_span` check), and run latency
+  covers only the exported calls.
 
 ### Non-LLM services
 
-Tracium prices spans from model and token counts only, and it ignores cost
-reported by the sender. A non-LLM service (OCR, speech, translation) can be
-traced with latency, errors and its billing unit as a custom attribute (for
-example `textract.pages`), which is stored for cost allocation, but its cost
-shows as $0. Say so plainly. Do not invent a price, for example by passing the
-service off as a priced model, unless the user explicitly asks for that and
-understands it pollutes the LLM statistics.
+Tracium prices model calls from model and token counts. A non-LLM service
+(OCR, speech, translation, search, scraping, a GPU job) has no tokens, so the
+code sets its cost in USD as `tracium.cost_usd` on the span that made the
+call. Work it out from the billing unit (for example pages times the per-page
+price) and record the unit too as a custom attribute (for example
+`textract.pages`), which is stored for cost allocation. Ask the user for the
+unit prices rather than guessing them. Where the code cannot know the cost,
+the span shows $0; say so plainly. Never pass the service off as a priced model
+to get a cost: it pollutes the LLM statistics.
 
 Rules behind these:
 
@@ -227,6 +229,18 @@ Rules behind these:
   model missing from it is recorded at $0. Check every model the code uses,
   including defaults read from environment variables, against it. Add entries
   in the same shape as the existing ones and restart the collector.
+- Model calls, embeddings included, are always priced from their tokens. A span
+  with `gen_ai.request.model` or `gen_ai.response.model` ignores any cost
+  attribute on it (`tracium.cost_usd`, `gen_ai.usage.cost`,
+  `llm.usage.total_cost`). For an embedding or self-hosted model the table
+  lacks, add a price entry instead.
+- `tracium.cost_usd` is for spans with no model: a paid tool, search or
+  scraping API, OCR, a GPU job. Set it in USD as a number on the span that made
+  the call, not on the resource, and never on a parent span that sums its
+  children, since every cost figure is a sum over spans. A span with a value
+  below 0, not a number, or above $10,000 is rejected and shows up in the setup
+  checks. Costs on spans without a model add to run, workflow and client totals
+  but not to the per-model breakdown.
 
 ## Step 5: Instrument each repository
 
@@ -274,19 +288,23 @@ sampler, propagators, resource and exporters exactly as they are.
   provider. If the existing meter provider exists only in some environments,
   say so rather than creating a second one silently.
 - If the provider traces more than LLM work (HTTP requests, database calls,
-  queues), send Tracium only the traces that contain an LLM call. Otherwise
-  every request becomes a run and buries the LLM workflows. Put a filter in
-  front of the Tracium exporter only, never the existing ones. It holds each
-  trace's spans in memory until the trace's local root ends (the span with no
-  parent, or a remote one), then exports all of them if any span has a
-  `gen_ai.*`, `llm.*` or `traceloop.*` attribute, and drops them otherwise.
-  Holding the whole trace keeps tool calls, retrieval and embeddings that run
-  before the first LLM call. Bound the buffer by traces and age; when it
-  overflows, export the evicted trace if it has an LLM span and let that
-  trace's later spans pass straight through, so nothing that matters is lost.
+  queues), send Tracium only the traces that contain an LLM call or a cost.
+  Otherwise every request becomes a run and buries the LLM workflows. Put a
+  filter in front of the Tracium exporter only, never the existing ones. It
+  holds each trace's spans in memory until the trace's local root ends (the
+  span with no parent, or a remote one), then exports all of them if any span
+  has a `gen_ai.*`, `llm.*` or `traceloop.*` attribute or a `tracium.cost_usd`,
+  and drops them otherwise. Matching `tracium.cost_usd` keeps runs whose only
+  spend is a paid tool or API. Holding the whole trace keeps tool calls,
+  retrieval and embeddings that run before the first LLM call. Bound the buffer
+  by traces and age; when it overflows, export the evicted trace if it has a
+  span that matches and let that trace's later spans pass straight through, so
+  nothing that matters is lost. If the user chose GenAI-only export (step 4),
+  that stricter filter replaces this one.
 - The existing sampler decides for Tracium too. If it samples, tell the user
   that Tracium sees the same share of traces, and recommend token metrics so
-  cost totals stay complete.
+  LLM cost totals stay complete. `tracium.cost_usd` comes from spans only, so
+  under sampling its totals show only the sampled share.
 
 **C. The app exports to an OpenTelemetry Collector.** Leave the app's exporter
 alone. Add an `otlphttp` exporter to the Collector config with
@@ -428,6 +446,7 @@ End with a report to the user, one section per repository:
   Tracium.
 - **Open items**: anything the user must still do, such as deploy secrets,
   price entries, services that do not export yet, hops without propagation,
-  non-LLM services shown at $0, and setup checks still showing.
+  non-LLM services without a known cost, shown at $0, and setup checks still
+  showing.
 
 Do not commit or push unless the user asks.
