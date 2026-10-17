@@ -273,6 +273,17 @@ sampler, propagators, resource and exporters exactly as they are.
 - For metrics, add a metric reader with an OTLP exporter to the existing meter
   provider. If the existing meter provider exists only in some environments,
   say so rather than creating a second one silently.
+- If the provider traces more than LLM work (HTTP requests, database calls,
+  queues), send Tracium only the traces that contain an LLM call. Otherwise
+  every request becomes a run and buries the LLM workflows. Put a filter in
+  front of the Tracium exporter only, never the existing ones: keep a span
+  when it has a `gen_ai.*` attribute, or when its trace already had a span
+  kept, remembering those trace IDs in a bounded set. Spans end before their
+  parents, so this keeps each LLM span and the spans around it up to the
+  root, and drops traces with no LLM call.
+- The existing sampler decides for Tracium too. If it samples, tell the user
+  that Tracium sees the same share of traces, and recommend token metrics so
+  cost totals stay complete.
 
 **C. The app exports to an OpenTelemetry Collector.** Leave the app's exporter
 alone. Add an `otlphttp` exporter to the Collector config with
@@ -282,9 +293,10 @@ GenAI instrumentation may still be missing in the app; add it as in path B.
 
 **D. A vendor agent owns the provider** (Datadog, New Relic, Sentry, ...).
 Check whether it exposes the OpenTelemetry provider so you can add a span
-processor. If not, stop and ask the user before changing anything. Never change
-what the vendor receives: its resource, sampling, propagation and exported
-data stay exactly as they were.
+processor, then follow path B, including the LLM-only filter: these agents
+trace every request. If it does not expose one, stop and ask the user before
+changing anything. Never change what the vendor receives: its resource,
+sampling, propagation and exported data stay exactly as they were.
 
 On every path:
 
@@ -321,7 +333,8 @@ On every path:
 
 Skip if there is only one service and no queues.
 
-- Use the same ingest key and the same version scheme in every repository.
+- Use the same ingest key in every repository, and the version scheme agreed
+  in step 4.
 - Make sure trace context crosses every boundary that belongs to one run, so
   one run is one trace. Use W3C `traceparent` propagation on HTTP and gRPC
   clients and servers, and inject and extract it in queue message attributes
@@ -333,8 +346,21 @@ Skip if there is only one service and no queues.
   rather than assuming it, and confirm it end to end in step 7.
 - When the workflow is a cross-service process, carry it as W3C baggage with
   the trace context.
-- Every service on the path should export to Tracium, unless the user chose
-  GenAI-only export (step 4). Otherwise traces arrive without their root span.
+- Decide per boundary whether the receiver continues the sender's workflow or
+  starts its own, from the workflows agreed in step 4:
+  - **Same workflow** (a synchronous call that is one step of the caller's
+    run): make the extracted context the parent, so one run is one trace.
+  - **Its own workflow** (typically a queue, event or job consumer agreed as a
+    separate workflow): start a new root span named after the workflow, with
+    `gen_ai.agent.name`, and attach the extracted context as a span link, not
+    as the parent. Otherwise its runs are filed under the sender's workflow.
+    Replace any workflow name carried in baggage with its own, so the span
+    processor does not stamp the sender's name on its spans. Tracium does not
+    show links yet, but other tracing backends on the same provider do, so the
+    two traces stay connected there.
+- Every service on a parent path should export to Tracium, unless the user
+  chose GenAI-only export (step 4). Otherwise traces arrive without their root
+  span and lose their workflow name.
 
 ## Step 7: Verify
 
@@ -383,7 +409,10 @@ tell the user which ones and why.
 
 End with a report to the user, one section per repository:
 
-- **Path taken**: A, B, C or D, and why.
+- **Path taken**: A, B, C or D, and why, and whether an LLM-only filter was
+  added.
+- **Boundaries**: each link to another repository, and whether it continues
+  the sender's trace or starts its own with a span link.
 - **Existing instrumentation**: what you found and confirm it is unchanged.
 - **Files changed** and **dependencies added**.
 - **Tracium attributes**: each one set, its value or source, and where it is
