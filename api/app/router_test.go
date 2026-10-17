@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The ingest verify endpoint must have its own rate-limit bucket, not share
@@ -112,5 +113,78 @@ func TestExtensionsShareAuthAndCannotReplaceCoreRoutes(t *testing.T) {
 	}
 	if err := validateOptions(Options{Extensions: []Extension{{Name: "../auth"}}}); err == nil {
 		t.Fatal("invalid route namespace accepted")
+	}
+}
+
+type keyStore map[string]model.APIKey
+
+func (s keyStore) Insert(_ context.Context, key model.APIKey, hash string) (time.Time, error) {
+	s[hash] = key
+	return time.Now(), nil
+}
+func (s keyStore) List(context.Context, string) ([]model.APIKey, error) { return nil, nil }
+func (s keyStore) Revoke(context.Context, string, string) error         { return nil }
+func (s keyStore) FindActiveByHash(_ context.Context, hash string) (*model.APIKey, error) {
+	if key, ok := s[hash]; ok {
+		return &key, nil
+	}
+	return nil, apikey.ErrNotFound
+}
+
+func TestIngestKeyReadsOnlySetupChecks(t *testing.T) {
+	var cfg Config
+	cfg.Default()
+	keys := apikey.NewService(keyStore{})
+	created, err := keys.Create(context.Background(), "ws-1", "user", "agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := repository{mocks.NewMockTraceRepository(), &mocks.MockMetricsRepository{}}
+	router := newRouter(cfg, repo, &mocks.MockWorkspaceStore{}, nil, nil, tokenAuth{"session": "user"}, nil, keys, nil, Options{})
+	for _, tt := range []struct {
+		path, token string
+		want        int
+	}{
+		{"/v1/metrics/setup-checks", created.Token, 200},
+		{"/v1/metrics/setup-checks?workspace_id=ws-1", created.Token, 200},
+		{"/v1/metrics/setup-checks?workspace_id=ws-2", created.Token, 403},
+		{"/v1/metrics/setup-checks", "trc_unknown", 401},
+		{"/v1/metrics/setup-checks", "session", 200},
+		{"/v1/metrics/kpis", created.Token, 401},
+		{"/v1/traces", created.Token, 401},
+		{"/v1/workspaces", created.Token, 401},
+	} {
+		r := httptest.NewRequest("GET", tt.path, nil)
+		r.Header.Set("Authorization", "Bearer "+tt.token)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, r)
+		if w.Code != tt.want {
+			t.Errorf("%s with %.8s: %d want %d", tt.path, tt.token, w.Code, tt.want)
+		}
+	}
+}
+
+type denyReads struct{ user string }
+
+func (d denyReads) Check(_ context.Context, s extension.Subject, feature string) (extension.Decision, error) {
+	return extension.Decision{Allowed: feature != "telemetry.read" || s.UserID != d.user}, nil
+}
+
+func TestIngestKeyFollowsCreatorEntitlements(t *testing.T) {
+	var cfg Config
+	cfg.Default()
+	keys := apikey.NewService(keyStore{})
+	lapsed, _ := keys.Create(context.Background(), "ws-1", "lapsed", "agent")
+	paying, _ := keys.Create(context.Background(), "ws-1", "paying", "agent")
+	repo := repository{mocks.NewMockTraceRepository(), &mocks.MockMetricsRepository{}}
+	router := newRouter(cfg, repo, &mocks.MockWorkspaceStore{}, nil, nil, tokenAuth{}, nil, keys, nil, Options{Entitlements: denyReads{"lapsed"}})
+	for token, want := range map[string]int{lapsed.Token: 403, paying.Token: 200} {
+		r := httptest.NewRequest("GET", "/v1/metrics/setup-checks", nil)
+		r.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, r)
+		if w.Code != want {
+			t.Errorf("%.8s: %d want %d", token, w.Code, want)
+		}
 	}
 }

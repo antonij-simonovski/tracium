@@ -525,11 +525,27 @@ paths:
         rejected at ingest, with how to fix each. Checks that affected no span
         are omitted. Results are ordered most severe first, then by spans
         affected. Reads raw spans, so ranges longer than 30d are rejected.
+        The only endpoint that also accepts a workspace ingest key
+        (`trc_...`) as the bearer token; the key reads only its own
+        workspace, and the entitlements of the user who created it apply.
       tags:
         - Metrics
+      security:
+        - bearerAuth: []
+        - ingestKey: []
       parameters:
         - $ref: "#/components/parameters/Range"
         - $ref: "#/components/parameters/WorkspaceFilter"
+        - name: since
+          in: query
+          required: false
+          description: >
+            RFC 3339 timestamp. Only spans from this time on are checked, so a
+            fix can be verified without older spans still reporting the
+            problem. Earlier than the range start means the range start.
+          schema:
+            type: string
+            format: date-time
       responses:
         "200":
           description: Setup checks that found a problem.
@@ -538,7 +554,19 @@ paths:
               schema:
                 $ref: "#/components/schemas/PaginatedSetupCheckResponse"
         "400":
-          description: Invalid range, or one longer than 30d.
+          description: Invalid range or since, or a range longer than 30d.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Missing or invalid bearer token or ingest key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: The workspace is not the caller's, or not the ingest key's, or the caller (for a key, its creator) is not entitled to read telemetry.
           content:
             application/json:
               schema:
@@ -1408,6 +1436,10 @@ components:
       type: http
       scheme: bearer
       description: JWT or opaque bearer token issued by the Tracium auth service.
+    ingestKey:
+      type: http
+      scheme: bearer
+      description: Workspace ingest key (`trc_...`), accepted only by GET /v1/metrics/setup-checks.
 
   parameters:
     WorkflowName:

@@ -5,6 +5,15 @@ Breaking changes require a `schema_version` bump. Additive changes do not.
 
 ---
 
+## [Unreleased]
+
+### Added
+- `GET /v1/metrics/setup-checks` also accepts a workspace ingest key (`trc_...`) as the bearer token, scoped to the key's workspace and checked against the entitlements of the user who created the key, so a coding agent can verify instrumentation without a dashboard login. Every other route still requires a session token
+- `since` filter on `GET /v1/metrics/setup-checks`, so a fix can be checked against new spans only
+- `bootstrap` command in the API image (`docker compose exec api ./bootstrap --email you@example.com`) creates the account if missing, a workspace if it has none, and an API key, and prints the key, so a local install needs no dashboard steps before ingest. It only runs with access to the API's database; there is no HTTP endpoint. `AGENT_SETUP.md` uses it for the local Docker path
+
+---
+
 ## [1.1.0] - 2026-10-16
 
 ### Added

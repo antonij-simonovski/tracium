@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -447,6 +448,60 @@ func TestMetricsAnomaliesRejectsBadFilters(t *testing.T) {
 		serveAuthed(h.Anomalies, rr, httptest.NewRequest(http.MethodGet, "/v1/metrics/anomalies?"+q, nil))
 		if rr.Code != http.StatusBadRequest {
 			t.Errorf("query %q: status = %d, want 400", q, rr.Code)
+		}
+	}
+}
+
+func TestWorkspaceScopeForIngestKey(t *testing.T) {
+	for _, tt := range []struct {
+		requested string
+		want      int
+	}{{"", http.StatusOK}, {"ws-key", http.StatusOK}, {"ws-other", http.StatusForbidden}} {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req = req.WithContext(middleware.ContextWithPrincipal(req.Context(), &model.Principal{WorkspaceID: "ws-key"}))
+		rr := httptest.NewRecorder()
+		scope, ok := resolveWorkspaceScope(rr, req, nil, tt.requested)
+		if tt.want == http.StatusOK && (!ok || len(scope) != 1 || scope[0] != "ws-key") {
+			t.Errorf("requested %q: scope = %v, want [ws-key]", tt.requested, scope)
+		}
+		if tt.want != http.StatusOK && (ok || rr.Code != tt.want) {
+			t.Errorf("requested %q: status = %d, want %d", tt.requested, rr.Code, tt.want)
+		}
+	}
+}
+
+type setupFilterSpy struct {
+	mocks.MockMetricsRepository
+	got query.MetricsFilter
+}
+
+func (s *setupFilterSpy) SetupChecks(_ context.Context, f query.MetricsFilter) ([]model.SetupCheck, error) {
+	s.got = f
+	return nil, nil
+}
+
+func TestMetricsSetupChecksSince(t *testing.T) {
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	for _, tt := range []struct {
+		since     string
+		want      int
+		wantStart time.Time
+	}{
+		{"", http.StatusOK, now.Add(-24 * time.Hour)},
+		{"2026-10-16T11:55:00Z", http.StatusOK, now.Add(-5 * time.Minute)},
+		{"2026-10-01T00:00:00Z", http.StatusOK, now.Add(-24 * time.Hour)},
+		{"yesterday", http.StatusBadRequest, time.Time{}},
+	} {
+		spy := &setupFilterSpy{}
+		h := NewMetricsHandler(spy, allowAllAccess{})
+		h.now = func() time.Time { return now }
+		rr := httptest.NewRecorder()
+		serveAuthed(h.SetupChecks, rr, httptest.NewRequest(http.MethodGet, "/v1/metrics/setup-checks?range=24h&since="+tt.since, nil))
+		if rr.Code != tt.want {
+			t.Fatalf("since %q: status = %d, want %d", tt.since, rr.Code, tt.want)
+		}
+		if !spy.got.Start.Equal(tt.wantStart) {
+			t.Errorf("since %q: start = %v, want %v", tt.since, spy.got.Start, tt.wantStart)
 		}
 	}
 }

@@ -155,7 +155,7 @@ func (s Services) Gate(feature string) func(http.Handler) http.Handler {
 				middleware.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "user identity could not be resolved")
 				return
 			}
-			decision, err := s.Entitlements.Check(r.Context(), Subject{UserID: p.UserID}, feature)
+			decision, err := s.Entitlements.Check(r.Context(), Subject{UserID: p.UserID, WorkspaceID: p.WorkspaceID}, feature)
 			if err != nil {
 				middleware.WriteError(w, http.StatusServiceUnavailable, "UNAVAILABLE", "could not check entitlements")
 				return

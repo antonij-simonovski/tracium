@@ -22,6 +22,13 @@ type WorkspaceAccess interface {
 // writes the error response and returns ok=false.
 func resolveWorkspaceScope(w http.ResponseWriter, r *http.Request, access WorkspaceAccess, requested string) ([]string, bool) {
 	principal, ok := middleware.PrincipalFromContext(r.Context())
+	if ok && principal.WorkspaceID != "" {
+		if requested != "" && requested != principal.WorkspaceID {
+			respondError(w, http.StatusForbidden, "FORBIDDEN", "you do not have access to that workspace")
+			return nil, false
+		}
+		return []string{principal.WorkspaceID}, true
+	}
 	if !ok || principal.UserID == "" {
 		respondError(w, http.StatusUnauthorized, "UNAUTHORIZED", "user identity could not be resolved")
 		return nil, false

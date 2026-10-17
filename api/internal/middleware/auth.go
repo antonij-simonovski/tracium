@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/tracium/api/internal/apikey"
 	"github.com/tracium/api/internal/model"
 )
 
@@ -52,6 +53,37 @@ func Auth(authenticator Authenticator) func(http.Handler) http.Handler {
 			}
 
 			ctx := context.WithValue(r.Context(), principalKey, principal)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+// KeyLookup resolves a workspace ingest key to the active key.
+type KeyLookup interface {
+	Lookup(ctx context.Context, token string) (*model.APIKey, error)
+}
+
+// IngestKeyOr authenticates a bearer ingest key as its creator, scoped to the
+// key's workspace, and hands every other request to fallback.
+func IngestKeyOr(keys KeyLookup, fallback func(http.Handler) http.Handler) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		other := fallback(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+			if !ok || !strings.HasPrefix(token, apikey.TokenPrefix) {
+				other.ServeHTTP(w, r)
+				return
+			}
+			key, err := keys.Lookup(r.Context(), token)
+			if errors.Is(err, apikey.ErrInvalidKey) {
+				WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "invalid api key")
+				return
+			}
+			if err != nil {
+				WriteError(w, http.StatusServiceUnavailable, "UNAVAILABLE", "could not verify the api key")
+				return
+			}
+			ctx := context.WithValue(r.Context(), principalKey, &model.Principal{UserID: key.CreatedBy, WorkspaceID: key.WorkspaceID})
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
