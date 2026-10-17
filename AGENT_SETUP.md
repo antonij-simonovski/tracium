@@ -276,11 +276,14 @@ sampler, propagators, resource and exporters exactly as they are.
 - If the provider traces more than LLM work (HTTP requests, database calls,
   queues), send Tracium only the traces that contain an LLM call. Otherwise
   every request becomes a run and buries the LLM workflows. Put a filter in
-  front of the Tracium exporter only, never the existing ones: keep a span
-  when it has a `gen_ai.*` attribute, or when its trace already had a span
-  kept, remembering those trace IDs in a bounded set. Spans end before their
-  parents, so this keeps each LLM span and the spans around it up to the
-  root, and drops traces with no LLM call.
+  front of the Tracium exporter only, never the existing ones. It holds each
+  trace's spans in memory until the trace's local root ends (the span with no
+  parent, or a remote one), then exports all of them if any span has a
+  `gen_ai.*`, `llm.*` or `traceloop.*` attribute, and drops them otherwise.
+  Holding the whole trace keeps tool calls, retrieval and embeddings that run
+  before the first LLM call. Bound the buffer by traces and age; when it
+  overflows, export the evicted trace if it has an LLM span and let that
+  trace's later spans pass straight through, so nothing that matters is lost.
 - The existing sampler decides for Tracium too. If it samples, tell the user
   that Tracium sees the same share of traces, and recommend token metrics so
   cost totals stay complete.
