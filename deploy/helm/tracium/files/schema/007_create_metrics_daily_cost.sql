@@ -16,7 +16,9 @@
 -- metric_cost), summed over the window. That is the day-grain analog of the raw
 -- path's per-bucket reconciliation, and when no metrics are ingested every
 -- metric_cost is 0, so greatest(span, 0) = span and the result is identical to
--- the span-only rollup.
+-- the span-only rollup. reported_cost is the part of span_cost from spans with
+-- no model (a sender's own tracium.cost_usd); metrics never meter it, so it is
+-- added outside the greatest. Migration 015 adds it to existing installs.
 --
 -- Additive sums use SimpleAggregateFunction(sum): the stored value is final, and
 -- a query just sums across merged parts. There is no run/uniq state here — cost
@@ -32,8 +34,9 @@ CREATE TABLE IF NOT EXISTS tracium.metrics_daily_cost (
     bucket_date  Date,
     user_id      String,
     workspace_id String,
-    span_cost    SimpleAggregateFunction(sum, Float64),
-    metric_cost  SimpleAggregateFunction(sum, Float64)
+    span_cost     SimpleAggregateFunction(sum, Float64),
+    metric_cost   SimpleAggregateFunction(sum, Float64),
+    reported_cost SimpleAggregateFunction(sum, Float64)
 ) ENGINE = AggregatingMergeTree()
 PARTITION BY toYYYYMM(bucket_date)
 ORDER BY (bucket_date, user_id, workspace_id);

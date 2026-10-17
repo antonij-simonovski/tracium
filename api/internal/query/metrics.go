@@ -50,18 +50,23 @@ func window(user string, workspaces []string, lo, hi int64) (string, []any) {
 	return clause, args
 }
 
-// reconciledCostUnion builds the row-level UNION ALL over the two cost relations
-// for one window: calls rows contribute span_cost, usage_metrics rows
-// metric_cost. The returned args bind the clause once per branch.
-//
-// Callers reconcile per bucket with greatest, not sum: spans and metrics meter
-// the same spend and either may be incomplete (sampling, streamed calls without
+// costReconcileExpr reconciles span and metric cost within one bucket, on the
+// raw union and the daily cost rollup alike. Spans and metrics meter the same
+// model spend and either may be incomplete (sampling, streamed calls without
 // usage, partial metric coverage), so each is a lower bound and the greater is
-// the tightest estimate that never double-counts.
+// the tightest estimate that never double-counts. reported_cost, the
+// tracium.cost_usd of spans with no model, has no metric counterpart and is
+// added on top.
+const costReconcileExpr = `greatest(sum(span_cost) - sum(reported_cost), sum(metric_cost)) + sum(reported_cost)`
+
+// reconciledCostUnion builds the row-level UNION ALL over the two cost relations
+// for one window: calls rows contribute span_cost (and reported_cost for spans
+// with no model), usage_metrics rows metric_cost. The returned args bind the
+// clause once per branch.
 func reconciledCostUnion(clause string, args []any) (string, []any) {
-	sql := fmt.Sprintf(`SELECT start_time_ms, cost_usd AS span_cost, 0 AS metric_cost FROM %s WHERE %s
+	sql := fmt.Sprintf(`SELECT start_time_ms, cost_usd AS span_cost, if(model = '', cost_usd, 0) AS reported_cost, 0 AS metric_cost FROM %s WHERE %s
     UNION ALL
-    SELECT start_time_ms, 0 AS span_cost, cost_usd AS metric_cost FROM %s WHERE %s`,
+    SELECT start_time_ms, 0 AS span_cost, 0 AS reported_cost, cost_usd AS metric_cost FROM %s WHERE %s`,
 		tableCalls, clause, tableUsageMetrics, clause)
 	both := make([]any, 0, len(args)*2)
 	both = append(both, args...)
@@ -82,10 +87,10 @@ func (r *ClickHouseRepository) costTotal(ctx context.Context, user string, works
 	q := fmt.Sprintf(`
 SELECT sum(bucket_cost)
 FROM (
-    SELECT greatest(sum(span_cost), sum(metric_cost)) AS bucket_cost
+    SELECT %s AS bucket_cost
     FROM (%s)
     GROUP BY intDiv(start_time_ms, ?)
-)`, union)
+)`, costReconcileExpr, union)
 	if err := r.db.QueryRowContext(ctx, q, append(uargs, bucketMs)...).Scan(&cost); err != nil {
 		return 0, fmt.Errorf("clickhouse: cost total: %w", err)
 	}
@@ -253,9 +258,9 @@ GROUP BY bucket_ms`, scopeCols, tableCalls, clause, scopeWhere)
 	clause, args := window(f.UserID, f.WorkspaceIDs, f.Start.UnixMilli(), f.End.UnixMilli())
 	union, uargs := reconciledCostUnion(clause, args)
 	q := fmt.Sprintf(`
-SELECT intDiv(start_time_ms, ?) * ? AS bucket_ms, greatest(sum(span_cost), sum(metric_cost)) AS value
+SELECT intDiv(start_time_ms, ?) * ? AS bucket_ms, %s AS value
 FROM (%s)
-GROUP BY bucket_ms`, union)
+GROUP BY bucket_ms`, costReconcileExpr, union)
 
 	points, err := bucketSeries(ctx, r.db, f, q, append([]any{bucketMs, bucketMs}, uargs...), scanCostBucket, costPoint)
 	if err != nil {

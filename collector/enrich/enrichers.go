@@ -167,7 +167,8 @@ func (e PricingEnricher) Enrich(ctx context.Context, span *spanmodel.Span) error
 }
 
 // FilterEnricher discards spans from models outside allowedModels. An empty
-// allow-list permits every model.
+// allow-list permits every model, and spans with no model (tools, external
+// APIs) always pass.
 type FilterEnricher struct {
 	allowedModels map[string]bool
 }
@@ -186,7 +187,7 @@ func (FilterEnricher) Name() string { return "filter" }
 
 // Enrich implements Enricher.
 func (f FilterEnricher) Enrich(_ context.Context, span *spanmodel.Span) error {
-	if len(f.allowedModels) == 0 {
+	if len(f.allowedModels) == 0 || span.Model == "" {
 		return nil
 	}
 	model := span.ModelNormalized

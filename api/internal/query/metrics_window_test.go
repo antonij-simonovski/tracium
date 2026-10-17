@@ -150,7 +150,8 @@ func TestReconciledCostUnionReadsBothRelations(t *testing.T) {
 	if strings.Contains(sql, "source") {
 		t.Errorf("union should not mention source:\n%s", sql)
 	}
-	if !strings.Contains(sql, "cost_usd AS span_cost") || !strings.Contains(sql, "cost_usd AS metric_cost") {
+	if !strings.Contains(sql, "cost_usd AS span_cost") || !strings.Contains(sql, "cost_usd AS metric_cost") ||
+		!strings.Contains(sql, "if(model = '', cost_usd, 0) AS reported_cost") {
 		t.Errorf("union does not tag cost by relation:\n%s", sql)
 	}
 	// Window args are repeated once per branch, in order.

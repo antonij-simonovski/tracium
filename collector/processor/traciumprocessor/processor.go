@@ -2,6 +2,7 @@ package traciumprocessor
 
 import (
 	"context"
+	"math"
 	"strconv"
 
 	"github.com/tracium/collector/enrich"
@@ -161,8 +162,12 @@ func toSpanModel(s ptrace.Span, resourceAttrs pcommon.Map, attrs map[string]stri
 	usage := genai.Usage(attrs)
 
 	var reportedCost float64
-	if model == "" {
-		reportedCost, _ = strconv.ParseFloat(attrs[attrCostUSD], 64)
+	if raw, ok := attrs[attrCostUSD]; ok && model == "" {
+		var err error
+		if reportedCost, err = strconv.ParseFloat(raw, 64); err != nil {
+			// NaN fails the ingest bound, so the span is rejected, not stored at $0.
+			reportedCost = math.NaN()
+		}
 	}
 
 	return &spanmodel.Span{

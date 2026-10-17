@@ -18,7 +18,8 @@
 -- already holds their span cost):
 --   INSERT INTO tracium.metrics_daily_cost
 --   SELECT toDate(start_time_ms/1000), user_id, workspace_id,
---          sumIf(cost_usd, source='span'), sumIf(cost_usd, source='metric')
+--          sumIf(cost_usd, source='span'), sumIf(cost_usd, source='metric'),
+--          sumIf(cost_usd, source='span' AND model='')
 --   FROM tracium.spans
 --   GROUP BY 1, 2, 3;
 --
@@ -29,7 +30,8 @@ SELECT
     toDate(start_time_ms / 1000)       AS bucket_date,
     user_id,
     workspace_id,
-    sumIf(cost_usd, source = 'span')   AS span_cost,
-    sumIf(cost_usd, source = 'metric') AS metric_cost
+    sumIf(cost_usd, source = 'span')                AS span_cost,
+    sumIf(cost_usd, source = 'metric')              AS metric_cost,
+    sumIf(cost_usd, source = 'span' AND model = '') AS reported_cost
 FROM tracium.spans
 GROUP BY bucket_date, user_id, workspace_id;

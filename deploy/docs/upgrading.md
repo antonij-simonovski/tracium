@@ -74,7 +74,8 @@ migration has run:
 ```sql
 INSERT INTO tracium.metrics_daily_cost
 SELECT toDate(start_time_ms/1000), user_id, workspace_id,
-       sumIf(cost_usd, source='span'), sumIf(cost_usd, source='metric')
+       sumIf(cost_usd, source='span'), sumIf(cost_usd, source='metric'),
+       sumIf(cost_usd, source='span' AND model='')
 FROM tracium.spans
 GROUP BY 1, 2, 3;
 ```
@@ -131,3 +132,15 @@ migration before rolling the API (the standard deploy order already does). Drop
 
 Spans stored before the upgrade have no version. Only spans ingested afterwards
 carry one.
+
+## Reported cost (migration 015)
+
+Migration `015` adds `reported_cost` to `tracium.metrics_daily_cost`: the
+`tracium.cost_usd` that senders set on spans with no model, such as a paid tool
+or API call. Token metrics never meter that spend, so the API adds it on top of
+the span and metric reconciliation instead of letting `greatest` hide it.
+
+The migration recreates `tracium.metrics_daily_cost_mv`. Stop the collector
+while it runs: spans written while the view is dropped are not added to the
+cost rollup. Nothing needs a backfill, since spans with no model were stored at
+$0 before this release.

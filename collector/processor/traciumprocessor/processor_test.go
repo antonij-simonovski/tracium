@@ -1,6 +1,7 @@
 package traciumprocessor
 
 import (
+	"math"
 	"testing"
 
 	"go.opentelemetry.io/collector/pdata/pcommon"
@@ -12,6 +13,11 @@ func TestToSpanModelReadsReportedCostOnlyWithoutModel(t *testing.T) {
 	s.Attributes().PutDouble(attrCostUSD, 0.25)
 	if got := toSpanModel(s, pcommon.NewMap(), attrMap(s.Attributes())).ReportedCostUSD; got != 0.25 {
 		t.Errorf("tool span: reported cost = %v, want 0.25", got)
+	}
+
+	s.Attributes().PutStr(attrCostUSD, "$0.25")
+	if got := toSpanModel(s, pcommon.NewMap(), attrMap(s.Attributes())).ReportedCostUSD; !math.IsNaN(got) {
+		t.Errorf("unparseable cost = %v, want NaN so validation rejects it", got)
 	}
 
 	s.Attributes().PutStr(attrModelRequest, "gpt-4o")

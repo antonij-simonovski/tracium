@@ -130,10 +130,6 @@ func rollupErrRate(k rollupKPI) float64 {
 	return float64(k.errRuns) / float64(k.runs)
 }
 
-// costReconcileRollupExpr reconciles the daily cost rollup's two source columns
-// within a bucket_date group, the day-grain analog of reconciledCostUnion.
-const costReconcileRollupExpr = `greatest(sum(span_cost), sum(metric_cost))`
-
 // costTotalRollupSQL sums per-day reconciled cost over the window: reconcile each
 // bucket_date, then sum the days. Reads the source-aware cost rollup
 // (metrics_daily_cost) so metric-derived spend is included.
@@ -141,14 +137,14 @@ func costTotalRollupSQL(clause string) string {
 	return fmt.Sprintf(`SELECT sum(day_cost) FROM (
     SELECT %s AS day_cost
     FROM tracium.metrics_daily_cost WHERE %s GROUP BY bucket_date
-)`, costReconcileRollupExpr, clause)
+)`, costReconcileExpr, clause)
 }
 
 // costSeriesRollupSQL is the per-day reconciled cost series on the day grid the
 // long-window chart uses, so the chart and the KPI agree.
 func costSeriesRollupSQL(clause string) string {
 	return fmt.Sprintf(`SELECT %s AS bucket_ms, %s AS value
-FROM tracium.metrics_daily_cost WHERE %s GROUP BY bucket_ms`, bucketMsExpr, costReconcileRollupExpr, clause)
+FROM tracium.metrics_daily_cost WHERE %s GROUP BY bucket_ms`, bucketMsExpr, costReconcileExpr, clause)
 }
 
 func scopedCostSeriesRollupSQL(clause string) string {
@@ -210,7 +206,7 @@ func (r *ClickHouseRepository) overviewKPIsRollup(ctx context.Context, f Metrics
 
 func (r *ClickHouseRepository) costSeriesRollup(ctx context.Context, f MetricsFilter) ([]model.CostPoint, error) {
 	clause, args := rollupScope(f)
-	// Reconcile the two cost sources per day (see costReconcileRollupExpr) on the
+	// Reconcile the two cost sources per day (see costReconcileExpr) on the
 	// same day grid the long-window chart uses, so the chart and the KPI agree
 	// and metric-derived spend is included. Metric rows carry no workflow or
 	// version, so scoped cost is span-only, as on the raw path.

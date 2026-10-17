@@ -8,9 +8,10 @@ Breaking changes require a `schema_version` bump. Additive changes do not.
 ## [Unreleased]
 
 ### Added
-- `tracium.cost_usd` set by the sender on a span with no model (a paid tool or external API call) is stored as that span's cost and counted in run, workflow and client totals. Model calls, embeddings included, are still priced from their tokens and ignore it. A value below 0, not a number, or above $10,000 drops the span with the new code `cost_out_of_range`, which the setup checks report
+- `tracium.cost_usd` set by the sender on a span with no model (a paid tool or external API call) is stored as that span's cost and counted in run, workflow and client totals. Model calls, embeddings included, are still priced from their tokens and ignore it. A value below 0, not a number, or above $10,000 drops the span with the new code `cost_out_of_range`, which the setup checks report. Token metrics never meter this spend, so cost totals add it on top of the span and metric reconciliation. Migration `015` adds `reported_cost` to `tracium.metrics_daily_cost` and recreates its view; stop the collector while it runs
 
 ### Changed
+- Spans with no model always pass the collector's `allowed_models` list, which now restricts model calls only. Before, it dropped every tool and API span as `unknown_model`
 - A streamed model call with no token usage is flagged unmetered even if it carries `gen_ai.usage.cost` or `llm.usage.total_cost`; those attributes were never used for cost
 
 ---

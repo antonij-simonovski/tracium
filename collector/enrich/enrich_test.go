@@ -183,6 +183,12 @@ func TestFilter_DropsDisallowedModel(t *testing.T) {
 	if err := chain.Apply(context.Background(), allowed); err != nil {
 		t.Errorf("allowed model: got %v, want kept", err)
 	}
+	tool := validSpan()
+	tool.Model = ""
+	tool.ReportedCostUSD = 0.01
+	if err := chain.Apply(context.Background(), tool); err != nil {
+		t.Errorf("span with no model: got %v, want kept", err)
+	}
 }
 
 type failingUserResolver struct{}
