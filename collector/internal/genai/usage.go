@@ -5,8 +5,9 @@ import "strconv"
 // Token-usage and cost attribute keys. Tracium tolerates the two naming eras it
 // sees in the wild: current OTel GenAI semconv (input_tokens / output_tokens,
 // dotted cache keys) and OpenLLMetry's legacy prompt_tokens / completion_tokens
-// (and underscore cache keys). Cost is not part of the semconv, but some
-// instrumentations stamp it; we honour it when present.
+// (and underscore cache keys). Cost is not part of the semconv; a vendor cost
+// attribute such as gen_ai.usage.cost is ignored and the call is priced from
+// its tokens.
 const (
 	attrInputTokens     = "gen_ai.usage.input_tokens"
 	attrPromptTokens    = "gen_ai.usage.prompt_tokens"
@@ -25,9 +26,6 @@ const (
 	attrTotalTokens    = "gen_ai.usage.total_tokens"
 	attrLLMTotalTokens = "llm.usage.total_tokens"
 
-	attrCostGenAI = "gen_ai.usage.cost"
-	attrCostLLM   = "llm.usage.total_cost"
-
 	// Streaming and model markers, used to recognise a call the instrumentation
 	// never metered. gen_ai.is_streaming is OpenLLMetry's OpenAI spelling,
 	// llm.is_streaming its spelling for most other providers. Both are read
@@ -40,8 +38,7 @@ const (
 )
 
 // TokenUsage is the metering Tracium reads off an incoming LLM span: token
-// counts across the classes providers bill separately, plus any cost the
-// instrumentation already computed upstream (ReportedCostUSD > 0). It is the
+// counts across the classes providers bill separately. It is the
 // single source of truth for both the stored token columns and the pricing
 // input, so the processor and exporter can't drift on which attributes count.
 type TokenUsage struct {
@@ -49,7 +46,6 @@ type TokenUsage struct {
 	OutputTokens     int64
 	CacheReadTokens  int64
 	CacheWriteTokens int64
-	ReportedCostUSD  float64
 
 	// OutputTokensDerived reports that OutputTokens is not purely what the
 	// provider broke out: part of it was reconciled from total_tokens (see
@@ -75,7 +71,6 @@ func Usage(attrs map[string]string) TokenUsage {
 		OutputTokens:     firstInt(attrs, attrOutputTokens, attrCompletionTokens, attrLLMCompletionTokens),
 		CacheReadTokens:  firstInt(attrs, attrCacheReadDotted, attrCacheReadUnderscore),
 		CacheWriteTokens: firstInt(attrs, attrCacheCreationDotted, attrCacheCreationUnderscore),
-		ReportedCostUSD:  firstFloat(attrs, attrCostGenAI, attrCostLLM),
 	}
 	u.reconcileOutput(attrs)
 	u.Unmetered = unmetered(attrs, u)
@@ -124,7 +119,7 @@ func (u *TokenUsage) reconcileOutput(attrs map[string]string) {
 // saying "usage unknown" is honest.
 func unmetered(attrs map[string]string, u TokenUsage) bool {
 	if u.InputTokens > 0 || u.OutputTokens > 0 || u.CacheReadTokens > 0 ||
-		u.CacheWriteTokens > 0 || u.ReportedCostUSD > 0 {
+		u.CacheWriteTokens > 0 {
 		return false
 	}
 	if !isTrue(attrs[attrGenAIStreaming]) && !isTrue(attrs[attrLLMStreaming]) {
@@ -148,16 +143,6 @@ func firstInt(attrs map[string]string, keys ...string) int64 {
 	for _, k := range keys {
 		if n := parseInt(attrs[k]); n > 0 {
 			return n
-		}
-	}
-	return 0
-}
-
-// firstFloat returns the first positive float among the given keys.
-func firstFloat(attrs map[string]string, keys ...string) float64 {
-	for _, k := range keys {
-		if f, err := strconv.ParseFloat(attrs[k], 64); err == nil && f > 0 {
-			return f
 		}
 	}
 	return 0

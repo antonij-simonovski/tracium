@@ -3,6 +3,7 @@ package enrich
 import (
 	"context"
 	"errors"
+	"math"
 	"strings"
 	"testing"
 
@@ -60,6 +61,20 @@ func TestValidate_DropsOutOfRangeTokenCounts(t *testing.T) {
 	err := chain.Apply(context.Background(), span)
 	if got := customerrors.Code(err); got != string(customerrors.ErrTokenCountOutOfRange) {
 		t.Fatalf("got %v, want a %s drop", err, customerrors.ErrTokenCountOutOfRange)
+	}
+}
+
+func TestValidate_DropsOutOfRangeReportedCost(t *testing.T) {
+	chain := DefaultChain(pricing.NewStaticResolver(pricing.DefaultPrices()), nil, nil)
+	for _, cost := range []float64{-1, math.NaN(), math.Inf(1), 10_001} {
+		span := validSpan()
+		span.Model = ""
+		span.ReportedCostUSD = cost
+
+		err := chain.Apply(context.Background(), span)
+		if got := customerrors.Code(err); got != string(customerrors.ErrCostOutOfRange) {
+			t.Errorf("cost %v: got %v, want a %s drop", cost, err, customerrors.ErrCostOutOfRange)
+		}
 	}
 }
 
@@ -125,6 +140,33 @@ func TestPricing_UnknownModelKeepsSpanWithZeroCost(t *testing.T) {
 	}
 	if span.CostUSD != 0 {
 		t.Errorf("CostUSD = %v, want 0 for unpriced model", span.CostUSD)
+	}
+}
+
+func TestPricing_SpanWithoutModelKeepsReportedCost(t *testing.T) {
+	chain := DefaultChain(pricing.NewStaticResolver(pricing.DefaultPrices()), nil, nil)
+	span := validSpan()
+	span.Model = ""
+	span.ReportedCostUSD = 0.004
+
+	if err := chain.Apply(context.Background(), span); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if span.CostUSD != 0.004 {
+		t.Errorf("CostUSD = %v, want the reported 0.004", span.CostUSD)
+	}
+}
+
+func TestPricing_SpanWithModelIgnoresReportedCost(t *testing.T) {
+	chain := DefaultChain(pricing.NewStaticResolver(pricing.DefaultPrices()), nil, nil)
+	span := validSpan()
+	span.ReportedCostUSD = 5000
+
+	if err := chain.Apply(context.Background(), span); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if span.CostUSD == 5000 || span.CostUSD == 0 {
+		t.Errorf("CostUSD = %v, want the gpt-4o table price", span.CostUSD)
 	}
 }
 

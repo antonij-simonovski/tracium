@@ -58,7 +58,7 @@ every knob and its `${env:VAR}` override.
   with an error code and counted; see `internal/deadletter` and the `dropped`
   counter on `:8888`.
 - **Ingest is bounded on purpose.** Even for an authenticated sender, token
-  counts, model names, and user labels are capped before they can reach storage:
+  counts, reported `tracium.cost_usd`, model names, and user labels are capped before they can reach storage:
   one span claiming 2^62 tokens would otherwise poison every `sum(cost_usd)`.
   The ceilings live in [`enrich/enrichers.go`](enrich/enrichers.go).
 - **Ingest requires a per-workspace API key.** The `traciumauth` authenticator is

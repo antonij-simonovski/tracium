@@ -3,8 +3,22 @@ package traciumprocessor
 import (
 	"testing"
 
+	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 )
+
+func TestToSpanModelReadsReportedCostOnlyWithoutModel(t *testing.T) {
+	s := ptrace.NewSpan()
+	s.Attributes().PutDouble(attrCostUSD, 0.25)
+	if got := toSpanModel(s, pcommon.NewMap(), attrMap(s.Attributes())).ReportedCostUSD; got != 0.25 {
+		t.Errorf("tool span: reported cost = %v, want 0.25", got)
+	}
+
+	s.Attributes().PutStr(attrModelRequest, "gpt-4o")
+	if got := toSpanModel(s, pcommon.NewMap(), attrMap(s.Attributes())).ReportedCostUSD; got != 0 {
+		t.Errorf("model span: reported cost = %v, want 0", got)
+	}
+}
 
 // stripContent must remove raw prompt/completion content in both the current
 // OTel and legacy OpenLLMetry shapes (used when content capture is disabled),

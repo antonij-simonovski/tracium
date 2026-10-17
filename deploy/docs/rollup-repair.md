@@ -88,6 +88,6 @@ half-open `start_time_ms` range that prunes on the sort key. There is no
 
 ## Prevention
 
-Ingest-side bounds (token ceilings, and ignoring client-reported cost unless
-explicitly trusted) stop this class of poison from being priced and stored in
+Ingest-side bounds (token ceilings, the $10,000 cap on a reported
+`tracium.cost_usd`, and ignoring vendor cost attributes on model calls) stop this class of poison from being priced and stored in
 the first place. This command is for cleaning up damage already done.

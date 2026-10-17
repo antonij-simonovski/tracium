@@ -78,6 +78,10 @@ func (ValidateEnricher) Enrich(_ context.Context, span *spanmodel.Span) error {
 				"%s is %d, limit is %d", tc.field, tc.count, ingest.MaxTokensPerCall)
 		}
 	}
+	if !ingest.CostInRange(span.ReportedCostUSD) {
+		return customerrors.InvalidSpanf(customerrors.ErrCostOutOfRange,
+			"tracium.cost_usd is %v, must be between 0 and %d", span.ReportedCostUSD, ingest.MaxCostPerSpanUSD)
+	}
 	return nil
 }
 
@@ -130,8 +134,8 @@ func (e UserEnricher) Enrich(ctx context.Context, span *spanmodel.Span) error {
 
 // PricingEnricher sets span.CostUSD from token usage via the Resolver. A missing
 // price is non-fatal: the cost is recorded as 0 rather than dropping the span.
-// A cost the instrumentation reported itself is never used: an ingest key
-// authenticates the sender, not its numbers.
+// A span with no model has nothing to price, so it keeps the sender's own
+// tracium.cost_usd, bounded by ValidateEnricher like a token count.
 type PricingEnricher struct {
 	Resolver pricing.Resolver
 }
@@ -141,6 +145,10 @@ func (PricingEnricher) Name() string { return "pricing" }
 
 // Enrich implements Enricher.
 func (e PricingEnricher) Enrich(ctx context.Context, span *spanmodel.Span) error {
+	if span.Model == "" {
+		span.CostUSD = span.ReportedCostUSD
+		return nil
+	}
 	if e.Resolver == nil || span.ModelNormalized == "" {
 		return nil
 	}

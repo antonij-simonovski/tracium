@@ -20,8 +20,9 @@ type Span struct {
 	CacheReadTokens  int64
 	CacheWriteTokens int64
 
-	// ReportedCostUSD is the client-reported cost, ignored unless
-	// PricingEnricher.TrustReportedCost is set.
+	// ReportedCostUSD is the sender's own tracium.cost_usd, read only from spans
+	// with no model (tool calls, external APIs). Spans with a model are priced
+	// from their tokens.
 	ReportedCostUSD float64
 
 	CostUSD float64

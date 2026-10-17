@@ -2,6 +2,7 @@ package traciumprocessor
 
 import (
 	"context"
+	"strconv"
 
 	"github.com/tracium/collector/enrich"
 	"github.com/tracium/collector/internal/deadletter"
@@ -159,6 +160,11 @@ func toSpanModel(s ptrace.Span, resourceAttrs pcommon.Map, attrs map[string]stri
 	endMs := s.EndTimestamp().AsTime().UnixMilli()
 	usage := genai.Usage(attrs)
 
+	var reportedCost float64
+	if model == "" {
+		reportedCost, _ = strconv.ParseFloat(attrs[attrCostUSD], 64)
+	}
+
 	return &spanmodel.Span{
 		TraceID:          s.TraceID().String(),
 		SpanID:           s.SpanID().String(),
@@ -173,6 +179,7 @@ func toSpanModel(s ptrace.Span, resourceAttrs pcommon.Map, attrs map[string]stri
 		CacheReadTokens:  usage.CacheReadTokens,
 		CacheWriteTokens: usage.CacheWriteTokens,
 		Unmetered:        usage.Unmetered,
+		ReportedCostUSD:  reportedCost,
 		// The attrs map holds the JSON-encoded array, so read the raw value.
 		FinishReason: finishReason(s.Attributes()),
 		UserID:       userID,
