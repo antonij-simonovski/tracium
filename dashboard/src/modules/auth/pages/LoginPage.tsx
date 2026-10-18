@@ -2,7 +2,7 @@ import type { AuthAppearance } from '../../../extensions';
 import { FormEvent, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AuthShell } from '../components';
-import { loginUser, AuthError } from '../api';
+import { loginUser, requestErrorMessage } from '../api';
 import styles from './LoginPage.module.css';
 
 const errorMessages: Record<string, string> = {
@@ -42,13 +42,7 @@ export default function LoginPage({ onLogin, appearance }: LoginPageProps) {
       const { token } = await loginUser({ email, password });
       onLogin(token, email);
     } catch (err) {
-      if (err instanceof AuthError && err.status === 401) {
-        setFormError(errorMessages.invalid_credentials);
-      } else if (err instanceof Error) {
-        setFormError(err.message);
-      } else {
-        setFormError('Something went wrong. Please try again.');
-      }
+      setFormError(requestErrorMessage(err, { 401: errorMessages.invalid_credentials }));
     } finally {
       setSubmitting(false);
     }

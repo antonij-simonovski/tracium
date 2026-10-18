@@ -17,9 +17,17 @@ export const USAGE_DATA: UsageData = {
     const cost = 0.12 + Math.sin(i / 4) * 0.04;
     const runs = Math.round(140 + Math.sin(i / 3) * 30);
     return {
-      day: d,
       label: `Apr ${d}`,
       cost: Math.max(0.04, cost),
+      runs,
+    };
+  }),
+  tokenSeries: Array.from({ length: 30 }, (_, i) => {
+    const runs = Math.round(140 + Math.sin(i / 3) * 30);
+    return {
+      label: `Apr ${i + 1}`,
+      input: Math.round(runs * (4385 + Math.sin(i / 5) * 400)),
+      output: Math.round(runs * (1190 + Math.cos(i / 4) * 160)),
       runs,
     };
   }),

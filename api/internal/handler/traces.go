@@ -25,29 +25,21 @@ func NewTraceHandler(repo query.TraceRepository, access WorkspaceAccess) *TraceH
 }
 
 // ListTraces handles GET /v1/traces.
-// Accepts query params: user_id, model, has_error, page, page_size.
 func (h *TraceHandler) ListTraces(w http.ResponseWriter, r *http.Request) {
-	filter := query.TraceFilter{}
-
 	q := r.URL.Query()
-
-	// user_id identifies the operator's own end-client — a business dimension
-	// of the data, not an access boundary. It's an optional filter, like model.
-	if userID := q.Get("user_id"); userID != "" {
-		filter.UserID = userID
+	filter := query.TraceFilter{
+		UserID:   q.Get("user_id"),
+		Model:    q.Get("model"),
+		Workflow: q.Get("workflow"),
+		Version:  q.Get("version"),
 	}
 
-	// Enforce workspace access: scope the listing to the workspaces the caller
-	// may read (the selected one, if a valid workspace_id is passed, else all of
-	// theirs). Refuses with 403 if they ask for a workspace they can't access.
 	scope, ok := resolveWorkspaceScope(w, r, h.access, q.Get("workspace_id"))
 	if !ok {
 		return
 	}
 	filter.WorkspaceIDs = scope
 
-	// range bounds the listing to a time window (default 30d) so it never scans
-	// the whole table; the explorer can widen/narrow it. Same tokens as metrics.
 	rng := q.Get("range")
 	if rng == "" {
 		rng = "30d"
@@ -58,16 +50,6 @@ func (h *TraceHandler) ListTraces(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	filter.StartAfter, filter.StartBefore = win.Start, win.End
-
-	if model := q.Get("model"); model != "" {
-		filter.Model = model
-	}
-
-	// workflow restricts the listing to one derived workflow — powers an workflow's
-	// "recent runs". Bounded like any listing by the range window above.
-	if workflow := q.Get("workflow"); workflow != "" {
-		filter.Workflow = workflow
-	}
 
 	if hasErrorStr := q.Get("has_error"); hasErrorStr != "" {
 		b, err := strconv.ParseBool(hasErrorStr)

@@ -1,6 +1,10 @@
 package auth
 
-import "testing"
+import (
+	"testing"
+
+	"golang.org/x/crypto/bcrypt"
+)
 
 func TestHashPasswordRoundTrip(t *testing.T) {
 	hash, err := HashPassword("correcthorse")
@@ -22,5 +26,12 @@ func TestEmptyHashNeverMatches(t *testing.T) {
 		if checkPassword("", pw) {
 			t.Fatalf("empty hash matched %q", pw)
 		}
+	}
+}
+
+func TestDummyHashCostsAsMuchAsARealOne(t *testing.T) {
+	cost, err := bcrypt.Cost([]byte(dummyHash))
+	if err != nil || cost != bcrypt.DefaultCost {
+		t.Fatalf("dummy hash cost = %d, %v; want %d", cost, err, bcrypt.DefaultCost)
 	}
 }

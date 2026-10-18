@@ -63,41 +63,63 @@
     },
     "workspace_id": {
       "type": "string",
-      "description": "Workspace the span belongs to. This is the access-control unit: an account may read a workspace's spans only if it is a member of that workspace (see the /v1/workspaces endpoints). Passthrough from the tracium.workspace.id attribute."
+      "description": "Workspace the span belongs to. This is the access-control unit: an account may read a workspace's spans only if it is a member of that workspace (see the /v1/workspaces endpoints). Set by the collector from the verified ingest API key's workspace; any tracium.workspace.id the sender supplies is overwritten."
     },
     "model_normalized": {
       "type": "string",
-      "description": "Canonical model id after alias resolution (e.g. 'gpt-4o' even if the span reported 'gpt-4o-2024-08-06')."
+      "description": "The model value lower-cased, trimmed and sanitised. No alias resolution is applied ('gpt-4o-2024-08-06' stays 'gpt-4o-2024-08-06')."
     },
     "schema_version": {
       "type": "integer",
       "minimum": 1,
-      "description": "Schema version of this span record. Used for backward-compatible reads."
+      "description": "Schema version of this span record. The collector currently writes 1; additive fields do not bump it."
     },
     "error_type": {
       "type": "string",
-      "description": "Added in schema v2. Short error class or type (e.g. 'RateLimitError')."
+      "description": "Short error class or type (e.g. 'RateLimitError')."
     },
     "error_message": {
       "type": "string",
-      "description": "Added in schema v2. Human-readable error message if the span failed."
+      "description": "Human-readable error message if the span failed."
+    },
+    "workflow_name": {
+      "type": "string",
+      "description": "Workflow that owns this span. Derived by the collector from the first non-empty of gen_ai.agent.name, traceloop.workflow.name, traceloop.entity.name, the resource service.name, or the span name."
+    },
+    "service_name": {
+      "type": "string",
+      "description": "Resource-level service.name, stored verbatim. The OTel 'unknown_service' default is stored as empty."
+    },
+    "workflow_version": {
+      "type": "string",
+      "description": "Version the span ran under: the resource's tracium.workflow.version. Capped at 128 bytes; empty when none is set."
+    },
+    "source": {
+      "type": "string",
+      "enum": ["span", "metric"],
+      "description": "How the row entered Tracium: 'span' for a per-call span, 'metric' for an aggregate built from an OTLP gen_ai.client.token.usage metric."
+    },
+    "attributes": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "Custom span and resource attributes not promoted to a typed field. The gen_ai.*, tracium.*, llm.*, traceloop.* namespaces and service.name are excluded."
     },
     "kind": {
       "type": "string",
       "enum": ["agent", "llm", "tool", "chain", "retriever", "embedding"],
-      "description": "Added in schema v3. Normalized span role, derived by the collector from instrumentation attributes (OpenInference openinference.span.kind, Traceloop traceloop.span.kind, or the OTel GenAI gen_ai.operation.name). Optional: omitted when the collector could not classify the span, in which case consumers infer the role from the span's context (e.g. parent chain)."
+      "description": "Normalized span role, derived by the collector from instrumentation attributes (OpenInference openinference.span.kind, Traceloop traceloop.span.kind, or the OTel GenAI gen_ai.operation.name). Optional: omitted when the collector could not classify the span, in which case consumers infer the role from the span's context (e.g. parent chain)."
     },
     "input": {
       "type": "string",
-      "description": "Added in schema v3. Captured prompt/input content for this span. Only present when content capture is enabled in the collector (see capture_content); otherwise absent."
+      "description": "Captured prompt/input content for this span. Only present when content capture is enabled in the collector (see capture_content); otherwise absent."
     },
     "output": {
       "type": "string",
-      "description": "Added in schema v3. Captured completion/output content for this span. Only present when content capture is enabled in the collector; otherwise absent."
+      "description": "Captured completion/output content for this span. Only present when content capture is enabled in the collector; otherwise absent."
     },
     "available_tools": {
       "type": "array",
-      "description": "Added in schema v3. Tools made available to the model on this span and whether each was invoked. Computed by the collector (from the upstream tool-definition attributes) and stored as the tracium.available_tools attribute. Tool metadata is not raw content and is captured regardless of capture_content.",
+      "description": "Tools made available to the model on this span and whether each was invoked. Computed by the collector from gen_ai.tool.definitions, falling back to OpenLLMetry's llm.request.functions.*, and stored as the tracium.available_tools attribute. Tool metadata is not raw content and is captured regardless of capture_content.",
       "items": {
         "type": "object",
         "required": ["name"],

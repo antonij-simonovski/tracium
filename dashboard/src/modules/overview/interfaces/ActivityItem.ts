@@ -1,11 +1,10 @@
-import type { ActivityId } from '../ids';
+import type { TraceId } from '../../../common/ids';
 
 export interface ActivityItem {
-  id: ActivityId;
+  id: TraceId;
   workflow: string;
   status: 'completed' | 'failed';
   time: string;
-  cost: number;
   latency: number;
   msg?: string;
 }

@@ -2,7 +2,7 @@ openapi: "3.1.0"
 
 info:
   title: Tracium API
-  version: 1.0.2
+  version: 1.1.0
   description: >
     REST API for querying traces and spans collected by the Tracium
     OpenTelemetry-native LLM observability platform. All timestamps are
@@ -41,6 +41,11 @@ paths:
         - name: workflow
           in: query
           description: Filter to traces belonging to a single workflow (the trace root name), which powers a workflow's recent runs.
+          schema:
+            type: string
+        - name: version
+          in: query
+          description: Filter to traces that ran under this workflow version (see Trace.workflow_version).
           schema:
             type: string
         - name: has_error
@@ -217,6 +222,7 @@ paths:
         - $ref: "#/components/parameters/UserFilter"
         - $ref: "#/components/parameters/WorkspaceFilter"
         - $ref: "#/components/parameters/WorkflowFilter"
+        - $ref: "#/components/parameters/VersionFilter"
       responses:
         "200":
           description: Cost buckets ordered by bucket_ms ascending.
@@ -243,6 +249,7 @@ paths:
         - $ref: "#/components/parameters/UserFilter"
         - $ref: "#/components/parameters/WorkspaceFilter"
         - $ref: "#/components/parameters/WorkflowFilter"
+        - $ref: "#/components/parameters/VersionFilter"
       responses:
         "200":
           description: Latency buckets ordered by bucket_ms ascending.
@@ -269,6 +276,7 @@ paths:
         - $ref: "#/components/parameters/UserFilter"
         - $ref: "#/components/parameters/WorkspaceFilter"
         - $ref: "#/components/parameters/WorkflowFilter"
+        - $ref: "#/components/parameters/VersionFilter"
       responses:
         "200":
           description: Error buckets ordered by bucket_ms ascending.
@@ -276,6 +284,36 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PaginatedErrorBucketResponse"
+        "400":
+          description: Invalid range.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/metrics/token-series:
+    get:
+      operationId: getTokenSeries
+      summary: Tokens over time
+      description: >
+        Input and output tokens per time bucket across the range. Counted from
+        per-call spans, the same source as the model-costs token totals, so the
+        buckets sum to those totals.
+      tags:
+        - Metrics
+      parameters:
+        - $ref: "#/components/parameters/Range"
+        - $ref: "#/components/parameters/UserFilter"
+        - $ref: "#/components/parameters/WorkspaceFilter"
+        - $ref: "#/components/parameters/WorkflowFilter"
+        - $ref: "#/components/parameters/VersionFilter"
+      responses:
+        "200":
+          description: Token buckets ordered by bucket_ms ascending.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedTokenBucketResponse"
         "400":
           description: Invalid range.
           content:
@@ -344,20 +382,16 @@ paths:
       summary: Workflow detail
       description: >
         One workflow's detail-page payload: its headline metrics over the range
-        plus the tool surface from its most recent run. Span-backed only; there
-        is no workflow-config store, so runtime params (temperature, retries,
-        version, owner, …) are not served. A raw-window feature: ranges longer
-        than 30d (90d, 1y) are rejected with a 400, since per-workflow latency
-        cannot be derived from the daily rollup.
+        plus the tool surface of its most recent run. Span-backed
+        only; there is no workflow-config store, so runtime params (temperature,
+        retries, owner, …) are not served. Ranges longer than 30d (90d, 1y) are
+        served from the daily rollup: runs and error runs are approximate, cost
+        is span-only, latency is unset (avg_latency_ms 0, p95_latency_ms null),
+        and the tool surface comes from a run in the last 30 days.
       tags:
         - Metrics
       parameters:
-        - name: name
-          in: path
-          required: true
-          description: The workflow name (the trace root span name).
-          schema:
-            type: string
+        - $ref: "#/components/parameters/WorkflowName"
         - $ref: "#/components/parameters/Range"
         - $ref: "#/components/parameters/UserFilter"
         - $ref: "#/components/parameters/WorkspaceFilter"
@@ -369,13 +403,43 @@ paths:
               schema:
                 $ref: "#/components/schemas/WorkflowDetail"
         "400":
-          description: Invalid range, or a range longer than 30d.
+          description: Invalid range.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "404":
           description: No workflow with that name has runs in the window.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/metrics/workflows/{name}/versions:
+    get:
+      operationId: listWorkflowVersions
+      summary: Workflow versions
+      description: >
+        The versions of one workflow that ran in the range, with each version's
+        runs, cost, latency, error rate and token use, most recently seen first.
+        Runs without a version are listed as version "". Ranges longer than 30d
+        read the daily rollup, which has no latency (p95_latency_ms is null).
+      tags:
+        - Metrics
+      parameters:
+        - $ref: "#/components/parameters/WorkflowName"
+        - $ref: "#/components/parameters/Range"
+        - $ref: "#/components/parameters/UserFilter"
+        - $ref: "#/components/parameters/WorkspaceFilter"
+      responses:
+        "200":
+          description: Versions ordered by last_seen_ms descending.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedWorkflowVersionResponse"
+        "400":
+          description: Invalid range.
           content:
             application/json:
               schema:
@@ -446,6 +510,35 @@ paths:
                 $ref: "#/components/schemas/PaginatedAnomalyResponse"
         "400":
           description: Invalid range, metric, or severity.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/metrics/setup-checks:
+    get:
+      operationId: getSetupChecks
+      summary: Instrumentation setup checks
+      description: >
+        Ways the workspace's instrumentation is sending telemetry Tracium cannot
+        fully use, found in the range's spans and in the spans the collector
+        rejected at ingest, with how to fix each. Checks that affected no span
+        are omitted. Results are ordered most severe first, then by spans
+        affected. Reads raw spans, so ranges longer than 30d are rejected.
+      tags:
+        - Metrics
+      parameters:
+        - $ref: "#/components/parameters/Range"
+        - $ref: "#/components/parameters/WorkspaceFilter"
+      responses:
+        "200":
+          description: Setup checks that found a problem.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedSetupCheckResponse"
+        "400":
+          description: Invalid range, or one longer than 30d.
           content:
             application/json:
               schema:
@@ -544,7 +637,8 @@ paths:
       description: >
         The custom-attribute keys present on spans in the window (e.g.
         `team`, `environment`, `customer`), offered as the allocation axes
-        for /v1/metrics/usage-by-attribute.
+        for /v1/metrics/usage-by-attribute. Reads raw spans, so ranges longer
+        than 30d are rejected.
       tags:
         - Metrics
       parameters:
@@ -559,7 +653,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/PaginatedAttributeKeyResponse"
         "400":
-          description: Invalid range.
+          description: Invalid range, or one longer than 30d.
           content:
             application/json:
               schema:
@@ -574,7 +668,8 @@ paths:
         the cost-allocation primitive that splits AI spend by whatever
         dimension the instrumentation tags spans with. The `key` query
         parameter names the dimension (from /v1/metrics/attribute-keys) and
-        is required. Ordered by cost descending.
+        is required. Ordered by cost descending. Reads raw spans, so ranges
+        longer than 30d are rejected.
       tags:
         - Metrics
       parameters:
@@ -595,7 +690,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/PaginatedAttributeUsageResponse"
         "400":
-          description: Invalid range, or the required `key` parameter is missing.
+          description: Invalid range, a range longer than 30d, or the required `key` parameter is missing.
           content:
             application/json:
               schema:
@@ -738,8 +833,10 @@ paths:
       summary: Change the signed-in user's password
       description: >
         Verifies the current password and replaces it. Requires a login token.
-        There is no email-based reset in the OSS build; operators reset a
-        forgotten password with the API image's `reset-password` CLI.
+        Every session issued before the change ends, including the caller's;
+        the response carries the caller's new token. There is no email-based
+        reset in the OSS build; operators reset a forgotten password with the
+        API image's `reset-password` CLI, which also ends existing sessions.
       tags: [Auth]
       requestBody:
         required: true
@@ -748,8 +845,12 @@ paths:
             schema:
               $ref: "#/components/schemas/ChangePasswordRequest"
       responses:
-        "204":
-          description: Password changed.
+        "200":
+          description: Password changed. Use the returned token from now on.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Token"
         "400":
           description: >
             Missing fields (`MISSING_FIELDS`) or a new password outside 8–72
@@ -867,7 +968,8 @@ paths:
       summary: Add a member
       description: >
         Grants another account access to the workspace, named by email. Owner
-        only. The member can then read the workspace's telemetry. Consults the
+        only. The account joins as a `member`; ownership cannot be granted.
+        The member can then read the workspace's telemetry. Consults the
         `workspaces.members.add` entitlement for the workspace; the default
         provider allows it.
       tags: [Workspaces]
@@ -1281,8 +1383,20 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/APIKeyVerifyResponse"
+        "400":
+          description: The request body is not valid JSON.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "401":
           description: The key is missing, malformed, unknown, or revoked.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "413":
+          description: The request body exceeds 4 KiB.
           content:
             application/json:
               schema:
@@ -1296,6 +1410,13 @@ components:
       description: JWT or opaque bearer token issued by the Tracium auth service.
 
   parameters:
+    WorkflowName:
+      name: name
+      in: path
+      required: true
+      description: The workflow name (the trace root span name).
+      schema:
+        type: string
     Range:
       name: range
       in: query
@@ -1329,9 +1450,18 @@ components:
       in: query
       description: >-
         Optional: restrict the metric to a single workflow (the trace root name),
-        powering the workflow detail page's charts. Workflow-scoped metrics are a
-        raw-window feature; ranges longer than 30d (90d, 1y) are rejected with a
-        400, since per-workflow latency cannot be derived from the daily rollup.
+        powering the workflow detail page's charts. Only the series endpoints
+        accept it; other metrics endpoints reject it with a 400. Over ranges
+        longer than 30d (90d, 1y) the series read the daily rollup: cost is
+        span-only and the latency series is empty, as it is unscoped.
+      schema:
+        type: string
+    VersionFilter:
+      name: version
+      in: query
+      description: >-
+        Optional: restrict the metric to the runs of one workflow version (see
+        Trace.workflow_version), alone or together with workflow.
       schema:
         type: string
 
@@ -1425,10 +1555,6 @@ components:
           type: string
           format: email
           description: The account to grant access to.
-        role:
-          type: string
-          enum: [owner, member]
-          default: member
     WorkspaceMember:
       type: object
       required: [user_id, email, role, joined_at]
@@ -1662,6 +1788,13 @@ components:
             traceloop.span.kind, or the OTel GenAI gen_ai.operation.name).
             Optional: omitted when the collector could not classify the span,
             in which case consumers infer the role from the span's context.
+        setup_issues:
+          type: array
+          items:
+            $ref: "#/components/schemas/SetupIssue"
+          description: >
+            The span-level setup checks this span fails, such as a model the
+            price table does not know. Omitted when it fails none.
 
     Trace:
       type: object
@@ -1674,6 +1807,11 @@ components:
         name:
           type: string
           description: Human-readable name for the trace.
+        workflow_version:
+          type: string
+          description: >-
+            The workflow version the trace ran under: the root span's version,
+            else the earliest versioned span's. Empty when no span has one.
         start_time_ms:
           type: integer
           description: Unix epoch milliseconds when the trace started.
@@ -1852,6 +1990,25 @@ components:
           minimum: 0
           description: Total runs that started within the bucket.
 
+    TokenBucket:
+      type: object
+      required:
+        - bucket_ms
+        - input_tokens
+        - output_tokens
+      properties:
+        bucket_ms:
+          type: integer
+          description: Bucket start, Unix epoch milliseconds.
+        input_tokens:
+          type: integer
+          minimum: 0
+          description: Input (prompt) tokens within the bucket.
+        output_tokens:
+          type: integer
+          minimum: 0
+          description: Output (completion) tokens within the bucket.
+
     LatencyBucket:
       type: object
       required:
@@ -2005,14 +2162,14 @@ components:
         avg_latency_ms:
           type: number
           minimum: 0
-          description: Mean end-to-end run duration in milliseconds.
+          description: Mean end-to-end run duration in milliseconds; 0 over ranges longer than 30d.
         p95_latency_ms:
           type: number
           nullable: true
           minimum: 0
           description: >-
             p95 end-to-end run duration in milliseconds, or null when undefined
-            (no runs in the window).
+            (no runs in the window, or a range longer than 30d).
         error_rate:
           type: number
           minimum: 0
@@ -2042,6 +2199,55 @@ components:
         last_trace_id:
           type: string
           description: The workflow's most recent trace in the window, for deep-linking.
+
+    WorkflowVersion:
+      type: object
+      required:
+        - version
+        - first_seen_ms
+        - last_seen_ms
+        - calls
+        - cost
+        - cost_per_run
+        - p95_latency_ms
+        - error_rate
+        - tokens_per_run
+      properties:
+        version:
+          type: string
+          description: The workflow version; empty for the runs that carry none.
+        first_seen_ms:
+          type: integer
+          description: Start of the version's first run in the window (the day's start over ranges longer than 30d).
+        last_seen_ms:
+          type: integer
+          description: Start of the version's latest run in the window (the day's start over ranges longer than 30d).
+        calls:
+          type: integer
+          minimum: 0
+          description: Number of runs (traces) of this version over the window.
+        cost:
+          type: number
+          minimum: 0
+          description: Total cost in USD of this version's runs.
+        cost_per_run:
+          type: number
+          minimum: 0
+          description: Mean cost in USD per run.
+        p95_latency_ms:
+          type: number
+          nullable: true
+          minimum: 0
+          description: p95 end-to-end run duration in milliseconds; null over ranges longer than 30d.
+        error_rate:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Fraction of this version's runs that errored (0–1).
+        tokens_per_run:
+          type: number
+          minimum: 0
+          description: Mean input plus output tokens per run.
 
     Failure:
       type: object
@@ -2095,6 +2301,21 @@ components:
         page_size:
           type: integer
 
+    PaginatedTokenBucketResponse:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/TokenBucket"
+        total:
+          type: integer
+        page:
+          type: integer
+        page_size:
+          type: integer
+
     PaginatedLatencyBucketResponse:
       type: object
       required: [items, total, page, page_size]
@@ -2140,6 +2361,21 @@ components:
         page_size:
           type: integer
 
+    PaginatedWorkflowVersionResponse:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowVersion"
+        total:
+          type: integer
+        page:
+          type: integer
+        page_size:
+          type: integer
+
     PaginatedFailureResponse:
       type: object
       required: [items, total, page, page_size]
@@ -2170,6 +2406,7 @@ components:
         - direction
         - severity
         - summary
+        - version_change
       properties:
         metric:
           type: string
@@ -2208,6 +2445,76 @@ components:
         summary:
           type: string
           description: One-line human-readable description of the anomaly.
+        version_change:
+          allOf: [{ $ref: "#/components/schemas/VersionChange" }]
+          nullable: true
+          description: >-
+            A workflow version first seen on the anomaly's day or the day before, or null.
+            Scope "workflow" names its own workflow's version; scope "workspace" names the
+            version of the workflow that carried the most of the metric that day (errored
+            runs for error_rate), and null when that workflow did not change version. A
+            workflow's first versioned day is not a change.
+
+    VersionChange:
+      type: object
+      required: [workflow, version, first_seen_ms]
+      properties:
+        workflow:
+          type: string
+        version:
+          type: string
+        first_seen_ms:
+          type: integer
+          description: The day the version was first seen, Unix epoch milliseconds (UTC midnight).
+
+    SetupIssue:
+      type: object
+      required: [code, severity, message]
+      properties:
+        code:
+          type: string
+          description: >
+            Stable identifier: no_llm_spans, unpriced_model, unmetered,
+            no_model, instant_llm_spans, error_without_detail, missing_root_span, unnamed_workflow,
+            workflow_without_version, version_per_run, or rejected_<drop code>
+            for spans the collector rejected (e.g. rejected_invalid_timestamp).
+        severity:
+          type: string
+          enum: ["info", "warning", "critical"]
+        message:
+          type: string
+          description: What is wrong and how to fix it.
+
+    SetupCheck:
+      allOf:
+        - $ref: "#/components/schemas/SetupIssue"
+        - type: object
+          required: [spans, share, example_trace_id]
+          properties:
+            spans:
+              type: integer
+              description: Spans affected in the window.
+            share:
+              type: number
+              description: spans as a fraction (0–1) of the window's stored and rejected spans.
+            example_trace_id:
+              type: string
+              description: One affected trace; empty for rejected spans, which are not stored.
+
+    PaginatedSetupCheckResponse:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SetupCheck"
+        total:
+          type: integer
+        page:
+          type: integer
+        page_size:
+          type: integer
 
     PaginatedAnomalyResponse:
       type: object

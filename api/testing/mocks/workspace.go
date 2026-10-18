@@ -97,9 +97,7 @@ func (m *MockWorkspaceStore) IsOwner(_ context.Context, workspaceID, userID stri
 	return false, nil
 }
 
-// AddMember is a no-op in the mock (membership is modelled as ownership).
-func (m *MockWorkspaceStore) AddMember(_ context.Context, _, _, _ string) error { return nil }
-func (m *MockWorkspaceStore) GrantMember(ctx context.Context, _, _, _ string, allow func(context.Context, bool) error) error {
+func (m *MockWorkspaceStore) GrantMember(ctx context.Context, _, _ string, allow func(context.Context, bool) error) error {
 	if allow != nil {
 		return allow(ctx, false)
 	}
@@ -124,7 +122,7 @@ func NewTestWorkspace(id, userID string) model.Workspace {
 		Name:    "test-workspace",
 		Slug:    "test-workspace",
 		Env:     "production",
-		Role:    "Owner",
+		Role:    workspace.RoleOwner,
 		Members: 1,
 	}
 }

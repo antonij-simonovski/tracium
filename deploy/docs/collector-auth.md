@@ -45,7 +45,7 @@ cached authorization, even with this option enabled.
 
 ## Configuration
 
-Auth is on by default in the shipped [`config/collector.yaml`](../config/collector.yaml):
+Auth is on by default in the shipped [`collector/config/collector.yaml`](../../collector/config/collector.yaml):
 `traciumauth` is listed under `service.extensions` and referenced by both
 receiver protocols, and the `tracium` processor drops any span that somehow
 reaches it unauthenticated. The one setting a deployment must supply is where the
@@ -65,7 +65,9 @@ count, so a sender presenting one valid key is charged once and then served from
 cache, so legitimate high-volume ingest is untouched. This stops a single abusive
 sender, streaming distinct invalid keys, from spending the collector's shared
 verify budget and blocking verification for everyone else behind the same
-collector. Set `sender_verify_limit` to `0` to disable it.
+collector. Set `sender_verify_limit` to `0` to disable it. Behind NAT or an L4
+load balancer every sender shares one peer address, so raise the limit or set
+`max_stale_age`, which lets a limited sender keep using recently verified keys.
 
 ### The key decides the workspace
 
@@ -89,6 +91,4 @@ the host on loopback (`127.0.0.1:4317`, `127.0.0.1:4318`) for local convenience.
 ## Rate limiting
 
 Auth is not rate limiting. A valid but noisy sender can still flood ingest. Cap
-request rate at the ingress or gateway (nginx `limit_req`, Envoy rate limits),
-and keep the `memory_limiter` processor in the pipeline to protect the collector
-itself from OOM under load.
+request rate at the ingress or gateway (nginx `limit_req`, Envoy rate limits).

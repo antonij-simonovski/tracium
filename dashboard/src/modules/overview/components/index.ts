@@ -1,14 +1,12 @@
 export { Masthead } from './Masthead';
-export type { SyncStatus, SyncTone } from './Masthead';
+export type { SyncStatus } from './Masthead';
 export { SectionRule } from './SectionRule';
-export { KpiStrip } from './KpiStrip';
-export type { KpiItem } from './KpiStrip';
 export { ChartsRow } from './ChartsRow';
 export { FailuresBlock } from './FailuresBlock';
 export { TopWorkflows } from './TopWorkflows';
 export type { TopWorkflowRow } from './TopWorkflows';
 export { ActivityFeed } from './ActivityFeed';
 export { OverviewLayout } from './OverviewLayout';
-export { Section } from './Section';
+export { SetupChecks } from './SetupChecks';
 export { OutlierChips } from './outliers/OutlierChips';
 export { OutliersPanel } from './outliers/OutliersPanel';

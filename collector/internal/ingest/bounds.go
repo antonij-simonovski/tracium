@@ -1,14 +1,6 @@
-// Package ingest holds the sanity bounds every ingest path enforces on
-// client-controlled fields before they can reach storage or pricing.
-//
-// Both the span enrichment chain and the metrics (token-usage) path arrive over
-// the same OTLP receivers, and an ingest key authenticates the sender without
-// making its self-reported fields trustworthy, so both must apply identical
-// limits — a bound enforced for spans but not for metrics is not a bound. Keeping the
-// constants and helpers here gives one source of truth so the two paths cannot
-// drift apart. The bounds are set far above anything a working client produces:
-// crossing one means the client is broken (or hostile), not that the call was
-// unusual.
+// Package ingest holds the sanity bounds the span and metric paths both enforce
+// on client-controlled fields before they reach storage or pricing. The bounds
+// sit far above anything a working client produces.
 package ingest
 
 import (
@@ -33,6 +25,9 @@ const (
 	// MaxUserIDBytes caps the user label, likewise a LowCardinality grouping key
 	// in metrics_daily.
 	MaxUserIDBytes = 128
+
+	// MaxVersionBytes caps the workflow version, also a metrics_daily key.
+	MaxVersionBytes = 128
 )
 
 // TokensInRange reports whether a token count is within the accepted bounds: not

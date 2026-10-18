@@ -21,9 +21,7 @@ type Usage struct {
 // Resolver computes the USD cost of a single span given the model and token
 // usage. Implementations must be safe for concurrent use.
 type Resolver interface {
-	// Resolve returns the cost in USD for the given model and token usage.
-	// Implementations should return a TransientError (Retryable: false) when
-	// pricing data is temporarily unavailable — never drop a span solely
-	// because pricing is unavailable.
+	// Resolve returns the cost in USD for the given model and token usage, or an
+	// error when the model cannot be priced.
 	Resolve(ctx context.Context, model string, usage Usage) (float64, error)
 }

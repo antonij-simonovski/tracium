@@ -21,14 +21,11 @@ func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, invit
 	apiKeyHandler := handler.NewAPIKeyHandler(apiKeyService, wsStore)
 	inviteHandler := handler.NewInviteHandler(inviteStore, wsStore, opts.Entitlements, opts.Invites)
 	services := extension.Services{Mail: opts.Mail, Entitlements: opts.Entitlements, Workspaces: wsStore}
-	// ── Handlers ─────────────────────────────────────────────────────────────
 
 	traceHandler := handler.NewTraceHandler(repo, wsStore)
 	spanHandler := handler.NewSpanHandler(repo, wsStore)
 	metricsHandler := handler.NewMetricsHandler(repo, wsStore)
 	healthHandler := handler.NewHealthHandler(healthChecks...)
-
-	// ── Router ────────────────────────────────────────────────────────────────
 
 	r := chi.NewRouter()
 
@@ -75,7 +72,7 @@ func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, invit
 		r.Post(version.Route(version.V1, "/ingest/keys/verify"), apiKeyHandler.Verify)
 	})
 
-	// Workspace routes — auth only (no tenant required; workspaces are per-user).
+	// Account and workspace routes.
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Auth(authenticator))
 		// Self-service password change for the signed-in user. Unlike register/login
@@ -117,10 +114,8 @@ func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, invit
 		}
 	}
 
-	// Authenticated routes.
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Auth(authenticator))
-		r.Use(middleware.RequireTenant())
 		// Telemetry reads pass through the entitlements provider for the caller;
 		// the default provider allows them.
 		r.Use(services.Gate("telemetry.read"))
@@ -133,9 +128,11 @@ func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, invit
 		r.Get(version.Route(version.V1, "/metrics/cost-series"), metricsHandler.CostSeries)
 		r.Get(version.Route(version.V1, "/metrics/latency-series"), metricsHandler.LatencySeries)
 		r.Get(version.Route(version.V1, "/metrics/error-series"), metricsHandler.ErrorSeries)
+		r.Get(version.Route(version.V1, "/metrics/token-series"), metricsHandler.TokenSeries)
 		r.Get(version.Route(version.V1, "/metrics/top-workflows"), metricsHandler.TopWorkflows)
 		r.Get(version.Route(version.V1, "/metrics/workflows"), metricsHandler.Workflows)
 		r.Get(version.Route(version.V1, "/metrics/workflows/{name}"), metricsHandler.WorkflowDetail)
+		r.Get(version.Route(version.V1, "/metrics/workflows/{name}/versions"), metricsHandler.WorkflowVersions)
 		r.Get(version.Route(version.V1, "/metrics/failures"), metricsHandler.Failures)
 		r.Get(version.Route(version.V1, "/metrics/model-costs"), metricsHandler.ModelCosts)
 		r.Get(version.Route(version.V1, "/metrics/usage-users"), metricsHandler.UserUsage)
@@ -143,6 +140,7 @@ func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, invit
 		r.Get(version.Route(version.V1, "/metrics/attribute-keys"), metricsHandler.AttributeKeys)
 		r.Get(version.Route(version.V1, "/metrics/usage-by-attribute"), metricsHandler.UsageByAttribute)
 		r.Get(version.Route(version.V1, "/metrics/anomalies"), metricsHandler.Anomalies)
+		r.Get(version.Route(version.V1, "/metrics/setup-checks"), metricsHandler.SetupChecks)
 	})
 
 	return r

@@ -7,8 +7,10 @@ attributes:
   - name: tracium.cost_usd
     description: >
       Computed cost in USD for this span, derived from token counts and the
-      pricing table. Calculated as:
-      (input_tokens / 1000) * input_cost_per_1k + (output_tokens / 1000) * output_cost_per_1k.
+      pricing table: uncached input tokens at input_cost_per_token, cache reads
+      and writes at their cache rates, and output tokens at
+      output_cost_per_token, with long-context tiers chosen from the whole
+      prompt size.
     type: float
     added_in_schema: 1
 
@@ -22,19 +24,30 @@ attributes:
 
   - name: tracium.workspace.id
     description: >
-      Workspace the span belongs to — the access-control unit. Promoted to the
-      Span.workspace_id column and indexed (idx_workspace); the API scopes every
-      read to the workspaces the calling account is a member of, so this is the
-      isolation boundary (distinct from tracium.user.id, which is a metering
-      label). Passthrough on the span or the resource.
+      Workspace the span belongs to — the access-control unit. The collector sets
+      it from the workspace of the verified ingest API key, overwriting any value
+      the sender put on the span or resource. Promoted to the Span.workspace_id
+      column and indexed (idx_workspace); the API scopes every read to the
+      workspaces the calling account is a member of, so this is the isolation
+      boundary (distinct from tracium.user.id, which is a metering label).
+    type: string
+    added_in_schema: 1
+
+  - name: tracium.workflow.version
+    description: >
+      Version of the workflow the span ran under: any string, such as a semver,
+      a git sha or a prompt version. Read from the resource only, so every span
+      of a run carries it and long-range (rollup) metrics match the per-trace
+      ones; a span attribute of this name is ignored, as is any other version
+      attribute. Stored as Span.workflow_version. A trace takes its root span's
+      version, else its earliest versioned span's. Capped at 128 bytes.
     type: string
     added_in_schema: 1
 
   - name: tracium.model_normalized
     description: >
-      The canonical model id after alias resolution against the pricing table.
-      For example, a span reporting "gpt-4o-2024-08-06" is normalised to "gpt-4o".
-      Falls back to the raw gen_ai.request.model value if no alias match is found.
+      The gen_ai.request.model value lower-cased, trimmed and sanitised. No alias
+      resolution is applied: "gpt-4o-2024-08-06" stays "gpt-4o-2024-08-06".
     type: string
     added_in_schema: 1
 
@@ -42,17 +55,17 @@ attributes:
     description: >
       JSON-encoded array of the tools made available to the model on this span,
       each as {"name", "description", "used"}. Computed by the collector from the
-      upstream tool-definition attributes (OpenLLMetry's llm.request.functions.*),
+      upstream tool definitions (gen_ai.tool.definitions, falling back to
+      OpenLLMetry's llm.request.functions.*),
       with "used" derived from tool-call signals in the completion. Stored as
       Span.available_tools. Tool metadata only — not raw content — so it is
       captured regardless of the capture_content setting.
     type: string
-    added_in_schema: 3
+    added_in_schema: 1
 
   - name: tracium.schema_version
     description: >
-      Schema version of this span record at the time it was written.
-      Consumers must use this value when reading fields that were added in
-      later schema versions (e.g. error_type and error_message added in v2).
+      Schema version of this span record at the time it was written. The
+      collector currently writes 1; additive fields do not bump it.
     type: integer
     added_in_schema: 1

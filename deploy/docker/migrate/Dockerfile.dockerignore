@@ -1,0 +1,3 @@
+*
+!collector/schema
+!deploy/docker/migrate/run-migrations.sh

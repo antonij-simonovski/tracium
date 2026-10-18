@@ -1,8 +1,4 @@
 import type { SettingsSection } from '../../../extensions';
-// ---------------------------------------------------------------------------
-// SettingsPage — Account, Workspace, Danger Zone
-// Inline styles only (no CSS modules).
-// ---------------------------------------------------------------------------
 
 import React, { useEffect, useRef, useState } from 'react';
 import type { TabId } from '../ids';
@@ -16,17 +12,15 @@ import {
   IconCopy,
   IconPlus,
   IconUsers,
+  SectionHead,
   formatDate,
+  useCopy,
   useMaxWidth,
   BREAKPOINTS,
 } from '../../../common';
 import { useAPIClient } from '../../../common/providers/APIProvider';
 import { APIError, inviteLink, type CreatedInvite, type WorkspaceMember } from '../../../common/api';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-
-// ---------------------------------------------------------------------------
-// Exported page props
-// ---------------------------------------------------------------------------
 
 export interface WorkspaceDraft {
   name: string;
@@ -41,6 +35,8 @@ export interface SettingsPageProps {
   onOpenOverview?: () => void;
   /** Opens the API keys screen for the selected workspace. */
   onOpenApiKeys?: () => void;
+  /** OTLP endpoint shown in the connection instructions. Defaults to the local collector. */
+  ingestEndpoint?: string;
   onCancelCreate?: () => void;
   /** When true, the Workspace tab opens on a create-workspace form. */
   createMode?: boolean;
@@ -50,11 +46,9 @@ export interface SettingsPageProps {
   workspace?: Workspace | null;
   /** The real signed-in account. Used when not in demo mode. */
   account?: Account | null;
+  /** Stores the session token returned by a password change. */
+  onSessionRenewed?: (token: string) => void;
 }
-
-// ---------------------------------------------------------------------------
-// Static mock data
-// ---------------------------------------------------------------------------
 
 interface SettingsUser {
   name: string;
@@ -86,15 +80,10 @@ const SET_WORKSPACE: SettingsWorkspace = {
   members: 12,
 };
 
-// ---------------------------------------------------------------------------
-// Tab definitions
-// ---------------------------------------------------------------------------
-
 interface TabDef {
   id: TabId;
   label: string;
   icon: React.ReactNode;
-  count?: number;
 }
 
 const SET_TABS: TabDef[] = [
@@ -103,38 +92,6 @@ const SET_TABS: TabDef[] = [
   { id: 'members',       label: 'Members',        icon: <IconUsers size={14} /> },
   { id: 'danger',        label: 'Danger zone',    icon: <IconTrash size={14} /> },
 ];
-
-// ---------------------------------------------------------------------------
-// Shared primitives
-// ---------------------------------------------------------------------------
-
-interface SectionHeadProps {
-  title: string;
-  hint?: string;
-  right?: React.ReactNode;
-  first?: boolean;
-  headingRef?: React.Ref<HTMLHeadingElement>;
-  style?: React.CSSProperties;
-}
-
-function SectionHead({ title, hint, right, first = false, headingRef, style }: SectionHeadProps) {
-  return (
-    <header style={{
-      display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between',
-      gap: 24, flexWrap: 'wrap',
-      paddingTop: first ? 0 : 48,
-      paddingBottom: 18,
-      borderTop: first ? 'none' : '1px solid color-mix(in srgb, var(--border) 50%, transparent)',
-      ...style,
-    }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 5, minWidth: 0, paddingTop: first ? 0 : 28 }}>
-        <h2 ref={headingRef} tabIndex={headingRef ? -1 : undefined} style={{ fontSize: 19, fontWeight: 600, letterSpacing: '-0.018em', margin: 0, color: 'var(--foreground)' }}>{title}</h2>
-        {hint && <p style={{ fontSize: 14, color: 'var(--muted)', margin: 0, maxWidth: 620, lineHeight: 1.55 }}>{hint}</p>}
-      </div>
-      {right && <div style={{ paddingTop: first ? 0 : 28, flexShrink: 0 }}>{right}</div>}
-    </header>
-  );
-}
 
 interface FieldProps {
   label: string;
@@ -181,7 +138,7 @@ interface Btn {
 function Btn({ children, variant = 'secondary', onClick, disabled, type = 'button', style, title }: Btn) {
   const variantStyles: Record<ButtonVariant, React.CSSProperties> = {
     primary:   { background: 'var(--accent)', color: 'var(--accent-contrast)', border: '1px solid var(--accent)', fontWeight: 600 },
-    secondary: { background: 'transparent', color: 'var(--foreground)', border: '1px solid var(--border-strong, rgba(255,255,255,0.12))', fontWeight: 500 },
+    secondary: { background: 'transparent', color: 'var(--foreground)', border: '1px solid var(--border-strong)', fontWeight: 500 },
     ghost:     { background: 'transparent', color: 'var(--muted)', border: '1px solid transparent', fontWeight: 500 },
     danger:    { background: 'color-mix(in srgb, var(--error) 12%, transparent)', color: 'var(--error)', border: '1px solid color-mix(in srgb, var(--error) 30%, transparent)', fontWeight: 500 },
   };
@@ -207,21 +164,22 @@ interface InputProps {
   suffix?: React.ReactNode;
   readOnly?: boolean;
   label?: string;
+  autoComplete?: string;
 }
 
-function Input({ value, onChange, placeholder, type = 'text', mono = false, prefix, suffix, readOnly, label }: InputProps) {
+function Input({ value, onChange, placeholder, type = 'text', mono = false, prefix, suffix, readOnly, label, autoComplete }: InputProps) {
   return (
     <div
       style={{
         display: 'flex', alignItems: 'center', gap: 8,
         padding: '0 11px',
         background: readOnly ? 'var(--surface-alt)' : 'transparent',
-        border: '1px solid var(--border-strong, rgba(255,255,255,0.12))',
+        border: '1px solid var(--border-strong)',
         borderRadius: 7,
         transition: 'border-color 120ms',
       }}
       onFocusCapture={e => { e.currentTarget.style.borderColor = 'color-mix(in srgb, var(--accent) 50%, transparent)'; }}
-      onBlurCapture={e => { e.currentTarget.style.borderColor = 'var(--border-strong, rgba(255,255,255,0.12))'; }}
+      onBlurCapture={e => { e.currentTarget.style.borderColor = 'var(--border-strong)'; }}
     >
       {prefix && <span style={{ fontSize: 14, color: 'var(--muted)', flexShrink: 0 }}>{prefix}</span>}
       <input
@@ -231,6 +189,7 @@ function Input({ value, onChange, placeholder, type = 'text', mono = false, pref
         placeholder={placeholder}
         type={type}
         readOnly={readOnly}
+        autoComplete={autoComplete}
         style={{
           flex: 1, minWidth: 0, padding: '9px 0',
           background: 'transparent', border: 'none', outline: 'none',
@@ -258,7 +217,7 @@ function Toggle({ on, onChange }: ToggleProps) {
       style={{
         width: 36, height: 20,
         background: on ? 'var(--accent)' : 'var(--surface-alt)',
-        border: '1px solid ' + (on ? 'var(--accent)' : 'var(--border-strong, rgba(255,255,255,0.12))'),
+        border: '1px solid ' + (on ? 'var(--accent)' : 'var(--border-strong)'),
         borderRadius: 999,
         position: 'relative',
         transition: 'background 150ms, border-color 150ms',
@@ -309,10 +268,6 @@ function Segmented({ value, onChange, options }: SegmentedProps) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Tab rail
-// ---------------------------------------------------------------------------
-
 interface TabRailProps {
   sections: readonly SettingsSection[];
   tab: TabId;
@@ -334,10 +289,9 @@ function TabRail({ sections, tab, setTab, horizontal = false, demo = false }: Ta
         <div style={{ fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 500, padding: '0 10px 10px' }}>Settings</div>
       )}
       <nav style={{ display: 'flex', flexDirection: horizontal ? 'row' : 'column', gap: horizontal ? 4 : 1 }}>
-        {[...SET_TABS.filter(t => demo ? t.id !== 'members' : t.id !== 'danger'), ...sections.map(t => ({...t, icon: t.icon ?? null, count: undefined}))].map(t => {
+        {[...SET_TABS.filter(t => demo ? t.id !== 'members' : t.id !== 'danger'), ...sections.map(t => ({...t, icon: t.icon ?? null}))].map(t => {
           const active = t.id === tab;
           const danger = t.id === 'danger';
-          const count = t.count;
           return (
             <button
               key={t.id}
@@ -360,12 +314,6 @@ function TabRail({ sections, tab, setTab, horizontal = false, demo = false }: Ta
             >
               <span style={{ flexShrink: 0, opacity: active ? 1 : 0.7 }}>{t.icon}</span>
               <span style={{ flex: 1 }}>{t.label}</span>
-              {count != null && (
-                <span style={{
-                  fontSize: 12, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums',
-                  padding: '1px 6px', background: 'var(--surface-alt)', border: '1px solid var(--border)', borderRadius: 4,
-                }}>{count}</span>
-              )}
             </button>
           );
         })}
@@ -374,16 +322,13 @@ function TabRail({ sections, tab, setTab, horizontal = false, demo = false }: Ta
   );
 }
 
-// ---------------------------------------------------------------------------
-// VIEW: Account
-// ---------------------------------------------------------------------------
-
 interface AccountViewProps {
   user: SettingsUser;
   demo: boolean;
+  onSessionRenewed?: (token: string) => void;
 }
 
-function ChangePasswordField() {
+function ChangePasswordField({ onSessionRenewed }: { onSessionRenewed?: (token: string) => void }) {
   const { usersAPI } = useAPIClient();
   const [editing, setEditing] = useState(false);
   const [current, setCurrent] = useState('');
@@ -411,7 +356,8 @@ function ChangePasswordField() {
     setSaving(true);
     setError('');
     try {
-      await usersAPI.changePassword(current, next);
+      const token = await usersAPI.changePassword(current, next);
+      onSessionRenewed?.(token);
       reset();
       setJustChanged(true);
     } catch (err) {
@@ -439,13 +385,13 @@ function ChangePasswordField() {
     <form onSubmit={submit} aria-busy={saving}>
       <fieldset disabled={saving} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         <Field label="Current password">
-          <Input label="Current password" type="password" value={current} onChange={e => setCurrent(e.target.value)} />
+          <Input label="Current password" type="password" autoComplete="current-password" value={current} onChange={e => setCurrent(e.target.value)} />
         </Field>
         <Field label="New password" hint="At least 8 characters.">
-          <Input label="New password" type="password" value={next} onChange={e => setNext(e.target.value)} />
+          <Input label="New password" type="password" autoComplete="new-password" value={next} onChange={e => setNext(e.target.value)} />
         </Field>
         <Field label="Confirm new password" last>
-          <Input label="Confirm new password" type="password" value={confirm} onChange={e => setConfirm(e.target.value)} />
+          <Input label="Confirm new password" type="password" autoComplete="new-password" value={confirm} onChange={e => setConfirm(e.target.value)} />
         </Field>
       </fieldset>
       {error && <p role="alert" style={{ color: 'var(--error)', fontSize: 14 }}>{error}</p>}
@@ -459,14 +405,14 @@ function ChangePasswordField() {
   );
 }
 
-function AccountView({ user, demo }: AccountViewProps) {
+function AccountView({ user, demo, onSessionRenewed }: AccountViewProps) {
   const [tabnav, setTabnav] = useState(true);
   if (!demo) return <div>
     <SectionHead first title="Account" hint="Your sign-in identity." />
     <Field label="Email" last><span>{user.email}</span></Field>
 
     <SectionHead title="Security" hint="Change the password used to sign in." />
-    <ChangePasswordField />
+    <ChangePasswordField onSessionRenewed={onSessionRenewed} />
   </div>;
 
   return (
@@ -497,7 +443,6 @@ function AccountView({ user, demo }: AccountViewProps) {
         <Btn variant="primary">Save profile</Btn>
       </div>
 
-      {/* Security */}
       <SectionHead title="Security" hint="Sign-in factors, active sessions, and recent activity on your account." />
       <div>
         <Field label="Password" hint={demo ? 'Last changed 84 days ago.' : 'Set when you created your account.'} right={<Btn variant="secondary">Change</Btn>} last>
@@ -505,7 +450,6 @@ function AccountView({ user, demo }: AccountViewProps) {
         </Field>
       </div>
 
-      {/* Display */}
       <SectionHead title="Display" hint="Personal preferences. Stored on this device." />
       <div>
         <Field label="Keyboard navigation" hint="Use J / K to move through trace lists; / to focus search." last>
@@ -515,10 +459,6 @@ function AccountView({ user, demo }: AccountViewProps) {
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// VIEW: Create workspace
-// ---------------------------------------------------------------------------
 
 function slugify(s: string): string {
   return s.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
@@ -601,56 +541,39 @@ function CreateWorkspaceView({ onCreate, onCancel }: CreateWorkspaceViewProps) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// VIEW: Workspace
-// ---------------------------------------------------------------------------
-
 interface WorkspaceViewProps {
   ws: SettingsWorkspace;
   demo?: boolean;
   justCreated?: boolean;
   onOpenOverview?: () => void;
   onOpenApiKeys?: () => void;
+  ingestEndpoint?: string;
 }
 
 function CopyButton({ value, label }: { value: string; label: string }) {
-  const [status, setStatus] = useState<'idle' | 'copied' | 'error'>('idle');
-  useEffect(() => {
-    setStatus('idle');
-  }, [value]);
-  useEffect(() => {
-    if (status !== 'copied') return;
-    const timer = setTimeout(() => setStatus('idle'), 2000);
-    return () => clearTimeout(timer);
-  }, [status]);
-  const copy = async () => {
-    try {
-      if (!navigator.clipboard) throw new Error('Clipboard unavailable');
-      await navigator.clipboard.writeText(value);
-      setStatus('copied');
-    } catch {
-      setStatus('error');
-    }
-  };
-  const message = status === 'error' ? 'Couldn’t copy. Select and copy the text manually.' : status === 'copied' ? `${label.replace('Copy ', '')} copied to clipboard.` : '';
+  const [status, copy] = useCopy();
+  const message = status === 'failed' ? 'Couldn’t copy. Select and copy the text manually.' : status === 'copied' ? 'Copied to clipboard.' : '';
   return <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}>
-    <Btn onClick={copy}>
+    <Btn onClick={() => copy(value)}>
       {status === 'copied' ? <IconCheck size={13} /> : <IconCopy size={13} />}
       {status === 'copied' ? 'Copied' : label}
     </Btn>
-    <span role="status" style={{ fontSize: 13, color: status === 'error' ? 'var(--error)' : 'var(--muted)' }}>
+    <span role="status" style={{ fontSize: 13, color: status === 'failed' ? 'var(--error)' : 'var(--muted)' }}>
       {message}
     </span>
   </span>;
 }
 
-const EXPORTER_CONFIG = [
-  'OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318',
+const LOCAL_INGEST_ENDPOINT = 'http://localhost:4318';
+
+const exporterConfig = (endpoint: string) => [
+  `OTEL_EXPORTER_OTLP_ENDPOINT=${endpoint}`,
   'OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf',
   'OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer YOUR_API_KEY"',
 ].join('\n');
 
-function WorkspaceConnection({ ws, justCreated, onOpenOverview, onOpenApiKeys }: WorkspaceViewProps) {
+function WorkspaceConnection({ ws, justCreated, onOpenOverview, onOpenApiKeys, ingestEndpoint }: WorkspaceViewProps) {
+  const config = exporterConfig(ingestEndpoint || LOCAL_INGEST_ENDPOINT);
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     if (justCreated) heading.current?.focus();
@@ -669,10 +592,10 @@ function WorkspaceConnection({ ws, justCreated, onOpenOverview, onOpenApiKeys }:
     {onOpenApiKeys && <div style={{ marginBottom: 12 }}><Btn onClick={onOpenApiKeys}>Create API key</Btn></div>}
     <div style={{ paddingBottom: 12, borderBottom: divider }} />
     <h3 style={{ fontSize: 15, fontWeight: 600, margin: '24px 0 8px' }}>2. Configure your OpenTelemetry exporter</h3>
-    <p style={{ fontSize: 14, color: 'var(--muted)', lineHeight: 1.6, margin: '0 0 12px' }}>Set these environment variables where your application runs, replacing <code>YOUR_API_KEY</code> with the token. The endpoint shown is for an application on the host of a local Docker installation; for other deployments, use the collector address provided by your operator.</p>
+    <p style={{ fontSize: 14, color: 'var(--muted)', lineHeight: 1.6, margin: '0 0 12px' }}>Set these environment variables where your application runs, replacing <code>YOUR_API_KEY</code> with the token.{!ingestEndpoint && ' The endpoint shown is for an application on the host of a local Docker installation; for other deployments, use the collector address provided by your operator.'}</p>
     <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '12px 24px', flexWrap: 'wrap', padding: '8px 0 24px', borderBottom: divider }}>
-      <pre style={{ minWidth: 0, flex: '1 1 280px', margin: 0, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontSize: 13, lineHeight: 1.7, fontFamily: 'var(--font-mono)' }}>{EXPORTER_CONFIG}</pre>
-      <CopyButton value={EXPORTER_CONFIG} label="Copy configuration" />
+      <pre style={{ minWidth: 0, flex: '1 1 280px', margin: 0, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontSize: 13, lineHeight: 1.7, fontFamily: 'var(--font-mono)' }}>{config}</pre>
+      <CopyButton value={config} label="Copy configuration" />
     </div>
     <h3 style={{ fontSize: 15, fontWeight: 600, margin: '24px 0 8px' }}>3. Send your first trace</h3>
     <p style={{ fontSize: 14, color: 'var(--muted)', lineHeight: 1.6, margin: 0 }}>Restart your instrumented application and run a request. Requests without a valid key are rejected with <code>401</code> and nothing is stored.</p>
@@ -683,12 +606,12 @@ function WorkspaceConnection({ ws, justCreated, onOpenOverview, onOpenApiKeys }:
   </div>;
 }
 
-function WorkspaceView({ ws, demo = false, justCreated = false, onOpenOverview, onOpenApiKeys }: WorkspaceViewProps) {
+function WorkspaceView({ ws, demo = false, justCreated = false, onOpenOverview, onOpenApiKeys, ingestEndpoint }: WorkspaceViewProps) {
   const [name, setName] = useState(ws.name);
   const [retention, setRetention] = useState(ws.defaultRetention);
 
   if (!demo) return <div>
-    {ws.id ? <WorkspaceConnection ws={ws} justCreated={justCreated} onOpenOverview={onOpenOverview} onOpenApiKeys={onOpenApiKeys} /> : <SectionHead first title="Workspace" hint="Create a workspace to get its connection instructions." />}
+    {ws.id ? <WorkspaceConnection ws={ws} justCreated={justCreated} onOpenOverview={onOpenOverview} onOpenApiKeys={onOpenApiKeys} ingestEndpoint={ingestEndpoint} /> : <SectionHead first title="Workspace" hint="Create a workspace to get its connection instructions." />}
     {!justCreated && <>
       <SectionHead title="Retention" hint="Retention is configured by the deployment operator. Expired spans are deleted; daily aggregates are retained separately." />
       <p style={{ fontSize: 14, color: 'var(--muted)' }}>Workspace editing and retention controls are not yet available.</p>
@@ -727,10 +650,6 @@ function WorkspaceView({ ws, demo = false, justCreated = false, onOpenOverview, 
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// VIEW: Members
-// ---------------------------------------------------------------------------
 
 function errorMessage(err: unknown, fallback: string): string {
   return err instanceof APIError ? err.message : fallback;
@@ -826,7 +745,7 @@ function MembersView({ workspace, account }: MembersViewProps) {
       </p>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px 16px', flexWrap: 'wrap' }}>
         <code style={{ flex: '1 1 280px', minWidth: 0, overflowWrap: 'anywhere', fontSize: 13, fontFamily: 'var(--font-mono)' }}>{inviteLink(created.token)}</code>
-        <CopyButton value={inviteLink(created.token)} label="Copy invite link" />
+        <CopyButton key={created.token} value={inviteLink(created.token)} label="Copy invite link" />
       </div>
       <div style={{ marginTop: 4 }}><Btn variant="ghost" onClick={() => setCreated(null)}>Done</Btn></div>
     </div>}
@@ -874,10 +793,6 @@ function MembersView({ workspace, account }: MembersViewProps) {
     </>}
   </div>;
 }
-
-// ---------------------------------------------------------------------------
-// VIEW: Danger Zone
-// ---------------------------------------------------------------------------
 
 type DangerVariant = 'secondary' | 'danger';
 
@@ -937,36 +852,35 @@ function DangerView() {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Page shell
-// ---------------------------------------------------------------------------
-
 export default function SettingsPage({
   sections = [],
   createWorkspace,
   onOpenOverview,
   onOpenApiKeys,
+  ingestEndpoint,
   onCancelCreate,
   createMode = false,
   demo = false,
   workspace = null,
   account = null,
+  onSessionRenewed,
 }: SettingsPageProps): JSX.Element {
   const [tab, setTab] = useState<TabId>(createMode || !demo ? 'workspace' : 'account');
   const [creating, setCreating] = useState(createMode);
   const [createdId, setCreatedId] = useState<string | null>(null);
-  useEffect(() => {
+  const [prevCreateMode, setPrevCreateMode] = useState(createMode);
+  if (createMode !== prevCreateMode) {
+    setPrevCreateMode(createMode);
     if (createMode) {
       setTab('workspace');
       setCreating(true);
       setCreatedId(null);
     }
-  }, [createMode]);
+  }
   // Below the tablet breakpoint the tab rail moves above the content instead of
   // sitting in a fixed 220px left column.
   const stackRail = useMaxWidth(BREAKPOINTS.tablet);
 
-  // Switching tabs leaves the create-workspace form.
   const selectTab = (t: TabId) => {
     setCreating(false);
     onCancelCreate?.();
@@ -995,7 +909,7 @@ export default function SettingsPage({
       };
 
   const viewMap: Partial<Record<TabId, React.ReactNode>> = {
-    account:   <AccountView user={user} demo={demo} />,
+    account:   <AccountView user={user} demo={demo} onSessionRenewed={onSessionRenewed} />,
     workspace: creating && createWorkspace
       ? <CreateWorkspaceView onCreate={async draft => {
           const created = await createWorkspace(draft);
@@ -1004,7 +918,7 @@ export default function SettingsPage({
           setTab('workspace');
         }} onCancel={() => { setCreating(false); onCancelCreate?.(); }} />
       : <>
-          <WorkspaceView key={ws.id} ws={ws} demo={demo} justCreated={createdId === ws.id} onOpenOverview={onOpenOverview} onOpenApiKeys={onOpenApiKeys} />
+          <WorkspaceView key={ws.id} ws={ws} demo={demo} justCreated={createdId === ws.id} onOpenOverview={onOpenOverview} onOpenApiKeys={onOpenApiKeys} ingestEndpoint={ingestEndpoint} />
           {!demo && createWorkspace && <div style={{ marginTop: 24 }}><Btn onClick={() => { setCreatedId(null); setCreating(true); }}>{ws.id ? 'Create another workspace' : 'Create workspace'}</Btn></div>}
         </>,
     members:   workspace
@@ -1015,7 +929,6 @@ export default function SettingsPage({
 
   return (
     <div style={{ padding: 'clamp(24px, 4vw, 40px) clamp(16px, 4vw, 28px) 96px', maxWidth: 1280, margin: '0 auto' }} data-screen-label="Settings">
-      {/* Page header */}
       <div style={{ marginBottom: 36 }}>
         <h1 style={{ fontSize: 26, fontWeight: 600, color: 'var(--foreground)', margin: 0, letterSpacing: '-0.02em', lineHeight: 1.15 }}>Settings</h1>
         <p style={{ fontSize: 14, color: 'var(--muted)', margin: '6px 0 0', maxWidth: 620, lineHeight: 1.55 }}>

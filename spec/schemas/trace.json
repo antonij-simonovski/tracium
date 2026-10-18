@@ -14,6 +14,10 @@
       "type": "string",
       "description": "Human-readable name for the trace (typically the root span name)."
     },
+    "workflow_version": {
+      "type": "string",
+      "description": "Workflow version (tracium.workflow.version) the trace ran under: the root span's version, else the earliest versioned span's. Empty when no span carries one."
+    },
     "start_time_ms": {
       "type": "integer",
       "description": "Unix epoch milliseconds when the trace started (earliest span start)."

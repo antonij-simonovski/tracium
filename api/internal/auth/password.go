@@ -11,6 +11,10 @@ func HashPassword(password string) (string, error) {
 	return string(b), nil
 }
 
+// dummyHash is compared against on logins for unknown emails so they take as
+// long as a wrong password and don't reveal which accounts exist.
+var dummyHash, _ = HashPassword("timing-equalizer")
+
 func checkPassword(hash, password string) bool {
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
 }

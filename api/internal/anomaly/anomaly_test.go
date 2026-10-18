@@ -77,7 +77,7 @@ func TestDetect_CostSpike(t *testing.T) {
 }
 
 func TestDetect_RunVolumeDropToZero(t *testing.T) {
-	// An workflow doing ~200 runs/day that suddenly does none — a drop anomaly, the
+	// A workflow doing ~200 runs/day that suddenly does none — a drop anomaly, the
 	// silent-failure signal. Cost-style opts but drop-enabled, spike-off.
 	o := Options{
 		BaselineDays: 28, MinBaseline: 7, DetectFromMs: 0,

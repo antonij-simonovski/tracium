@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/tracium/api/internal/auth"
 	"github.com/tracium/api/internal/middleware"
 	"github.com/tracium/api/internal/model"
 	"github.com/tracium/api/testing/mocks"
@@ -40,19 +39,13 @@ func TestTraceDetailsEnforceWorkspaceMembership(t *testing.T) {
 					{TraceID: "shared-id", SpanID: "one", WorkspaceID: "victim", Input: "member-only-content", SchemaVersion: 1},
 					{TraceID: "shared-id", SpanID: "two", WorkspaceID: "unrelated", Input: "never-return-this-content", SchemaVersion: 1},
 				})
-				issuer := auth.NewTokenIssuer("test-key-used-only-in-unit-tests")
-				token, err := issuer.Issue("test-account", "test-tenant", "admin")
-				if err != nil {
-					t.Fatal(err)
-				}
 				r := chi.NewRouter()
-				r.Use(middleware.Auth(issuer))
-				r.Use(middleware.RequireTenant())
+				r.Use(middleware.Auth(stubAuthenticator{userID: "test-account"}))
 				access := traceTestAccess{ids: tc.scope}
 				r.Get("/v1/traces/{id}", NewTraceHandler(repo, access).GetTrace)
 				r.Get("/v1/traces/{traceId}/spans", NewSpanHandler(repo, access).ListSpans)
 				req := httptest.NewRequest("GET", "/v1/traces/shared-id"+suffix+tc.requested, nil)
-				req.Header.Set("Authorization", "Bearer "+token)
+				req.Header.Set("Authorization", "Bearer test-token")
 				rr := httptest.NewRecorder()
 				r.ServeHTTP(rr, req)
 				if rr.Code != tc.want {

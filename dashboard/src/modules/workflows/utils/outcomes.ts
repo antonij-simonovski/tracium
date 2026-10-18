@@ -1,9 +1,9 @@
-// Derive completed/failed run counts for the stats strip. The workflows endpoints
-// report `calls` and `error_rate` (a fraction the server computed as
-// failed/calls over the window), so rounding the product recovers the failed
-// count without a second query.
+// Error-rate fractions above which a workflow reads as failing / degraded.
+export const ERR_BAD = 0.02;
+export const ERR_WARN = 0.005;
 
-export interface RunOutcomes {
+// error_rate is failed/calls, so rounding the product recovers the failed count.
+interface RunOutcomes {
   completed: number;
   failed: number;
 }

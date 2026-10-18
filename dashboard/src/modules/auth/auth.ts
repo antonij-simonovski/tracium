@@ -1,9 +1,11 @@
 export const TOKEN_KEY = 'tracium_token';
 export const EMAIL_KEY = 'tracium_email';
 // Where a deep link is stashed when a logged-out visitor opens one, so they can
-// be sent back to it after authenticating (see App.tsx and the dashboard's
-// initial-view resolution).
+// be sent back to it after authenticating.
 export const REDIRECT_KEY = 'tracium_redirect';
+export const WORKSPACE_KEY = 'tracium_ws';
+export const VIEW_KEY = 'tracium_view';
+export const RANGE_KEY = 'tracium_range';
 
 // storeSession persists a new session the way every sign-in path must: the token
 // and its matching email together (see readInitialToken).
@@ -13,13 +15,7 @@ export function storeSession(token: string, email: string): void {
 }
 
 export function readInitialToken(): string | null {
-  // Deliberately does NOT accept a token from the URL (e.g. /?token=...).
-  // Doing so let a crafted link silently replace the current session with an
-  // attacker-supplied account (login CSRF / session replacement) — there is no
-  // exchange binding the token to a login initiated by this browser, and the
-  // displayed email would still read from the previous session, hiding the swap.
-  // A session is only ever established through an in-app login (see App.tsx
-  // handleLogin), which sets the token and the matching email together.
+  // Never read a token from the URL: a crafted link could swap in another session.
   return localStorage.getItem(TOKEN_KEY);
 }
 

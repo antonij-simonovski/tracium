@@ -53,16 +53,11 @@ func (a authData) GetAttributeNames() []string {
 }
 
 // defaultCacheMaxEntries bounds the verification cache when Config.CacheMaxEntries
-// is not set. It is a ceiling on distinct tokens held in memory, not a tuning
-// target — the number of genuinely active keys is far below it. The point is
-// that a bound exists: the cache is keyed by a sender-supplied token, so an
-// unbounded cache is a memory-exhaustion vector. Mirrors user.DefaultCacheSize.
+// is not set; the cache is keyed by a sender-supplied token, so it must be bounded.
 const defaultCacheMaxEntries = 10_000
 
-// shortCacheTTL is the reduced cache lifetime for results that must be
-// re-checked soon: a rejection (so a revoked-then-restored key self-heals) and a
-// served-stale positive (so the verify backend is re-probed during an outage).
-// It is capped at the configured CacheTTL, never longer.
+// shortCacheTTL is the lifetime of rejections and served-stale positives, capped
+// at the configured CacheTTL.
 const shortCacheTTL = 5 * time.Second
 
 // traciumAuth implements auth.Server by verifying a presented ingest key against
@@ -74,30 +69,25 @@ type traciumAuth struct {
 
 	capacity int
 
-	// senderLimiter throttles how many API verify calls one sender can force in a
-	// window (nil when disabled). It guards the collector's shared verify budget
-	// against a single sender streaming distinct, uncacheable keys.
-	senderLimiter *senderLimiter
+	senderLimiter *senderLimiter // nil when disabled
 
 	mu    sync.Mutex
 	ll    *list.List               // front = most recently used
 	items map[string]*list.Element // sha256(token) → element holding *cacheNode
 
-	// inflight coalesces concurrent verifications of the same key. A burst of
-	// requests bearing one not-yet-cached key becomes a single API call whose
-	// result they all share, instead of each charging the sender's verify budget
-	// and hitting the API. Guarded by its own mutex so the shared LRU lock is
-	// never held across the network call.
+	// inflight coalesces concurrent verifications of the same key into one API call.
 	inflightMu sync.Mutex
 	inflight   map[string]*verifyCall
 }
 
 // verifyCall is one in-flight verification shared by every request that arrived
-// for the same key while it was running. done is closed when v/err are final.
+// for the same key while it was running. done is closed when the result is final;
+// canceled means the leader's own context ended it, so waiters must verify again.
 type verifyCall struct {
-	done chan struct{}
-	v    verified
-	err  error
+	done     chan struct{}
+	v        verified
+	err      error
+	canceled bool
 }
 
 // cacheNode is one LRU entry: its cache key plus the memoised verification.
@@ -159,9 +149,6 @@ func (a *traciumAuth) Authenticate(ctx context.Context, sources map[string][]str
 
 	v, err := a.verify(ctx, token, senderOf(ctx))
 	if err != nil {
-		// A transport/endpoint failure is distinct from a rejected key: log it so
-		// an operator can tell "API unreachable" from "bad key". Either way the
-		// request is refused — failing open would defeat the point of the gate.
 		if errors.Is(err, errUnauthenticated) {
 			a.logger.Debug("ingest key rejected")
 		} else {
@@ -170,25 +157,17 @@ func (a *traciumAuth) Authenticate(ctx context.Context, sources map[string][]str
 		return ctx, errUnauthenticated
 	}
 
-	// Augment the existing client.Info (peer address, metadata) rather than
-	// replacing it, so downstream components still see who connected.
 	info := client.FromContext(ctx)
 	info.Auth = authData{workspace: v.workspace}
 	return client.NewContext(ctx, info), nil
 }
 
-// senderOf identifies the sender for per-sender limiting: the peer host off
-// client.Info, with the port stripped so every connection from one source shares
-// a bucket. When no peer address is available (some transports omit it) it
-// returns a fixed key, so those requests share one bucket rather than escaping
-// the limit entirely.
+// senderOf identifies the sender for per-sender limiting: the peer host without
+// port, or "unknown" when the transport provides no address.
 func senderOf(ctx context.Context) string {
 	addr := client.FromContext(ctx).Addr
 	if addr == nil {
-		// On gRPC the auth interceptor runs before the collector populates
-		// client.Info.Addr, so it is nil here for every gRPC request — which would
-		// collapse all gRPC senders into one shared bucket. The gRPC peer is already
-		// on the context at auth time, so fall back to it.
+		// gRPC runs the auth interceptor before client.Info.Addr is populated.
 		if p, ok := peer.FromContext(ctx); ok && p.Addr != nil {
 			addr = p.Addr
 		}
@@ -247,19 +226,17 @@ func (a *traciumAuth) verify(ctx context.Context, token, sender string) (verifie
 	}
 	cacheKey := cacheKeyFor(token)
 
-	// Fast path: a live cache entry answers without touching the single-flight map.
 	if v, ok, err := a.cachedResult(cacheKey); ok {
 		return v, err
 	}
 
-	// Coalesce concurrent misses for the same key. The first caller leads and
-	// performs the verification; callers that arrive while it runs wait for and
-	// share its result, so one uncached key costs one API call and one unit of the
-	// sender's budget however many requests carry it at once.
 	call, leader := a.joinInflight(cacheKey)
 	if !leader {
 		select {
 		case <-call.done:
+			if call.canceled {
+				return a.verify(ctx, token, sender)
+			}
 			return call.v, call.err
 		case <-ctx.Done():
 			return verified{}, ctx.Err()
@@ -268,33 +245,33 @@ func (a *traciumAuth) verify(ctx context.Context, token, sender string) (verifie
 	defer a.finishInflight(cacheKey, call)
 
 	call.v, call.err = a.doVerify(ctx, cacheKey, token, sender)
+	call.canceled = ctx.Err() != nil
 	return call.v, call.err
 }
 
 // doVerify performs one verification as the in-flight leader: it re-checks the
 // cache, charges the sender budget, calls the API, and memoises the outcome.
 func (a *traciumAuth) doVerify(ctx context.Context, cacheKey, token, sender string) (verified, error) {
-	// A concurrent leader may have populated the cache between our miss and our
-	// becoming leader; prefer that result over a fresh call.
+	// A previous leader may have filled the cache since our miss.
 	if v, ok, err := a.cachedResult(cacheKey); ok {
 		return v, err
 	}
 
-	// Only cache misses reach the API, so the per-sender budget is charged here,
-	// not on cache hits: a sender presenting one valid key pays once and is then
-	// served from cache. A sender that exhausts its budget is rejected without a
-	// call, so it cannot spend the collector's shared verify allowance on the API.
+	// Only cache misses are charged to the sender's budget. A limited sender gets
+	// no API call, but a key it recently verified is still honoured within
+	// max_stale_age, so many keys behind one NAT address do not expire into 401s.
 	if !a.senderLimiter.allow(sender) {
+		if stale, ok := a.lookupStale(cacheKey); ok {
+			a.storeStale(cacheKey, stale)
+			return verified{workspace: stale.workspace}, nil
+		}
 		a.logger.Warn("sender exceeded verification rate; rejecting without calling API",
 			zap.String("sender", sender))
 		return verified{}, errUnauthenticated
 	}
 
 	v, err := a.callVerify(ctx, token)
-	// A disconnected caller is not evidence of a backend outage. In particular,
-	// it must not turn an expired authorization into a fresh positive cache hit.
-	// Check before handling either errors or success, including cancellation that
-	// raced with receipt of the verification response.
+	// A disconnected caller is not a backend outage and must not refresh the cache.
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return verified{}, ctxErr
 	}
@@ -303,24 +280,14 @@ func (a *traciumAuth) doVerify(ctx context.Context, cacheKey, token, sender stri
 			return verified{}, err
 		}
 		if errors.Is(err, errUnauthenticated) {
-			// A real rejection: cache it (briefly) and reject.
 			a.store(cacheKey, cacheEntry{ok: false})
 			return verified{}, err
 		}
-		// Not a rejection — the verify backend was unreachable (transport error or
-		// 5xx). The gRPC auth interceptor collapses every error we return here to
-		// codes.Unauthenticated, which OTLP senders treat as permanent and will not
-		// retry, so returning this error would turn a brief verify outage into
-		// permanent loss of a sender's in-flight telemetry. Ride the outage out on
-		// the last-known-good result when we have one: this never invents trust —
-		// only a key the backend previously accepted is honoured, and only within
-		// the operator's explicit max_stale_age. Stale trust is disabled by default.
+		// Backend unreachable. Receivers turn any error into Unauthenticated, which
+		// OTLP senders do not retry, so ride the outage out on a recent positive.
 		if stale, ok := a.lookupStale(cacheKey); ok {
 			a.logger.Warn("verify endpoint unreachable; serving last cached result for key",
 				zap.Error(err))
-			// Re-cache briefly so the rest of the outage is served from lookup rather
-			// than every request paying the verify timeout and a sender-budget charge
-			// (which, once exhausted, would reject the very sender we are protecting).
 			a.storeStale(cacheKey, stale)
 			return verified{workspace: stale.workspace}, nil
 		}
@@ -380,21 +347,15 @@ func (a *traciumAuth) lookup(cacheKey string) (cacheEntry, bool) {
 	}
 	node := el.Value.(*cacheNode)
 	if time.Now().After(node.entry.expires) {
-		// Report a miss so the key is re-verified, but keep the entry in place: a
-		// positive entry is retained as the last-known-good answer that lookupStale
-		// falls back on when the verify backend is unreachable. It is refreshed on
-		// the next successful verify and reclaimed by LRU eviction otherwise, so it
-		// does not grow the cache.
+		// Keep the expired entry: lookupStale may still fall back on it.
 		return cacheEntry{}, false
 	}
 	a.ll.MoveToFront(el)
 	return node.entry, true
 }
 
-// lookupStale returns the last cached positive result within the explicitly
-// configured absolute age limit, without disturbing LRU order. It backs the fallback in
-// doVerify: a rejection (ok=false) is never served stale — a real "no" must
-// expire on its short TTL rather than be extended by a backend outage.
+// lookupStale returns the cached positive result for cacheKey if it was verified
+// within MaxStaleAge, regardless of expiry. Rejections are never served stale.
 func (a *traciumAuth) lookupStale(cacheKey string) (cacheEntry, bool) {
 	if a.cfg.CacheTTL <= 0 || a.cfg.MaxStaleAge <= 0 {
 		return cacheEntry{}, false
@@ -416,29 +377,22 @@ func (a *traciumAuth) store(cacheKey string, entry cacheEntry) {
 	if a.cfg.CacheTTL <= 0 {
 		return
 	}
-	ttl := a.cfg.CacheTTL
+	now := time.Now()
 	if entry.ok {
-		entry.verifiedAt = time.Now()
+		entry.verifiedAt = now
+		entry.expires = now.Add(a.cfg.CacheTTL)
+	} else {
+		entry.expires = now.Add(a.shortTTL())
 	}
-	if !entry.ok {
-		// Negative results expire faster so a key revoked-then-fixed, or the API
-		// being briefly wrong, self-heals quickly. Cap at the configured TTL.
-		ttl = a.shortTTL()
-	}
-	a.storeWithTTL(cacheKey, entry, ttl)
+	a.storeEntry(cacheKey, entry)
 }
 
-// storeStale re-caches a served-stale positive with the short TTL, so repeated
-// requests during a backend outage are served straight from lookup — without a
-// per-request verify timeout, an API call, or a sender-budget charge — while the
-// backend is still re-probed every shortTTL so a recovery (and any revocation)
-// is picked up promptly.
+// storeStale re-caches a served-stale positive for shortTTL, never past its
+// MaxStaleAge deadline, so the backend is re-probed periodically.
 func (a *traciumAuth) storeStale(cacheKey string, entry cacheEntry) {
 	if a.cfg.CacheTTL <= 0 || a.cfg.MaxStaleAge <= 0 {
 		return
 	}
-	// Re-probes never advance verifiedAt or let a live cache hit outlast the
-	// absolute trust deadline, even if the outage continues indefinitely.
 	now := time.Now()
 	deadline := entry.verifiedAt.Add(a.cfg.MaxStaleAge)
 	if now.Before(deadline) {
@@ -450,19 +404,11 @@ func (a *traciumAuth) storeStale(cacheKey string, entry cacheEntry) {
 	}
 }
 
-// shortTTL is the reduced lifetime used for results that must be re-checked
-// soon: negative (rejection) entries and served-stale positives. It is the fixed
-// re-probe interval, capped at the configured TTL so it is never longer.
 func (a *traciumAuth) shortTTL() time.Duration {
 	if shortCacheTTL < a.cfg.CacheTTL {
 		return shortCacheTTL
 	}
 	return a.cfg.CacheTTL
-}
-
-func (a *traciumAuth) storeWithTTL(cacheKey string, entry cacheEntry, ttl time.Duration) {
-	entry.expires = time.Now().Add(ttl)
-	a.storeEntry(cacheKey, entry)
 }
 
 func (a *traciumAuth) storeEntry(cacheKey string, entry cacheEntry) {
@@ -474,8 +420,6 @@ func (a *traciumAuth) storeEntry(cacheKey string, entry cacheEntry) {
 		return
 	}
 	a.items[cacheKey] = a.ll.PushFront(&cacheNode{cacheKey: cacheKey, entry: entry})
-	// Evict the least-recently-used entry once over capacity, so a stream of
-	// distinct (e.g. invalid) tokens cannot grow memory without bound.
 	if a.ll.Len() > a.capacity {
 		if back := a.ll.Back(); back != nil {
 			a.removeElement(back)

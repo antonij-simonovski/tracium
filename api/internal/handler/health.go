@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"time"
 )
@@ -46,7 +47,8 @@ func (h *HealthHandler) Ready(w http.ResponseWriter, r *http.Request) {
 	for _, d := range h.deps {
 		if err := d.Check(ctx); err != nil {
 			ready = false
-			checks[d.Name] = "unavailable: " + err.Error()
+			log.Printf("ready: %s: %v", d.Name, err)
+			checks[d.Name] = "unavailable"
 			continue
 		}
 		checks[d.Name] = "ok"

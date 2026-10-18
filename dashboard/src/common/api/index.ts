@@ -1,4 +1,4 @@
-export { API_VERSION, APIError, NetworkError, ConfigError, BaseAPIClient, MockAPIClient } from './client';
+export { API_VERSION, apiBaseUrl, APIError, NetworkError, ConfigError, BaseAPIClient } from './client';
 export { TracesAPI } from './traces';
 export { UsersAPI } from './users';
 export { MetricsAPI } from './metrics';

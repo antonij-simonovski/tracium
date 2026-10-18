@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -65,8 +66,6 @@ func (m *memKeyStore) FindActiveByHash(_ context.Context, hash string) (*model.A
 	}
 	return &k, nil
 }
-func (m *memKeyStore) Ping(context.Context) error { return nil }
-func (m *memKeyStore) Close()                     {}
 
 // fakeAccess grants membership of a fixed set of workspaces to any user.
 type fakeAccess struct{ ids []string }
@@ -179,5 +178,15 @@ func TestAPIKeyCreateForbiddenWorkspace(t *testing.T) {
 	router.ServeHTTP(w, r)
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("create in non-member workspace: status %d, want 403", w.Code)
+	}
+}
+
+func TestAPIKeyVerifyRejectsOversizedBody(t *testing.T) {
+	h := NewAPIKeyHandler(apikey.NewService(newMemKeyStore()), fakeAccess{})
+	body := `{"key":"` + strings.Repeat("a", maxAPIKeyBody) + `"}`
+	w := httptest.NewRecorder()
+	apiKeyTestRouter(h, "user-1").ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/ingest/keys/verify", strings.NewReader(body)))
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status %d, want 413", w.Code)
 	}
 }

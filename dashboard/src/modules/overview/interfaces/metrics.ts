@@ -1,12 +1,10 @@
-// API response types for the overview metrics endpoints. All values are raw
-// numbers; formatting (currency, percent, seconds) happens in the components.
-
-export type DeltaType = 'good' | 'bad' | 'neutral';
+import type { DeltaTone, Severity } from '../../../common';
+import type { SetupIssue } from '../../../common/interfaces';
 
 export interface Kpi {
   value: number;
   delta: number; // fraction: 0.12 === +12%
-  delta_type: DeltaType;
+  delta_type: DeltaTone;
 }
 
 export interface KpiSet {
@@ -27,6 +25,12 @@ export interface LatencyBucket {
   p50: number | null;
   p95: number | null;
   p99: number | null; // all ms
+}
+
+export interface TokenBucket {
+  bucket_ms: number;
+  input_tokens: number;
+  output_tokens: number;
 }
 
 export interface ErrorBucket {
@@ -55,7 +59,7 @@ export interface FailureRow {
 export type AnomalyMetric = 'cost' | 'error_rate' | 'runs';
 export type AnomalyScope = 'workspace' | 'workflow';
 export type AnomalyDirection = 'spike' | 'drop';
-export type AnomalySeverity = 'info' | 'warning' | 'critical';
+export type AnomalySeverity = Severity;
 
 export interface Anomaly {
   metric: AnomalyMetric;
@@ -69,4 +73,17 @@ export interface Anomaly {
   direction: AnomalyDirection;
   severity: AnomalySeverity;
   summary: string; // ready-to-read description
+  version_change: VersionChange | null; // version first seen on the day or the day before
+}
+
+export interface VersionChange {
+  workflow: string;
+  version: string;
+  first_seen_ms: number; // UTC midnight
+}
+
+export interface SetupCheck extends SetupIssue {
+  spans: number;
+  share: number; // fraction of the window's spans
+  example_trace_id: string; // empty for rejected spans, which are never stored
 }

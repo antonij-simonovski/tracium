@@ -1,7 +1,10 @@
 package auth
 
 import (
-	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
+	"errors"
 	"fmt"
 	"time"
 
@@ -12,8 +15,7 @@ import (
 
 const tokenTTL = 24 * time.Hour
 
-// TokenIssuer signs and validates the bearer tokens returned by login/register.
-// It also implements middleware.Authenticator so protected routes can verify them.
+// TokenIssuer signs and parses the bearer tokens returned by login/register.
 type TokenIssuer struct {
 	secret []byte
 }
@@ -22,42 +24,46 @@ func NewTokenIssuer(secret string) *TokenIssuer {
 	return &TokenIssuer{secret: []byte(secret)}
 }
 
-// Issue returns a signed JWT carrying the identity of the authenticated user.
-func (t *TokenIssuer) Issue(userID, tenantID, role string) (string, error) {
+// Issue returns a signed JWT for user. The pwd claim binds the token to the
+// user's current password hash, so changing the password ends the session.
+func (t *TokenIssuer) Issue(user model.User) (string, error) {
 	now := time.Now()
 	claims := jwt.MapClaims{
-		"sub":       userID,
-		"tenant_id": tenantID,
-		"role":      role,
+		"sub":       user.ID,
+		"tenant_id": user.TenantID,
+		"role":      user.Role,
+		"pwd":       t.passwordStamp(user.PasswordHash),
 		"iat":       now.Unix(),
 		"exp":       now.Add(tokenTTL).Unix(),
 	}
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(t.secret)
 }
 
-// Authenticate validates a token string and returns the embedded Principal.
-func (t *TokenIssuer) Authenticate(_ context.Context, tokenString string) (*model.Principal, error) {
-	parsed, err := jwt.Parse(tokenString, func(token *jwt.Token) (any, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
+type tokenClaims struct {
+	userID        string
+	passwordStamp string
+}
+
+func (t *TokenIssuer) parse(tokenString string) (tokenClaims, error) {
+	claims := jwt.MapClaims{}
+	_, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (any, error) {
 		return t.secret, nil
-	})
-	if err != nil || !parsed.Valid {
-		return nil, fmt.Errorf("invalid token: %w", err)
+	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}), jwt.WithExpirationRequired())
+	if err != nil {
+		return tokenClaims{}, fmt.Errorf("invalid token: %w", err)
 	}
-
-	claims, ok := parsed.Claims.(jwt.MapClaims)
-	if !ok {
-		return nil, fmt.Errorf("invalid token claims")
-	}
-
 	userID, _ := claims["sub"].(string)
-	tenantID, _ := claims["tenant_id"].(string)
-	if tenantID == "" {
-		return nil, fmt.Errorf("token missing tenant_id")
+	if userID == "" {
+		return tokenClaims{}, errors.New("invalid token: missing sub")
 	}
-	role, _ := claims["role"].(string)
+	stamp, _ := claims["pwd"].(string)
+	return tokenClaims{userID: userID, passwordStamp: stamp}, nil
+}
 
-	return &model.Principal{UserID: userID, TenantID: tenantID, Role: role}, nil
+// passwordStamp is keyed with the signing secret so the token, which the client
+// can read, reveals nothing about the bcrypt hash.
+func (t *TokenIssuer) passwordStamp(passwordHash string) string {
+	mac := hmac.New(sha256.New, t.secret)
+	mac.Write([]byte(passwordHash))
+	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil)[:16])
 }

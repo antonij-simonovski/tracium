@@ -3,7 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 smoke_dir=$(mktemp -d)
 smoke_project="tracium-smoke-$$"
-compose=(docker compose --project-name "$smoke_project" --env-file "$smoke_dir/env" -f docker-compose.yml -f deploy/tests/smoke.compose.yaml)
+compose=(docker compose --project-name "$smoke_project" --env-file "$smoke_dir/env" -f docker-compose.yml -f compose.build.yaml -f deploy/tests/smoke.compose.yaml)
 cleanup() {
   code=$?
   if [ "$code" -ne 0 ]; then "${compose[@]}" logs --tail=60; fi

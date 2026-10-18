@@ -79,23 +79,27 @@ func TestValidate_ReportsAllProblems(t *testing.T) {
 	}
 }
 
-// No-auth mode exists, but only when asked for by name.
-func TestValidate_AuthModeNone(t *testing.T) {
+func TestApplyEnv_AuthModeNoneIsRejected(t *testing.T) {
+	t.Setenv("AUTH_MODE", "none")
+
 	c := validConfig()
-	c.Auth.Mode = AuthModeNone
-	if err := c.Validate(); err != nil {
-		t.Fatalf("auth.mode=none should be a valid opt-in, got: %v", err)
+	if err := c.ApplyEnv(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "auth.mode") {
+		t.Fatalf("auth.mode=none must fail validation, got: %v", err)
 	}
 }
 
-func TestApplyEnv_AuthMode(t *testing.T) {
-	t.Setenv("AUTH_MODE", AuthModeNone)
-
-	c := &Config{}
-	c.Default()
-	c.ApplyEnv()
-
-	if c.Auth.Mode != AuthModeNone {
-		t.Fatalf("AUTH_MODE not applied: got %q", c.Auth.Mode)
+func TestApplyEnv_RejectsNonIntegerRateLimit(t *testing.T) {
+	for _, name := range []string{"AUTH_RATE_LIMIT_PER_MINUTE", "AUTH_VERIFY_RATE_LIMIT_PER_MINUTE"} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(name, "ten")
+			err := (&Config{}).ApplyEnv()
+			if err == nil || !strings.Contains(err.Error(), name) {
+				t.Fatalf("expected an error naming %s, got %v", name, err)
+			}
+		})
 	}
 }

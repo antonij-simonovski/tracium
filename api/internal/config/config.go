@@ -10,16 +10,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Authentication modes, selected by auth.mode / AUTH_MODE.
-const (
-	// AuthModeJWT verifies the tokens issued by /v1/auth/login against the
-	// accounts stored in Postgres. This is the default.
-	AuthModeJWT = "jwt"
-	// AuthModeNone disables authentication entirely: every request is granted
-	// the admin role. It must be asked for by name and is never a fallback for
-	// missing or misspelled configuration.
-	AuthModeNone = "none"
-)
+// AuthModeJWT, the only authentication mode, verifies the tokens issued by
+// /v1/auth/login against the accounts stored in Postgres.
+const AuthModeJWT = "jwt"
 
 // insecureJWTSecret is the value this repository used to default to. Tracium is
 // OSS, so the string is public and tokens signed with it are forgeable by
@@ -33,7 +26,6 @@ const secretHint = "generate one with: openssl rand -hex 32"
 // ServerConfig holds HTTP server configuration.
 type ServerConfig struct {
 	Addr                string `yaml:"addr"`
-	HealthAddr          string `yaml:"health_addr"`
 	ReadTimeoutSeconds  int    `yaml:"read_timeout_seconds"`
 	WriteTimeoutSeconds int    `yaml:"write_timeout_seconds"`
 }
@@ -47,18 +39,13 @@ type StorageConfig struct {
 
 // AuthConfig holds authentication settings.
 type AuthConfig struct {
-	Mode        string `yaml:"mode"` // AuthModeJWT or AuthModeNone
-	TokenHeader string `yaml:"token_header"`
-	JWTSecret   string `yaml:"jwt_secret"`
+	Mode      string `yaml:"mode"` // must be AuthModeJWT
+	JWTSecret string `yaml:"jwt_secret"`
 	// RateLimitPerMinute caps register/login attempts per client IP per minute.
 	// Defaults to 10; set a negative value to disable throttling entirely.
 	RateLimitPerMinute int `yaml:"rate_limit_per_minute"`
 	// VerifyRateLimitPerMinute caps ingest-key verification attempts per client
-	// IP per minute. It is kept separate from RateLimitPerMinute on purpose: the
-	// verify endpoint's caller is a collector (machine traffic, one IP fronting
-	// many senders), so it needs a larger, dedicated allowance. Sharing the tiny
-	// login bucket let a handful of invalid keys exhaust the collector's budget
-	// and starve verification of legitimate keys. Defaults to 120; a negative
+	// IP per minute, on a bucket separate from login. Defaults to 120; a negative
 	// value disables throttling of the verify endpoint.
 	VerifyRateLimitPerMinute int `yaml:"verify_rate_limit_per_minute"`
 	// TrustedProxies lists IPs/CIDRs or dns:service-name entries for proxies allowed to set
@@ -69,28 +56,17 @@ type AuthConfig struct {
 	TrustedProxies []string `yaml:"trusted_proxies"`
 }
 
-// TelemetryConfig holds logging and observability settings.
-type TelemetryConfig struct {
-	LogLevel  string `yaml:"log_level"`
-	LogFormat string `yaml:"log_format"`
-}
-
 // Config is the top-level application configuration.
 type Config struct {
-	Server    ServerConfig    `yaml:"server"`
-	Storage   StorageConfig   `yaml:"storage"`
-	Auth      AuthConfig      `yaml:"auth"`
-	Telemetry TelemetryConfig `yaml:"telemetry"`
+	Server  ServerConfig  `yaml:"server"`
+	Storage StorageConfig `yaml:"storage"`
+	Auth    AuthConfig    `yaml:"auth"`
 }
 
-// Default populates Config with sensible defaults.
-// Call this before Validate() and before overriding with environment-specific values.
+// Default fills every unset field that has a default.
 func (c *Config) Default() {
 	if c.Server.Addr == "" {
 		c.Server.Addr = ":8090"
-	}
-	if c.Server.HealthAddr == "" {
-		c.Server.HealthAddr = ":8091"
 	}
 	if c.Server.ReadTimeoutSeconds == 0 {
 		c.Server.ReadTimeoutSeconds = 30
@@ -104,22 +80,11 @@ func (c *Config) Default() {
 	if c.Auth.Mode == "" {
 		c.Auth.Mode = AuthModeJWT
 	}
-	if c.Auth.TokenHeader == "" {
-		c.Auth.TokenHeader = "Authorization"
-	}
 	if c.Auth.RateLimitPerMinute == 0 {
 		c.Auth.RateLimitPerMinute = 10
 	}
 	if c.Auth.VerifyRateLimitPerMinute == 0 {
 		c.Auth.VerifyRateLimitPerMinute = 120
-	}
-	// auth.jwt_secret is deliberately not defaulted: a signing secret shared by
-	// every install is no secret at all. Absence must fail the deploy.
-	if c.Telemetry.LogLevel == "" {
-		c.Telemetry.LogLevel = "info"
-	}
-	if c.Telemetry.LogFormat == "" {
-		c.Telemetry.LogFormat = "json"
 	}
 }
 
@@ -155,12 +120,11 @@ func (c *StorageConfig) Validate() error {
 	return errors.Join(errs...)
 }
 
-// Validate checks the auth settings. A missing signing secret is an error in
-// every mode — the login and register routes issue tokens regardless of mode.
+// Validate checks the auth settings.
 func (c *AuthConfig) Validate() error {
 	var errs []error
-	if c.Mode != AuthModeJWT && c.Mode != AuthModeNone {
-		errs = append(errs, fmt.Errorf("config: auth.mode must be %q or %q, got %q (set AUTH_MODE)", AuthModeJWT, AuthModeNone, c.Mode))
+	if c.Mode != AuthModeJWT {
+		errs = append(errs, fmt.Errorf("config: auth.mode must be %q, got %q (set AUTH_MODE)", AuthModeJWT, c.Mode))
 	}
 	switch c.JWTSecret {
 	case "":
@@ -181,33 +145,25 @@ func (c *Config) Validate() error {
 	)
 }
 
-// Load reads and parses a YAML config file at the given path.
-// It applies defaults first, then overlays the file contents.
+// Load parses the YAML config file at path (none when empty) and applies
+// defaults to the fields it leaves unset.
 func Load(path string) (*Config, error) {
 	c := &Config{}
+	if path != "" {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("config: read file %q: %w", path, err)
+		}
+		if err := yaml.Unmarshal(data, c); err != nil {
+			return nil, fmt.Errorf("config: parse yaml %q: %w", path, err)
+		}
+	}
 	c.Default()
-
-	if path == "" {
-		return c, nil
-	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("config: read file %q: %w", path, err)
-	}
-
-	if err := yaml.Unmarshal(data, c); err != nil {
-		return nil, fmt.Errorf("config: parse yaml %q: %w", path, err)
-	}
-
-	// Re-apply defaults for any fields left zero by the YAML.
-	c.Default()
-
 	return c, nil
 }
 
 // ApplyEnv overrides config fields from well-known environment variables.
-func (c *Config) ApplyEnv() {
+func (c *Config) ApplyEnv() error {
 	if v := os.Getenv("CLICKHOUSE_DSN"); v != "" {
 		c.Storage.ClickHouseDSN = v
 	}
@@ -220,15 +176,11 @@ func (c *Config) ApplyEnv() {
 	if v := os.Getenv("AUTH_MODE"); v != "" {
 		c.Auth.Mode = v
 	}
-	if v := os.Getenv("AUTH_RATE_LIMIT_PER_MINUTE"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			c.Auth.RateLimitPerMinute = n
-		}
+	if err := envInt("AUTH_RATE_LIMIT_PER_MINUTE", &c.Auth.RateLimitPerMinute); err != nil {
+		return err
 	}
-	if v := os.Getenv("AUTH_VERIFY_RATE_LIMIT_PER_MINUTE"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			c.Auth.VerifyRateLimitPerMinute = n
-		}
+	if err := envInt("AUTH_VERIFY_RATE_LIMIT_PER_MINUTE", &c.Auth.VerifyRateLimitPerMinute); err != nil {
+		return err
 	}
 	if v := os.Getenv("AUTH_TRUSTED_PROXIES"); v != "" {
 		var proxies []string
@@ -242,10 +194,18 @@ func (c *Config) ApplyEnv() {
 	if v := os.Getenv("LISTEN_ADDR"); v != "" {
 		c.Server.Addr = v
 	}
-	if v := os.Getenv("LOG_LEVEL"); v != "" {
-		c.Telemetry.LogLevel = v
+	return nil
+}
+
+func envInt(name string, dst *int) error {
+	v := os.Getenv(name)
+	if v == "" {
+		return nil
 	}
-	if v := os.Getenv("LOG_FORMAT"); v != "" {
-		c.Telemetry.LogFormat = v
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return fmt.Errorf("config: %s must be an integer, got %q", name, v)
 	}
+	*dst = n
+	return nil
 }

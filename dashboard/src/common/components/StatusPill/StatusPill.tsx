@@ -6,7 +6,7 @@ export interface StatusPillProps {
   children?: React.ReactNode;
 }
 
-export const STATUS_MAP: Record<string, { color: string; label: string }> = {
+const STATUS_MAP: Record<string, { color: string; label: string }> = {
   completed: { color: 'var(--accent)',   label: 'Completed' },
   failed:    { color: 'var(--error)',    label: 'Failed'    },
   warning:   { color: 'var(--warning)',  label: 'Warning'   },

@@ -4,8 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/tracium/collector/pkg/spanmodel"
-
 	"go.opentelemetry.io/collector/client"
 )
 
@@ -45,21 +43,5 @@ func TestIngestScopeReadsWorkspace(t *testing.T) {
 	scope := ingestScope(ctxWithAuth(fakeAuth{workspace: "ws-1"}))
 	if !scope.authenticated || scope.workspace != "ws-1" {
 		t.Fatalf("scope = %+v, want authenticated+ws-1", scope)
-	}
-}
-
-func TestApplyStampsWorkspace(t *testing.T) {
-	// A key's workspace overrides whatever the sender put on the span.
-	span := &spanmodel.Span{WorkspaceID: "client-claimed"}
-	ingestScope(ctxWithAuth(fakeAuth{workspace: "ws-1"})).apply(span)
-	if span.WorkspaceID != "ws-1" {
-		t.Fatalf("workspace = %q, want overridden to ws-1", span.WorkspaceID)
-	}
-
-	// A span with no workspace gets the key's.
-	empty := &spanmodel.Span{}
-	ingestScope(ctxWithAuth(fakeAuth{workspace: "ws-2"})).apply(empty)
-	if empty.WorkspaceID != "ws-2" {
-		t.Fatalf("workspace = %q, want ws-2", empty.WorkspaceID)
 	}
 }

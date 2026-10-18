@@ -1,10 +1,13 @@
 package app
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
 	"github.com/go-chi/chi/v5"
 	"github.com/tracium/api/extension"
 	"github.com/tracium/api/internal/apikey"
-	"github.com/tracium/api/internal/auth"
+	"github.com/tracium/api/internal/model"
 	"github.com/tracium/api/testing/mocks"
 	"net/http"
 	"net/http/httptest"
@@ -22,8 +25,7 @@ func TestVerifyRateLimitIsSeparateFromLogin(t *testing.T) {
 	cfg.Auth.VerifyRateLimitPerMinute = 2
 
 	repo := repository{mocks.NewMockTraceRepository(), &mocks.MockMetricsRepository{}}
-	issuer := auth.NewTokenIssuer("test-only-secret")
-	router := newRouter(cfg, repo, &mocks.MockWorkspaceStore{}, nil, nil, issuer, auth.NewService(nil, issuer, nil), apikey.NewService(nil), nil, Options{})
+	router := newRouter(cfg, repo, &mocks.MockWorkspaceStore{}, nil, nil, tokenAuth{}, nil, apikey.NewService(nil), nil, Options{})
 
 	do := func(path, body string) int {
 		r := httptest.NewRequest("POST", path, strings.NewReader(body))
@@ -61,12 +63,17 @@ type repository struct {
 	*mocks.MockMetricsRepository
 }
 
-func TestExtensionsShareAuthAndCannotReplaceCoreRoutes(t *testing.T) {
-	issuer := auth.NewTokenIssuer("test-only-secret")
-	token, err := issuer.Issue("user", "tenant", "admin")
-	if err != nil {
-		t.Fatal(err)
+type tokenAuth map[string]string
+
+func (a tokenAuth) Authenticate(_ context.Context, token string) (*model.Principal, error) {
+	if id, ok := a[token]; ok {
+		return &model.Principal{UserID: id}, nil
 	}
+	return nil, errors.New("invalid token")
+}
+
+func TestExtensionsShareAuthAndCannotReplaceCoreRoutes(t *testing.T) {
+	const token = "valid"
 	var cfg Config
 	cfg.Default()
 	opts := Options{Extensions: []Extension{{Name: "example", Routes: func(r chi.Router, s extension.Services) {
@@ -79,7 +86,7 @@ func TestExtensionsShareAuthAndCannotReplaceCoreRoutes(t *testing.T) {
 		})
 	}, Webhooks: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(202) })}}}
 	repo := repository{mocks.NewMockTraceRepository(), &mocks.MockMetricsRepository{}}
-	router := newRouter(cfg, repo, &mocks.MockWorkspaceStore{}, nil, nil, issuer, auth.NewService(nil, issuer, nil), apikey.NewService(nil), nil, opts)
+	router := newRouter(cfg, repo, &mocks.MockWorkspaceStore{}, nil, nil, tokenAuth{token: "user"}, nil, apikey.NewService(nil), nil, opts)
 	for _, tt := range []struct {
 		path, token string
 		want        int
@@ -87,6 +94,7 @@ func TestExtensionsShareAuthAndCannotReplaceCoreRoutes(t *testing.T) {
 		{"/v1/extensions/example/identity", "", 401}, {"/v1/extensions/example/identity", "invalid", 401},
 		{"/v1/extensions/example/identity", token, 204}, {"/v1/integrations/example", "", 202},
 		{"/v1/workspaces", "", 401}, {"/v1/workspaces", token, 200}, {"/v1/health", "", 200},
+		{"/v1/traces", "", 401}, {"/v1/traces", "invalid", 401}, {"/v1/traces", token, 200},
 	} {
 		r := httptest.NewRequest("GET", tt.path, nil)
 		if tt.token != "" {
@@ -97,8 +105,12 @@ func TestExtensionsShareAuthAndCannotReplaceCoreRoutes(t *testing.T) {
 		if w.Code != tt.want {
 			t.Errorf("%s: %d want %d", tt.path, w.Code, tt.want)
 		}
+		var body model.ErrorResponse
+		if w.Code == 401 && (w.Header().Get("Content-Type") != "application/json" || json.Unmarshal(w.Body.Bytes(), &body) != nil || body.Code != "UNAUTHORIZED") {
+			t.Errorf("%s: 401 body is not a JSON error: %q %s", tt.path, w.Header().Get("Content-Type"), w.Body.String())
+		}
 	}
-	if err = validateOptions(Options{Extensions: []Extension{{Name: "../auth"}}}); err == nil {
+	if err := validateOptions(Options{Extensions: []Extension{{Name: "../auth"}}}); err == nil {
 		t.Fatal("invalid route namespace accepted")
 	}
 }

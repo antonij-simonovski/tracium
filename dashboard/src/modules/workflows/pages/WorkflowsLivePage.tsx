@@ -1,12 +1,4 @@
-// ---------------------------------------------------------------------------
-// WorkflowsLivePage — the signed-in Workflows view, fed by GET /v1/metrics/workflows.
-// It owns the data fetch (the page is the composition layer) and hands the
-// resolved list to the presentational WorkflowsPage. Loading / error / empty are
-// handled here so WorkflowsPage stays a pure renderer.
-// ---------------------------------------------------------------------------
-
-import type { ReactNode } from 'react';
-import { EmptyState, Spinner } from '../../../common';
+import { Centered, EmptyState, Spinner } from '../../../common';
 import { useWorkflows } from '../hooks/useWorkflows';
 import { WorkflowsPage } from './WorkflowsPage';
 
@@ -15,23 +7,6 @@ interface WorkflowsLivePageProps {
   setView: (v: string) => void;
   setSelected: (updater: (prev: Record<string, string>) => Record<string, string>) => void;
   workspaceName?: string;
-}
-
-function Centered({ children }: { children: ReactNode }) {
-  return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        minHeight: 320,
-        color: 'var(--muted)',
-        fontSize: 14,
-      }}
-    >
-      {children}
-    </div>
-  );
 }
 
 export function WorkflowsLivePage({ range, setView, setSelected, workspaceName }: WorkflowsLivePageProps) {
@@ -44,7 +19,7 @@ export function WorkflowsLivePage({ range, setView, setSelected, workspaceName }
       </Centered>
     );
   }
-  if (isError) {
+  if (isError && !data) {
     return <Centered>Failed to load workflows</Centered>;
   }
 
@@ -61,6 +36,7 @@ export function WorkflowsLivePage({ range, setView, setSelected, workspaceName }
   return (
     <WorkflowsPage
       workflows={workflows}
+      range={range}
       setView={setView}
       setSelected={setSelected}
       workspaceName={workspaceName}

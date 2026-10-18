@@ -1,24 +1,10 @@
-// ---------------------------------------------------------------------------
-// UserDetailPage — per-user detail: cost chart, health, workflows, traces
-// Inline styles only (no CSS modules).
-// ---------------------------------------------------------------------------
-
-import React, { useState, useMemo } from 'react';
-import { USAGE_DATA } from '../data';
+import { useState, useMemo } from 'react';
 import { USERS } from './UsersPage';
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 export interface UserDetailPageProps {
   selected: Record<string, string>;
   setView: (v: string) => void;
 }
-
-// ---------------------------------------------------------------------------
-// Local mock data
-// ---------------------------------------------------------------------------
 
 interface WorkflowRow {
   workflow: string;
@@ -68,10 +54,6 @@ const TD_RECENT_TRACES: RecentTrace[] = [
   { id: "t_d8f4b2bf", workflow: "classify-intent",     status: "completed", started: "Apr 18 · 09:40:50", cost: 0.0001, latency:  741 },
 ];
 
-// ---------------------------------------------------------------------------
-// Cost series generator (deterministic, derived from user trend)
-// ---------------------------------------------------------------------------
-
 interface CostSeriesPoint { day: number; cost: number; runs: number }
 
 function makeCostSeries(seed: number, weeklyTrend: number[]): CostSeriesPoint[] {
@@ -86,18 +68,13 @@ function makeCostSeries(seed: number, weeklyTrend: number[]): CostSeriesPoint[] 
   });
 }
 
-// ---------------------------------------------------------------------------
-// Section header
-// ---------------------------------------------------------------------------
-
 interface TdSectionHeadProps {
   title: string;
   hint?: string;
-  right?: React.ReactNode;
   first?: boolean;
 }
 
-function TdSectionHead({ title, hint, right, first = false }: TdSectionHeadProps) {
+function TdSectionHead({ title, hint, first = false }: TdSectionHeadProps) {
   return (
     <header style={{
       display: "flex", alignItems: "flex-end", justifyContent: "space-between",
@@ -110,14 +87,9 @@ function TdSectionHead({ title, hint, right, first = false }: TdSectionHeadProps
         <h2 style={{ fontSize: 19, fontWeight: 600, letterSpacing: "-0.018em", margin: 0, color: "var(--foreground)" }}>{title}</h2>
         {hint && <p style={{ fontSize: 14, color: "var(--muted)", margin: 0, maxWidth: 620, lineHeight: 1.55 }}>{hint}</p>}
       </div>
-      {right && <div style={{ paddingTop: first ? 0 : 28, flexShrink: 0 }}>{right}</div>}
     </header>
   );
 }
-
-// ---------------------------------------------------------------------------
-// User header
-// ---------------------------------------------------------------------------
 
 interface User {
   id: string;
@@ -139,7 +111,6 @@ function TdHeader({ user, setView }: TdHeaderProps) {
 
   return (
     <div>
-      {/* Back breadcrumb */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--muted)", marginBottom: 16 }}>
         <button
           onClick={() => setView("users")}
@@ -157,7 +128,6 @@ function TdHeader({ user, setView }: TdHeaderProps) {
 
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 24, flexWrap: "wrap" }}>
         <div style={{ display: "flex", alignItems: "flex-start", gap: 16, minWidth: 0 }}>
-          {/* Avatar glyph */}
           <div style={{
             width: 52, height: 52, borderRadius: 11,
             background: "linear-gradient(135deg, var(--surface-alt), color-mix(in srgb, var(--accent) 14%, var(--surface-alt)))",
@@ -198,10 +168,6 @@ function TdHeader({ user, setView }: TdHeaderProps) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// KPI strip
-// ---------------------------------------------------------------------------
-
 interface TdKpiStripProps { user: User }
 
 function TdKpiStrip({ user }: TdKpiStripProps) {
@@ -233,10 +199,6 @@ function TdKpiStrip({ user }: TdKpiStripProps) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Cost over time chart
-// ---------------------------------------------------------------------------
-
 interface TdCostChartProps { series: CostSeriesPoint[]; height?: number }
 
 function TdCostChart({ series, height = 200 }: TdCostChartProps) {
@@ -251,7 +213,6 @@ function TdCostChart({ series, height = 200 }: TdCostChartProps) {
 
   return (
     <div style={{ position: "relative" }}>
-      {/* Y-axis labels */}
       <div style={{
         position: "absolute", left: 0, top: 0, bottom: 24,
         width: 56, display: "flex", flexDirection: "column", justifyContent: "space-between",
@@ -291,10 +252,6 @@ function TdCostChart({ series, height = 200 }: TdCostChartProps) {
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Workflow breakdown table
-// ---------------------------------------------------------------------------
 
 type WorkflowSortKey = keyof Pick<WorkflowRow, 'workflow' | 'calls' | 'success' | 'failed' | 'p95' | 'cost' | 'avg' | 'growth'>;
 
@@ -347,7 +304,6 @@ function TdWorkflowTable() {
 
   return (
     <div style={{ overflowX: "auto" }}>
-      {/* Header */}
       <div style={{
         display: "grid", gridTemplateColumns: grid, minWidth: 640, gap: 14,
         padding: "12px 0",
@@ -368,7 +324,6 @@ function TdWorkflowTable() {
         ))}
       </div>
 
-      {/* Rows */}
       {sorted.map((row, i) => (
         <div key={row.workflow}
           style={{
@@ -401,15 +356,10 @@ function TdWorkflowTable() {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Recent traces table
-// ---------------------------------------------------------------------------
-
 type TraceFilterKey = 'all' | TraceStatus;
 
 interface TdTracesTableProps {
   setView: (v: string) => void;
-  setSelected: ((updater: (prev: Record<string, string>) => Record<string, string>) => void) | undefined;
 }
 
 function statusColor(s: TraceStatus): string {
@@ -419,7 +369,7 @@ function statusColor(s: TraceStatus): string {
   return "var(--muted)";
 }
 
-function TdTracesTable({ setView, setSelected }: TdTracesTableProps) {
+function TdTracesTable({ setView }: TdTracesTableProps) {
   const [filter, setFilter] = useState<TraceFilterKey>("all");
   const filtered = filter === "all" ? TD_RECENT_TRACES : TD_RECENT_TRACES.filter(t => t.status === filter);
   const cols = "minmax(170px, 1.4fr) 110px minmax(140px, 1fr) 90px 90px";
@@ -465,7 +415,6 @@ function TdTracesTable({ setView, setSelected }: TdTracesTableProps) {
         }}>View all traces →</button>
       </div>
 
-      {/* Column headers */}
       <div style={{
         display: "grid", gridTemplateColumns: cols, minWidth: 640, gap: 14,
         padding: "12px 0",
@@ -484,10 +433,7 @@ function TdTracesTable({ setView, setSelected }: TdTracesTableProps) {
         <div style={{ padding: "40px 20px", textAlign: "center", color: "var(--muted)", fontSize: 14 }}>No traces for this filter.</div>
       ) : filtered.map((t, i) => (
         <div key={t.id}
-          onClick={() => {
-            if (setSelected) setSelected(s => ({ ...s, trace: t.id }));
-            setView("trace");
-          }}
+          onClick={() => setView("trace")}
           style={{
             display: "grid", gridTemplateColumns: cols, minWidth: 640, gap: 14,
             padding: "13px 0",
@@ -526,10 +472,6 @@ function TdTracesTable({ setView, setSelected }: TdTracesTableProps) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Connection info
-// ---------------------------------------------------------------------------
-
 interface TdConnectionProps { user: User }
 
 function TdConnection({ user }: TdConnectionProps) {
@@ -555,38 +497,16 @@ function TdConnection({ user }: TdConnectionProps) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Page
-// ---------------------------------------------------------------------------
-
 export function UserDetailPage({ selected, setView }: UserDetailPageProps) {
   const userId = selected.user ?? "";
 
-  // Find user in the richer USERS array; fall back to first entry
   const userFull = useMemo(() => {
     return USERS.find(t => t.id === userId) ?? USERS[0];
   }, [userId]);
 
-  // Also satisfy USAGE_DATA import requirement from spec
-  void USAGE_DATA;
-
-  // Derive a User-compatible object from USERS data (already has all fields)
   const user: User = userFull;
 
-  const series = useMemo(
-    () => makeCostSeries(user.name.length, user.trend),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [user.id]
-  );
-
-  const [range, setRange] = useState<string>("30d");
-
-  const rangeOptions = [
-    { id: "24h", label: "24h" },
-    { id: "7d",  label: "7d"  },
-    { id: "30d", label: "30d" },
-    { id: "90d", label: "90d" },
-  ];
+  const series = useMemo(() => makeCostSeries(user.name.length, user.trend), [user]);
 
   return (
     <div style={{ padding: "clamp(20px, 4vw, 32px) clamp(16px, 4vw, 28px) 96px", maxWidth: 1320, margin: "0 auto" }}>
@@ -597,20 +517,6 @@ export function UserDetailPage({ selected, setView }: UserDetailPageProps) {
       <TdSectionHead
         title="Cost & runs · last 30 days"
         hint="Hover the line for daily totals. Markers flag days exceeding the 14-day rolling baseline."
-        right={
-          <div style={{ display: "inline-flex", background: "var(--surface-alt)", border: "1px solid var(--border)", borderRadius: 7, padding: 2 }}>
-            {rangeOptions.map(o => (
-              <button key={o.id} onClick={() => setRange(o.id)} style={{
-                padding: "5px 10px",
-                fontSize: 13, fontWeight: 500, fontFamily: "inherit",
-                background: range === o.id ? "var(--surface)" : "transparent",
-                color: range === o.id ? "var(--foreground)" : "var(--muted)",
-                border: "1px solid " + (range === o.id ? "var(--border)" : "transparent"),
-                borderRadius: 5, cursor: "pointer",
-              }}>{o.label}</button>
-            ))}
-          </div>
-        }
       />
       <div style={{ padding: "8px 0 4px" }}>
         <TdCostChart series={series}/>
@@ -626,7 +532,7 @@ export function UserDetailPage({ selected, setView }: UserDetailPageProps) {
         title="Recent traces"
         hint="Live tail of this client's traffic. Click a row to inspect spans."
       />
-      <TdTracesTable setView={setView} setSelected={undefined}/>
+      <TdTracesTable setView={setView}/>
 
       <TdSectionHead title="Connection" hint="How this client identifies itself to Tracium."/>
       <TdConnection user={user}/>

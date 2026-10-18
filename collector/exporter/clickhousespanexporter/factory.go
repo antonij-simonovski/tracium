@@ -1,14 +1,11 @@
-// Package clickhousespanexporter writes enriched Tracium LLM spans to ClickHouse
-// using the existing tracium.spans schema. It reuses writer.ClickHouseWriter so
-// the storage format stays identical to the legacy custom collector.
+// Package clickhousespanexporter writes enriched Tracium LLM spans to the
+// ClickHouse tracium.spans table.
 package clickhousespanexporter
 
 import (
 	"context"
 	"fmt"
 	"time"
-
-	"github.com/tracium/collector/internal/writer"
 
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/config/configretry"
@@ -25,25 +22,13 @@ type Config struct {
 	// clickhouse://default:pass@clickhouse:9000/tracium
 	DSN string `mapstructure:"dsn"`
 
-	// QueueConfig and BackOffConfig expose the standard exporterhelper
-	// sending_queue / retry_on_failure blocks. They must be declared here to be
-	// settable at all: the collector unmarshals component config with
-	// ErrorUnused, so a sending_queue block under an exporter that does not
-	// declare one is not silently ignored — it fails startup with an unknown-
-	// field error. Before these existed the factory hardcoded the upstream
-	// defaults, which queue in memory with no StorageID, so any restart during a
-	// downstream outage destroyed spans already ACKed to the client.
+	// QueueConfig and BackOffConfig are the standard exporterhelper
+	// sending_queue / retry_on_failure blocks.
 	QueueConfig   exporterhelper.QueueConfig `mapstructure:"sending_queue"`
 	BackOffConfig configretry.BackOffConfig  `mapstructure:"retry_on_failure"`
 
-	// BatchConfig batches spans INSIDE the exporter — after the durable
-	// sending_queue, not before it. This replaces the standalone `batch`
-	// processor, which sat in front of the queue: that processor buffered spans
-	// in memory and returned success to the receiver (HTTP 200) the moment they
-	// were buffered, so a crash or a full queue lost spans the client had already
-	// been told were delivered. With batching here, every OTLP request is written
-	// to the durable queue first — acknowledgement now means "persisted" — and
-	// batching happens on the way out of the queue toward ClickHouse.
+	// BatchConfig batches spans after the durable sending_queue, so a request is
+	// only acknowledged once it is persisted in the queue.
 	BatchConfig exporterbatcher.Config `mapstructure:"batcher"`
 }
 
@@ -74,10 +59,6 @@ func NewFactory() exporter.Factory {
 			return &Config{
 				QueueConfig:   exporterhelper.NewDefaultQueueConfig(),
 				BackOffConfig: configretry.NewDefaultBackOffConfig(),
-				// Default batching mirrors the sizing the old `batch` processor
-				// used (flush at 5k spans or 5s, split at 10k) so throughput to
-				// ClickHouse is unchanged — but now downstream of the durable
-				// queue. Operators override under exporters.clickhousespan.batcher.
 				BatchConfig: exporterbatcher.Config{
 					Enabled:       true,
 					FlushTimeout:  5 * time.Second,
@@ -97,26 +78,15 @@ func createTracesExporter(
 	cfg component.Config,
 ) (exporter.Traces, error) {
 	c := cfg.(*Config)
-
-	chWriter, err := writer.NewClickHouseWriter(c.DSN)
-	if err != nil {
-		return nil, fmt.Errorf("clickhousespan: %w", err)
-	}
-	exp := &chExporter{writer: chWriter}
-
+	exp := &chExporter{dsn: c.DSN}
 	return exporterhelper.NewTraces(
 		ctx, set, cfg,
 		exp.pushTraces,
-		// Let the collector own batching, queueing, and retry — the plumbing
-		// the legacy collector hand-rolled is now upstream. These come from the
-		// operator's config (see Config): hardcoding the defaults here made
-		// sending_queue.storage unreachable, so the queue could never be durable.
+		exporterhelper.WithStart(exp.start),
+		exporterhelper.WithShutdown(exp.shutdown),
 		exporterhelper.WithQueue(c.QueueConfig),
-		// Batcher runs after the queue, so spans are durably enqueued before they
-		// are batched and sent — see Config.BatchConfig.
 		exporterhelper.WithBatcher(c.BatchConfig),
 		exporterhelper.WithRetry(c.BackOffConfig),
-		exporterhelper.WithShutdown(func(context.Context) error { return chWriter.Close() }),
 	)
 }
 
@@ -126,21 +96,14 @@ func createMetricsExporter(
 	cfg component.Config,
 ) (exporter.Metrics, error) {
 	c := cfg.(*Config)
-
-	chWriter, err := writer.NewClickHouseWriter(c.DSN)
-	if err != nil {
-		return nil, fmt.Errorf("clickhousespan: %w", err)
-	}
-	exp := &chExporter{writer: chWriter}
-
+	exp := &chExporter{dsn: c.DSN}
 	return exporterhelper.NewMetrics(
 		ctx, set, cfg,
 		exp.pushMetrics,
+		exporterhelper.WithStart(exp.start),
+		exporterhelper.WithShutdown(exp.shutdown),
 		exporterhelper.WithQueue(c.QueueConfig),
-		// Batcher runs after the queue, so spans are durably enqueued before they
-		// are batched and sent — see Config.BatchConfig.
 		exporterhelper.WithBatcher(c.BatchConfig),
 		exporterhelper.WithRetry(c.BackOffConfig),
-		exporterhelper.WithShutdown(func(context.Context) error { return chWriter.Close() }),
 	)
 }

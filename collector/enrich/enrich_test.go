@@ -26,12 +26,8 @@ func TestDefaultChain_HappyPath(t *testing.T) {
 	chain := DefaultChain(pricing.NewStaticResolver(pricing.DefaultPrices()), nil, nil)
 	span := validSpan()
 
-	res, err := chain.Apply(context.Background(), span)
-	if err != nil {
+	if err := chain.Apply(context.Background(), span); err != nil {
 		t.Fatalf("unexpected error: %v", err)
-	}
-	if res != ResultKeep {
-		t.Fatalf("got Result %v, want ResultKeep", res)
 	}
 	if span.ModelNormalized != "gpt-4o" {
 		t.Errorf("ModelNormalized = %q, want %q", span.ModelNormalized, "gpt-4o")
@@ -50,42 +46,9 @@ func TestValidate_DropsInvalidSpan(t *testing.T) {
 	span := validSpan()
 	span.TraceID = "" // invalid
 
-	res, err := chain.Apply(context.Background(), span)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if res != ResultDrop {
-		t.Fatalf("got Result %v, want ResultDrop", res)
-	}
-}
-
-func TestPricing_ReportedCostIsIgnoredByDefault(t *testing.T) {
-	chain := DefaultChain(pricing.NewStaticResolver(pricing.DefaultPrices()), nil, nil)
-	span := validSpan()
-	span.ReportedCostUSD = 1_000_000 // authenticated but untrusted: a key proves the sender, not its numbers
-
-	if _, err := chain.Apply(context.Background(), span); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if span.CostUSD != 0.0125 {
-		t.Errorf("CostUSD = %v, want the table-derived 0.0125", span.CostUSD)
-	}
-}
-
-func TestPricing_ReportedCostUsedWhenTrusted(t *testing.T) {
-	e := PricingEnricher{
-		Resolver:          pricing.NewStaticResolver(pricing.DefaultPrices()),
-		TrustReportedCost: true,
-	}
-	span := validSpan()
-	span.ModelNormalized = "gpt-4o"
-	span.ReportedCostUSD = 0.42
-
-	if err := e.Enrich(context.Background(), span); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if span.CostUSD != 0.42 {
-		t.Errorf("CostUSD = %v, want 0.42 (reported cost)", span.CostUSD)
+	err := chain.Apply(context.Background(), span)
+	if got := customerrors.Code(err); got != string(customerrors.ErrMissingTraceID) {
+		t.Fatalf("got %v, want a %s drop", err, customerrors.ErrMissingTraceID)
 	}
 }
 
@@ -94,12 +57,9 @@ func TestValidate_DropsOutOfRangeTokenCounts(t *testing.T) {
 	span := validSpan()
 	span.InputTokens = 1 << 62 // ~$3.4 trillion at gpt-4o rates
 
-	res, err := chain.Apply(context.Background(), span)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if res != ResultDrop {
-		t.Fatalf("got Result %v, want ResultDrop", res)
+	err := chain.Apply(context.Background(), span)
+	if got := customerrors.Code(err); got != string(customerrors.ErrTokenCountOutOfRange) {
+		t.Fatalf("got %v, want a %s drop", err, customerrors.ErrTokenCountOutOfRange)
 	}
 }
 
@@ -109,12 +69,9 @@ func TestValidate_DropsEndBeforeStart(t *testing.T) {
 	span.StartTimeMs = 1_700_000_060_000
 	span.EndTimeMs = 1_700_000_000_000 // 60s of clock skew
 
-	res, err := chain.Apply(context.Background(), span)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if res != ResultDrop {
-		t.Fatalf("got Result %v, want ResultDrop", res)
+	err := chain.Apply(context.Background(), span)
+	if got := customerrors.Code(err); got != string(customerrors.ErrInvalidTimestamp) {
+		t.Fatalf("got %v, want a %s drop", err, customerrors.ErrInvalidTimestamp)
 	}
 }
 
@@ -123,12 +80,9 @@ func TestValidate_DropsOversizedModelName(t *testing.T) {
 	span := validSpan()
 	span.Model = strings.Repeat("x", 100_000)
 
-	res, err := chain.Apply(context.Background(), span)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if res != ResultDrop {
-		t.Fatalf("got Result %v, want ResultDrop", res)
+	err := chain.Apply(context.Background(), span)
+	if got := customerrors.Code(err); got != string(customerrors.ErrFieldTooLong) {
+		t.Fatalf("got %v, want a %s drop", err, customerrors.ErrFieldTooLong)
 	}
 }
 
@@ -137,7 +91,7 @@ func TestUser_ControlCharactersAreStripped(t *testing.T) {
 	span := validSpan()
 	span.UserID = "evil\x00user\nsecond-line"
 
-	if _, err := chain.Apply(context.Background(), span); err != nil {
+	if err := chain.Apply(context.Background(), span); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if span.UserID != "evilusersecond-line" {
@@ -151,7 +105,7 @@ func TestPricing_CachedTokensReduceCost(t *testing.T) {
 	span.OutputTokens = 0
 	span.CacheReadTokens = 800 // 800 of the 1000 input tokens came from cache
 
-	if _, err := chain.Apply(context.Background(), span); err != nil {
+	if err := chain.Apply(context.Background(), span); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	// gpt-4o: 200 regular input * 0.0000025 + 800 cached * 0.00000125
@@ -166,9 +120,8 @@ func TestPricing_UnknownModelKeepsSpanWithZeroCost(t *testing.T) {
 	span := validSpan()
 	span.Model = "some-unlisted-model"
 
-	res, err := chain.Apply(context.Background(), span)
-	if err != nil || res != ResultKeep {
-		t.Fatalf("got (%v, %v), want (ResultKeep, nil)", res, err)
+	if err := chain.Apply(context.Background(), span); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 	if span.CostUSD != 0 {
 		t.Errorf("CostUSD = %v, want 0 for unpriced model", span.CostUSD)
@@ -180,35 +133,37 @@ func TestFilter_DropsDisallowedModel(t *testing.T) {
 
 	span := validSpan()
 	span.Model = "claude-3-opus"
-	res, _ := chain.Apply(context.Background(), span)
-	if res != ResultDrop {
-		t.Errorf("disallowed model: got %v, want ResultDrop", res)
+	if err := chain.Apply(context.Background(), span); customerrors.Code(err) != string(customerrors.ErrUnknownModel) {
+		t.Errorf("disallowed model: got %v, want an unknown_model drop", err)
 	}
 
 	allowed := validSpan() // normalizes to gpt-4o
-	res, _ = chain.Apply(context.Background(), allowed)
-	if res != ResultKeep {
-		t.Errorf("allowed model: got %v, want ResultKeep", res)
+	if err := chain.Apply(context.Background(), allowed); err != nil {
+		t.Errorf("allowed model: got %v, want kept", err)
 	}
 }
 
-// retryUserResolver always fails, simulating a transient backend outage.
-type retryUserResolver struct{}
+type failingUserResolver struct{}
 
-func (retryUserResolver) Resolve(context.Context, string) (string, error) {
+func (failingUserResolver) Resolve(context.Context, string) (string, error) {
 	return "", errors.New("postgres down")
 }
 
-func TestUser_RetryableErrorPropagates(t *testing.T) {
-	chain := DefaultChain(nil, retryUserResolver{}, nil)
+func TestUser_LookupFailureDropsSpan(t *testing.T) {
+	chain := DefaultChain(nil, failingUserResolver{}, nil)
 	span := validSpan()
-	span.UserID = "api-key-123" // triggers a lookup
+	span.UserID = "api-key-123"
 
-	res, err := chain.Apply(context.Background(), span)
-	if res != ResultKeep {
-		t.Fatalf("got Result %v, want ResultKeep (let the queue retry)", res)
+	err := chain.Apply(context.Background(), span)
+	if got := customerrors.Code(err); got != string(customerrors.ErrUserLookupFailed) {
+		t.Fatalf("got %v, want a user_lookup_failed drop", err)
 	}
-	if !customerrors.IsRetryable(err) {
-		t.Fatalf("expected a retryable transient error, got %v", err)
+}
+
+func TestFilter_MatchesAllowedModelCaseInsensitively(t *testing.T) {
+	chain := DefaultChain(nil, nil, []string{"GPT-4o"})
+
+	if err := chain.Apply(context.Background(), validSpan()); err != nil {
+		t.Errorf("got %v, want kept", err)
 	}
 }

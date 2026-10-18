@@ -5,10 +5,10 @@ metadata:
   name: {{ include "tracium.fullname" . }}
   labels:
     {{- include "tracium.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
   annotations:
-    # Databases (ClickHouse, Postgres) are intentionally not exposed here.
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
   ingressClassName: {{ .Values.ingress.className }}
   {{- if .Values.ingress.tls.enabled }}

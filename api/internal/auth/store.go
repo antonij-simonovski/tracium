@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/tracium/api/migrations"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -25,23 +24,8 @@ type UserStore struct {
 	pool *pgxpool.Pool
 }
 
-// NewUserStore connects to Postgres and ensures the users table exists.
-func NewUserStore(ctx context.Context, dsn string) (*UserStore, error) {
-	pool, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		return nil, fmt.Errorf("postgres: connect: %w", err)
-	}
-	if err := pool.Ping(ctx); err != nil {
-		pool.Close()
-		return nil, fmt.Errorf("postgres: ping: %w", err)
-	}
-
-	store := &UserStore{pool: pool}
-	if err := migrations.Apply(ctx, pool, migrations.Core); err != nil {
-		pool.Close()
-		return nil, err
-	}
-	return store, nil
+func NewUserStore(pool *pgxpool.Pool) *UserStore {
+	return &UserStore{pool: pool}
 }
 
 // Create inserts a new user, returning ErrEmailTaken on a duplicate email.
@@ -99,14 +83,4 @@ func (s *UserStore) ByID(ctx context.Context, id string) (*model.User, error) {
 		return nil, fmt.Errorf("postgres: query user: %w", err)
 	}
 	return &u, nil
-}
-
-// Ping verifies the Postgres connection is alive. Used by the readiness probe.
-func (s *UserStore) Ping(ctx context.Context) error {
-	return s.pool.Ping(ctx)
-}
-
-// Close releases the underlying connection pool.
-func (s *UserStore) Close() {
-	s.pool.Close()
 }

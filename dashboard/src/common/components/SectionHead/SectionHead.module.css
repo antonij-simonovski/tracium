@@ -1,0 +1,49 @@
+.head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+  padding-top: 48px;
+  padding-bottom: 18px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+}
+
+.head.first {
+  padding-top: 0;
+  border-top: none;
+}
+
+.text {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  padding-top: 28px;
+}
+
+.right {
+  flex-shrink: 0;
+  padding-top: 28px;
+}
+
+.head.first .text,
+.head.first .right {
+  padding-top: 0;
+}
+
+.title {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.018em;
+  color: var(--foreground);
+}
+
+.hint {
+  margin: 0;
+  max-width: 620px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--muted);
+}

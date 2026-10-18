@@ -1,9 +1,4 @@
-// ---------------------------------------------------------------------------
-// ApiKeysPage — API key management: list, create, reveal, revoke
-// Inline styles only (no CSS modules).
-// ---------------------------------------------------------------------------
-
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   IconSearch,
   IconCopy,
@@ -14,15 +9,15 @@ import {
   StatusPill,
   Spinner,
   SlicedButton,
+  SectionHead,
+  formatDate,
   relativeTime,
+  useCopy,
 } from '../../../common';
+import hover from '../../../common/styles/hover.module.css';
 import { useApiKeys, useDemoApiKeys } from '../hooks/useApiKeys';
 import type { UseApiKeysResult } from '../hooks/useApiKeys';
 import type { ApiKeyRecord, CreatedApiKey } from '../../../common/api';
-
-// ---------------------------------------------------------------------------
-// Props
-// ---------------------------------------------------------------------------
 
 export interface ApiKeysPageProps {
   /** Seed the demo keys (auth-page preview). A real workspace starts with none. */
@@ -31,95 +26,12 @@ export interface ApiKeysPageProps {
   workspaceId?: string;
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-interface SectionHeadProps {
-  title: string;
-  hint?: string;
-  right?: React.ReactNode;
-  first?: boolean;
-}
-
-function SectionHead({ title, hint, right, first = false }: SectionHeadProps) {
-  return (
-    <header
-      style={{
-        display: 'flex',
-        alignItems: 'flex-end',
-        justifyContent: 'space-between',
-        gap: 24,
-        flexWrap: 'wrap',
-        paddingTop: first ? 0 : 48,
-        paddingBottom: 18,
-        borderTop: first
-          ? 'none'
-          : '1px solid color-mix(in srgb, var(--border) 50%, transparent)',
-      }}
-    >
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 5,
-          minWidth: 0,
-          paddingTop: first ? 0 : 28,
-        }}
-      >
-        <h2
-          style={{
-            fontSize: 19,
-            fontWeight: 600,
-            letterSpacing: '-0.018em',
-            margin: 0,
-            color: 'var(--foreground)',
-          }}
-        >
-          {title}
-        </h2>
-        {hint && (
-          <p
-            style={{
-              fontSize: 14,
-              color: 'var(--muted)',
-              margin: 0,
-              maxWidth: 620,
-            }}
-          >
-            {hint}
-          </p>
-        )}
-      </div>
-      {right && (
-        <div style={{ paddingTop: first ? 0 : 28, flexShrink: 0 }}>{right}</div>
-      )}
-    </header>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// KPI tile
-// ---------------------------------------------------------------------------
-
-function fmtDate(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
-}
-
 function fmtLastUsed(iso: string | null): string {
   if (!iso) return 'Never';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '—';
   return relativeTime(d.getTime());
 }
-
-// --- Field label -----------------------------------------------------------
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -138,9 +50,6 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-// --- InlineCreateForm ------------------------------------------------------
-// Inline, flat create form shown in the page flow at all times (no modal).
-
 interface InlineCreateFormProps {
   onCreate: (name: string) => void;
   submitting: boolean;
@@ -153,22 +62,26 @@ function InlineCreateForm({ onCreate, submitting, error }: InlineCreateFormProps
   const canCreate = name.trim().length > 0 && !submitting;
 
   return (
-    <div style={{ padding: '4px 0 18px' }}>
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (canCreate) onCreate(name.trim());
+      }}
+      style={{ padding: '4px 0 18px' }}
+    >
       <FieldLabel>New key name</FieldLabel>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <input
+          aria-label="New key name"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && canCreate) onCreate(name.trim());
-          }}
           placeholder="e.g. Production ingest"
           style={{
             flex: '1 1 260px',
             minWidth: 200,
             padding: '9px 12px',
             background: 'transparent',
-            border: '1px solid var(--border-strong, rgba(255,255,255,0.12))',
+            border: '1px solid var(--border-strong)',
             borderRadius: 7,
             color: 'var(--foreground)',
             fontSize: 14,
@@ -177,7 +90,7 @@ function InlineCreateForm({ onCreate, submitting, error }: InlineCreateFormProps
             boxSizing: 'border-box',
           }}
         />
-        <SlicedButton disabled={!canCreate} onClick={() => onCreate(name.trim())}>
+        <SlicedButton type="submit" disabled={!canCreate}>
           {submitting ? 'Creating…' : 'Create key'}
         </SlicedButton>
       </div>
@@ -200,13 +113,9 @@ function InlineCreateForm({ onCreate, submitting, error }: InlineCreateFormProps
           {error}
         </div>
       )}
-    </div>
+    </form>
   );
 }
-
-// --- InlineReveal ----------------------------------------------------------
-// Inline, flat one-time token reveal. Shown in the page flow after a key is
-// created (no modal); the token box itself is a mono code field, not a card.
 
 interface InlineRevealProps {
   created: CreatedApiKey;
@@ -214,34 +123,10 @@ interface InlineRevealProps {
 }
 
 function InlineReveal({ created, onClose }: InlineRevealProps) {
-  const [copied, setCopied] = useState(false);
-  const [copyFailed, setCopyFailed] = useState(false);
-
-  useEffect(() => {
-    setCopied(false);
-    setCopyFailed(false);
-  }, [created]);
-
+  const [copyStatus, copy] = useCopy();
+  const copied = copyStatus === 'copied';
+  const copyFailed = copyStatus === 'failed';
   const token = created.token;
-
-  // Only report success once the write actually resolves. The Clipboard API is
-  // absent outside secure contexts and writeText can reject (denied permission),
-  // and this is the one time the token is shown — claiming "Copied" when nothing
-  // reached the clipboard would let the user dismiss it having lost the key. On
-  // failure, flag it so the user copies the still-visible token manually.
-  async function handleCopy() {
-    try {
-      if (!navigator.clipboard) throw new Error('clipboard unavailable');
-      await navigator.clipboard.writeText(token);
-      setCopyFailed(false);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
-    } catch {
-      setCopied(false);
-      setCopyFailed(true);
-      setTimeout(() => setCopyFailed(false), 3000);
-    }
-  }
 
   return (
     <div
@@ -277,7 +162,7 @@ function InlineReveal({ created, onClose }: InlineRevealProps) {
           gap: 10,
           padding: '12px 14px',
           background: 'var(--surface-alt)',
-          border: '1px solid var(--border-strong, rgba(255,255,255,0.12))',
+          border: '1px solid var(--border-strong)',
           borderRadius: 8,
           fontFamily: 'var(--font-mono)',
           fontSize: 13.5,
@@ -287,7 +172,7 @@ function InlineReveal({ created, onClose }: InlineRevealProps) {
       >
         <span style={{ flex: 1 }}>{token}</span>
         <button
-          onClick={handleCopy}
+          onClick={() => copy(token)}
           style={{
             padding: '5px 11px',
             background: copied ? 'var(--accent)' : 'transparent',
@@ -297,7 +182,7 @@ function InlineReveal({ created, onClose }: InlineRevealProps) {
                 ? 'var(--accent)'
                 : copyFailed
                   ? 'var(--error)'
-                  : 'var(--border-strong, rgba(255,255,255,0.12))'),
+                  : 'var(--border-strong)'),
             borderRadius: 6,
             color: copied
               ? 'var(--accent-contrast)'
@@ -354,10 +239,6 @@ function InlineReveal({ created, onClose }: InlineRevealProps) {
   );
 }
 
-// --- RevokeConfirmRow ------------------------------------------------------
-// Inline, flat confirmation shown directly beneath the key being revoked (no
-// modal). A left accent rule in the error colour flags the danger.
-
 interface RevokeConfirmRowProps {
   target: ApiKeyRecord;
   onCancel: () => void;
@@ -409,7 +290,7 @@ function RevokeConfirmRow({ target, onCancel, onConfirm, submitting, error }: Re
           style={{
             padding: '7px 13px',
             background: 'transparent',
-            border: '1px solid var(--border-strong, rgba(255,255,255,0.12))',
+            border: '1px solid var(--border-strong)',
             borderRadius: 7,
             color: 'var(--foreground)',
             fontSize: 14,
@@ -441,8 +322,6 @@ function RevokeConfirmRow({ target, onCancel, onConfirm, submitting, error }: Re
   );
 }
 
-// --- LiveKeyRow ------------------------------------------------------------
-
 const LIVE_COLS = [
   { label: 'Name',       w: 'minmax(200px,1.6fr)', align: 'left'  as const },
   { label: 'Key',        w: 'minmax(150px,1fr)',   align: 'left'  as const },
@@ -461,21 +340,13 @@ interface LiveKeyRowProps {
 }
 
 function LiveKeyRow({ k, isLast, confirming, onRevoke }: LiveKeyRowProps) {
-  const [hover, setHover] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copyStatus, copy] = useCopy();
+  const copied = copyStatus === 'copied';
   const revoked = !!k.revoked_at;
-
-  function handleCopy(e: React.MouseEvent) {
-    e.stopPropagation();
-    void navigator.clipboard?.writeText(k.prefix);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  }
 
   return (
     <div
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
+      className={hover.row}
       style={{
         display: 'grid',
         gridTemplateColumns: LIVE_TMPL,
@@ -487,13 +358,9 @@ function LiveKeyRow({ k, isLast, confirming, onRevoke }: LiveKeyRowProps) {
           isLast || confirming
             ? 'none'
             : '1px solid color-mix(in srgb, var(--border) 50%, transparent)',
-        background: hover
-          ? 'color-mix(in srgb, var(--surface-alt) 60%, transparent)'
-          : 'transparent',
         opacity: revoked ? 0.6 : 1,
       }}
     >
-      {/* Name */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
         <span
           style={{
@@ -511,12 +378,11 @@ function LiveKeyRow({ k, isLast, confirming, onRevoke }: LiveKeyRowProps) {
         </span>
         {revoked && k.revoked_at && (
           <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>
-            Revoked {fmtDate(k.revoked_at)}
+            Revoked {formatDate(k.revoked_at)}
           </div>
         )}
       </div>
 
-      {/* Key prefix */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
         <code
           style={{
@@ -532,13 +398,15 @@ function LiveKeyRow({ k, isLast, confirming, onRevoke }: LiveKeyRowProps) {
           {k.prefix}…
         </code>
         <button
-          onClick={handleCopy}
+          onClick={() => copy(k.prefix)}
           title="Copy prefix"
+          aria-label={`Copy prefix of ${k.name}`}
+          className={hover.text}
           style={{
             padding: '4px 6px',
             background: 'transparent',
             border: 'none',
-            color: copied ? 'var(--accent)' : hover ? 'var(--muted)' : 'transparent',
+            color: copied ? 'var(--accent)' : undefined,
             flexShrink: 0,
             transition: 'color .12s',
             fontFamily: 'inherit',
@@ -549,43 +417,34 @@ function LiveKeyRow({ k, isLast, confirming, onRevoke }: LiveKeyRowProps) {
         </button>
       </div>
 
-      {/* Status */}
       <div style={{ minWidth: 0 }}>
         <StatusPill status={revoked ? 'failed' : 'ok'}>
           {revoked ? 'Revoked' : 'Active'}
         </StatusPill>
       </div>
 
-      {/* Last used */}
       <div style={{ fontSize: 13.5, color: 'var(--foreground)' }}>
         {fmtLastUsed(k.last_used_at)}
       </div>
 
-      {/* Created */}
       <div style={{ fontSize: 13.5, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>
-        {fmtDate(k.created_at)}
+        {formatDate(k.created_at)}
       </div>
 
-      {/* Revoke */}
       <div style={{ textAlign: 'right' }}>
         {!revoked && !confirming && (
           <button
             onClick={() => onRevoke(k)}
             title="Revoke"
+            aria-label={`Revoke ${k.name}`}
+            className={hover.danger}
             style={{
               padding: '5px 6px',
               background: 'transparent',
               border: 'none',
-              color: hover ? 'var(--muted)' : 'transparent',
               transition: 'color .12s',
               fontFamily: 'inherit',
               cursor: 'pointer',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.color = 'var(--error)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.color = hover ? 'var(--muted)' : 'transparent';
             }}
           >
             <IconTrash size={13} />
@@ -596,12 +455,10 @@ function LiveKeyRow({ k, isLast, confirming, onRevoke }: LiveKeyRowProps) {
   );
 }
 
-// --- LiveApiKeysPage -------------------------------------------------------
-
 // ApiKeysView is the presentational page: it owns the create/reveal/revoke UI
 // state and renders whatever key data it is handed. The data source is injected
 // so the live page (real backend) and the demo (in-memory mock) share one UI.
-function ApiKeysView({ data, workspaceId }: { data: UseApiKeysResult; workspaceId?: string }) {
+function ApiKeysView({ data, canCreate }: { data: UseApiKeysResult; canCreate: boolean }) {
   const {
     keys,
     isLoading,
@@ -617,20 +474,6 @@ function ApiKeysView({ data, workspaceId }: { data: UseApiKeysResult; workspaceI
   const [created, setCreated] = useState<CreatedApiKey | null>(null);
   const [revokeTarget, setRevokeTarget] = useState<ApiKeyRecord | null>(null);
   const [revokeError, setRevokeError] = useState<string | null>(null);
-
-  // This component is not remounted when the active workspace changes, so any
-  // state carried over would belong to the previous workspace. `created` is the
-  // plaintext key shown once at creation — leaving it on screen would reveal one
-  // workspace's secret while another is selected — and `revokeTarget` points at a
-  // key from the old list. Clear the per-workspace state whenever workspaceId
-  // changes so nothing from the previous workspace leaks into the new one.
-  useEffect(() => {
-    setCreated(null);
-    setRevokeTarget(null);
-    setCreateError(null);
-    setRevokeError(null);
-    setSearch('');
-  }, [workspaceId]);
 
   const active = useMemo(() => keys.filter((k) => !k.revoked_at), [keys]);
   const revoked = useMemo(() => keys.filter((k) => !!k.revoked_at), [keys]);
@@ -671,7 +514,6 @@ function ApiKeysView({ data, workspaceId }: { data: UseApiKeysResult; workspaceI
         margin: '0 auto',
       }}
     >
-      {/* Page title */}
       <div style={{ marginBottom: 28, minWidth: 0 }}>
         <h1
           style={{
@@ -700,7 +542,6 @@ function ApiKeysView({ data, workspaceId }: { data: UseApiKeysResult; workspaceI
         </p>
       </div>
 
-      {/* Keys table */}
       <SectionHead
         first
         title="Keys"
@@ -720,6 +561,7 @@ function ApiKeysView({ data, workspaceId }: { data: UseApiKeysResult; workspaceI
               <IconSearch size={13} />
             </span>
             <input
+              aria-label="Search keys"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search keys…"
@@ -727,7 +569,7 @@ function ApiKeysView({ data, workspaceId }: { data: UseApiKeysResult; workspaceI
                 padding: '7px 10px 7px 32px',
                 width: 220,
                 background: 'transparent',
-                border: '1px solid var(--border-strong, rgba(255,255,255,0.12))',
+                border: '1px solid var(--border-strong)',
                 borderRadius: 7,
                 color: 'var(--foreground)',
                 fontSize: 14,
@@ -739,7 +581,7 @@ function ApiKeysView({ data, workspaceId }: { data: UseApiKeysResult; workspaceI
         }
       />
 
-      {workspaceId && (
+      {canCreate && (
         <InlineCreateForm
           key={created?.key.id ?? 'new'}
           onCreate={handleCreate}
@@ -749,7 +591,7 @@ function ApiKeysView({ data, workspaceId }: { data: UseApiKeysResult; workspaceI
       )}
 
       {created && (
-        <InlineReveal created={created} onClose={() => setCreated(null)} />
+        <InlineReveal key={created.token} created={created} onClose={() => setCreated(null)} />
       )}
 
       {isLoading ? (
@@ -841,17 +683,14 @@ function ApiKeysView({ data, workspaceId }: { data: UseApiKeysResult; workspaceI
   );
 }
 
-// The live page wires the shared view to the backend for the active workspace.
+// Keyed by workspace so the one-time token and other view state never carry
+// over to another workspace.
 function LiveApiKeysPage({ workspaceId }: { workspaceId?: string }) {
-  return <ApiKeysView data={useApiKeys(workspaceId)} workspaceId={workspaceId} />;
+  return <ApiKeysView key={workspaceId} data={useApiKeys(workspaceId)} canCreate={!!workspaceId} />;
 }
 
-// The demo (auth-page preview) renders the same view against an in-memory mock,
-// so signed-out visitors get a populated, interactive page with no backend. The
-// non-empty "demo" workspace id switches on the create form, exactly as a real
-// workspace does.
 function DemoApiKeysPage() {
-  return <ApiKeysView data={useDemoApiKeys()} workspaceId="demo" />;
+  return <ApiKeysView data={useDemoApiKeys()} canCreate />;
 }
 
 export default function ApiKeysPage({ demo = false, workspaceId }: ApiKeysPageProps) {

@@ -3,8 +3,9 @@ import React, { useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { QueryProvider } from './common/providers/QueryProvider';
 import { APIProvider } from './common/providers/APIProvider';
+import { apiBaseUrl } from './common/api';
 import { Dashboard } from './modules/shell';
-import { LoginPage, SignupPage, TOKEN_KEY, EMAIL_KEY, REDIRECT_KEY, readInitialToken, storeSession } from './modules/auth';
+import { LoginPage, SignupPage, TOKEN_KEY, EMAIL_KEY, REDIRECT_KEY, WORKSPACE_KEY, VIEW_KEY, readInitialToken, storeSession } from './modules/auth';
 import { InvitePage, readPendingInvite, clearPendingInvite } from './modules/invites';
 
 /**
@@ -32,12 +33,11 @@ export default function App({ extensions = EMPTY_EXTENSIONS }: AppProps = {}) {
   const leaveInvite = () => {
     clearPendingInvite();
     setInviteToken(null);
-    window.history.replaceState(null, '', '/');
   };
 
   const handleInviteAccepted = (workspaceId: string) => {
-    localStorage.setItem('tracium_ws', workspaceId);
-    localStorage.setItem('tracium_view', 'overview');
+    localStorage.setItem(WORKSPACE_KEY, workspaceId);
+    localStorage.setItem(VIEW_KEY, 'overview');
     leaveInvite();
   };
 
@@ -49,6 +49,7 @@ export default function App({ extensions = EMPTY_EXTENSIONS }: AppProps = {}) {
   const handleLogout = () => {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(EMAIL_KEY);
+    localStorage.removeItem(WORKSPACE_KEY);
     setToken(null);
   };
 
@@ -79,25 +80,17 @@ export default function App({ extensions = EMPTY_EXTENSIONS }: AppProps = {}) {
           session={{ token, email: localStorage.getItem(EMAIL_KEY) ?? '' }}
           onAccepted={handleInviteAccepted}
           onDismiss={leaveInvite}
-          onSignOut={() => {
-            handleLogout();
-            window.history.replaceState(null, '', `/invite/${encodeURIComponent(inviteToken)}`);
-          }}
+          onSignOut={handleLogout}
         />
       </BrowserRouter>
     );
   }
 
-  const apiConfig = {
-    baseUrl: import.meta.env.VITE_API_URL || window.location.origin,
-    apiKey: token,
-  };
-
   const Onboarding = extensions.onboarding ?? React.Fragment;
   return (
     <QueryProvider onUnauthorized={handleLogout}>
-      <APIProvider config={apiConfig}>
-        <Onboarding><Dashboard onLogout={handleLogout} extensions={extensions} /></Onboarding>
+      <APIProvider config={{ baseUrl: apiBaseUrl(), apiKey: token }}>
+        <Onboarding><Dashboard onLogout={handleLogout} onSessionRenewed={(newToken) => handleLogin(newToken, localStorage.getItem(EMAIL_KEY) ?? '')} extensions={extensions} /></Onboarding>
       </APIProvider>
     </QueryProvider>
   );

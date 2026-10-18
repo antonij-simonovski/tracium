@@ -8,6 +8,7 @@ const QUERY_KEY = ['workspaces'] as const;
 export interface UseWorkspacesResult {
   workspaces: Workspace[];
   isLoading: boolean;
+  isError: boolean;
   createWorkspace: (input: CreateWorkspaceInput) => Promise<Workspace>;
   deleteWorkspace: (id: string) => Promise<void>;
 }
@@ -16,7 +17,7 @@ export function useWorkspaces(enabled = true): UseWorkspacesResult {
   const { workspacesAPI } = useAPIClient();
   const queryClient = useQueryClient();
 
-  const { data: workspaces = [], isLoading } = useQuery({
+  const { data: workspaces = [], isLoading, isError } = useQuery({
     queryKey: QUERY_KEY,
     queryFn: () => workspacesAPI.list(),
     staleTime: 60_000,
@@ -42,6 +43,7 @@ export function useWorkspaces(enabled = true): UseWorkspacesResult {
   return {
     workspaces,
     isLoading,
+    isError,
     createWorkspace: createMutation.mutateAsync,
     deleteWorkspace: deleteMutation.mutateAsync,
   };

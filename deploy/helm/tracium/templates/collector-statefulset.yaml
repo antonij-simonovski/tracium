@@ -1,10 +1,4 @@
-# StatefulSet, not Deployment: the exporter's durable sending queue
-# (sending_queue.storage in collector.yaml) holds spans already ACKed to the
-# client while ClickHouse is unreachable. Each replica therefore needs its own
-# persistent volume that survives pod replacement — a rolling update of a
-# Deployment replaces pods and would destroy exactly the spans the queue
-# exists to protect. Everything else about the collector is still stateless:
-# scaling out remains safe, each replica just brings its own queue.
+# A StatefulSet so each replica's durable exporter queue survives pod replacement.
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -24,11 +18,16 @@ spec:
       app.kubernetes.io/instance: {{ .Release.Name }}
   template:
     metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
       labels:
         app.kubernetes.io/name: collector
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/component: collector
     spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.collector.podSecurityContext | nindent 8 }}
       containers:
         - name: collector
           image: "{{ .Values.collector.image.repository }}:{{ include "tracium.imageTag" (dict "component" .Values.collector "global" .Values.global "chart" .Chart) }}"
@@ -44,39 +43,15 @@ spec:
               containerPort: {{ .Values.collector.service.healthPort }}
               protocol: TCP
           env:
-            # Passwords come from the ClickHouse/Postgres Secrets and are woven
-            # into the DSNs below via Kubernetes $(VAR) expansion, so they must be
-            # declared first (see tracium.clickhouseDSN / tracium.postgresDSN).
             - name: CLICKHOUSE_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.clickhouse.existingSecret }}
                   key: {{ .Values.clickhouse.existingSecretKey }}
-            - name: POSTGRES_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.postgres.existingSecret }}
-                  key: {{ .Values.postgres.existingSecretKey }}
             - name: CLICKHOUSE_DSN
               value: {{ include "tracium.clickhouseDSN" . | quote }}
-            - name: POSTGRES_DSN
-              value: {{ include "tracium.postgresDSN" . | quote }}
-            # Ingest auth is mandatory (traciumauth in collector.yaml): every OTLP
-            # request must present a per-workspace API key, which the collector
-            # verifies against the API's verify endpoint. Points at the in-cluster
-            # API Service.
             - name: INGEST_VERIFY_URL
               value: "http://{{ include "tracium.fullname" . }}-api:{{ .Values.api.service.port }}/v1/ingest/keys/verify"
-            - name: GRPC_ADDR
-              value: ":{{ .Values.collector.service.grpcPort }}"
-            - name: HTTP_ADDR
-              value: ":{{ .Values.collector.service.httpPort }}"
-            - name: HEALTH_ADDR
-              value: ":{{ .Values.collector.service.healthPort }}"
-            - name: PRICING_SOURCE
-              value: static
-            - name: PRICING_STATIC_PATH
-              value: /etc/tracium/pricing.json
           readinessProbe:
             httpGet:
               path: /
@@ -91,6 +66,8 @@ spec:
             initialDelaySeconds: 10
             periodSeconds: 30
             failureThreshold: 5
+          securityContext:
+            {{- toYaml .Values.collector.securityContext | nindent 12 }}
           resources:
             {{- toYaml .Values.collector.resources | nindent 12 }}
           volumeMounts:

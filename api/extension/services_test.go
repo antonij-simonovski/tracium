@@ -51,6 +51,9 @@ func TestFeatureChecksMembershipFirst(t *testing.T) {
 			if w.Code != tt.want || called != tt.called {
 				t.Fatalf("status=%d called=%v", w.Code, called)
 			}
+			if w.Code != 204 && w.Header().Get("Content-Type") != "application/json" {
+				t.Fatalf("error body is %q, want JSON", w.Header().Get("Content-Type"))
+			}
 		})
 	}
 }
@@ -80,6 +83,9 @@ func TestGateConsultsEntitlementsForCaller(t *testing.T) {
 			h.ServeHTTP(w, r)
 			if w.Code != tt.want || called != tt.called {
 				t.Fatalf("status=%d called=%v", w.Code, called)
+			}
+			if w.Code != 204 && w.Header().Get("Content-Type") != "application/json" {
+				t.Fatalf("error body is %q, want JSON", w.Header().Get("Content-Type"))
 			}
 		})
 	}

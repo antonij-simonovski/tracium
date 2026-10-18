@@ -10,7 +10,7 @@ function span(partial: Partial<Record<keyof Span, unknown>>): Span {
     trace_id: 't1', span_id: 's', parent_span_id: '', name: 'span',
     start_time_ms: 1000, end_time_ms: 1000, duration_ms: 0,
     model: '', finish_reason: '', input_tokens: 0, output_tokens: 0,
-    cost_usd: 0, user_id: '', model_normalized: '', schema_version: 3,
+    cost_usd: 0, subtree_cost_usd: 0, subtree_input_tokens: 0, subtree_output_tokens: 0, user_id: '', model_normalized: '', schema_version: 3,
     error_type: '', error_message: '',
     ...partial,
   } as unknown as Span;
@@ -124,7 +124,55 @@ describe('toTraceView', () => {
       span({ span_id: 'y', parent_span_id: 'x' }),
     ]));
 
-    expect(view.spans.map(s => s.id).sort()).toEqual(['x', 'y']);
+    expect(view.spans.map(s => s.id)).toEqual(['x', 'y']);
+    expect(view.spans.map(s => s.depth)).toEqual([0, 1]);
+  });
+
+  it('keeps a cycle contiguous after the reachable tree', () => {
+    const view = toTraceView(trace([
+      span({ span_id: 'x', parent_span_id: 'y' }),
+      span({ span_id: 'root', parent_span_id: '' }),
+      span({ span_id: 'y', parent_span_id: 'x' }),
+      span({ span_id: 'child', parent_span_id: 'root' }),
+    ]));
+
+    expect(view.spans.map(s => s.id)).toEqual(['root', 'child', 'x', 'y']);
+    expect(view.spans.map(s => s.depth)).toEqual([0, 1, 0, 1]);
+  });
+
+  it('takes the trace error from the first failing span in tree order', () => {
+    const view = toTraceView(trace([
+      span({ span_id: 'late', parent_span_id: 'b', start_time_ms: 1100, error_type: 'Late' }),
+      span({ span_id: 'root', parent_span_id: '', start_time_ms: 1000 }),
+      span({ span_id: 'a', parent_span_id: 'root', start_time_ms: 1050 }),
+      span({ span_id: 'early', parent_span_id: 'a', start_time_ms: 1200, error_type: 'Early', error_message: 'boom' }),
+      span({ span_id: 'b', parent_span_id: 'root', start_time_ms: 1060 }),
+    ]));
+
+    expect(view.spans.find(s => s.status === 'failed')?.id).toBe('early');
+    expect(view.error).toEqual({ type: 'Early', message: 'boom', code: '', stack: '' });
+  });
+
+  it('lists every distinct model the trace used', () => {
+    const view = toTraceView(trace([
+      span({ span_id: 'root', parent_span_id: '' }),
+      span({ span_id: 'a', parent_span_id: 'root', model: 'claude-sonnet-4-5' }),
+      span({ span_id: 'b', parent_span_id: 'root', model: 'gpt-4o' }),
+      span({ span_id: 'c', parent_span_id: 'root', model: 'claude-sonnet-4-5' }),
+    ]));
+
+    expect(view.model).toBe('claude-sonnet-4-5, gpt-4o');
+  });
+
+  it('maps span setup issues onto the view-model', () => {
+    const issues = [{ code: 'unpriced_model', severity: 'warning', message: 'No price for this model.' }];
+    const view = toTraceView(trace([
+      span({ span_id: 'root', setup_issues: issues }),
+      span({ span_id: 'child', parent_span_id: 'root' }),
+    ]));
+
+    expect(view.spans[0].setupIssues).toEqual(issues);
+    expect(view.spans[1].setupIssues).toBeUndefined();
   });
 
   it('leaves content fields undefined when the collector did not capture them', () => {

@@ -1,21 +1,19 @@
-# OpenTelemetry Collector Builder (OCB) manifest — Tracium OSS edition.
+# OpenTelemetry Collector Builder (OCB) manifest for the Tracium collector.
 #
 # Build:
 #   go install go.opentelemetry.io/collector/cmd/builder@v0.116.0
 #   builder --config builder/oss.builder.yaml
 #
 # This assembles a *generic* OpenTelemetry Collector from upstream components
-# (OTLP receiver, batch processor, health-check extension) plus the two Tracium
-# components that carry all domain logic:
+# (OTLP receiver, batch processor, health-check and file-storage extensions)
+# plus the Tracium components:
 #   - processors.tracium       — LLM-span enrichment (cost, user, filter)
 #   - exporters.clickhousespan — writes the tracium.spans schema to ClickHouse
-#
-# The Enterprise edition adds one more processor module via its own OCB manifest,
-# kept in the separate (private) enterprise repo. That is the entire open-core seam.
+#   - extensions.traciumauth   — verifies per-workspace ingest API keys
 
 dist:
   name: tracium-collector
-  description: Tracium OSS collector — generic OTel Collector + Tracium enrichment.
+  description: Tracium collector — generic OTel Collector + Tracium enrichment.
   output_path: ./_build
   version: 0.1.0
 

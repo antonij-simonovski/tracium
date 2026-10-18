@@ -48,6 +48,8 @@ export interface DashboardExtensions {
   settingsSections?: readonly SettingsSection[];
   /** Wraps the authenticated application; render children once onboarding completes. */
   onboarding?: ComponentType<{ children: ReactNode }>;
+  /** OTLP endpoint shown in the workspace connection instructions. Defaults to the local collector. */
+  ingestEndpoint?: string;
 }
 export const EMPTY_EXTENSIONS: DashboardExtensions = {};
 

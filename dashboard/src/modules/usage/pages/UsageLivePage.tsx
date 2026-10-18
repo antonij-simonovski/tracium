@@ -1,27 +1,25 @@
-// ---------------------------------------------------------------------------
-// UsageLivePage — the signed-in usage view, fed by the metrics API. Mirrors
-// OverviewLivePage: each section loads independently (Section handles its
-// spinner / error), and an empty workspace shows the "No usage yet" state. The
-// presentational components are shared with the demo UsagePage.
-//
-// Spend / Runs reuse the overview KPI + series endpoints; the three breakdowns
-// (models, users, workflows) have their own usage endpoints. Per-row change vs
-// the previous period comes straight from the *_prev fields the API returns.
-// ---------------------------------------------------------------------------
-
 import { useState } from 'react';
-import { EmptyState, periodLabel, useMaxWidth, BREAKPOINTS } from '../../../common';
-import type { UserId } from '../../../common/ids';
-import { Section } from '../../overview/components';
-import { useKpis, useCostSeries, useErrorSeries } from '../../overview/hooks/useMetrics';
 import {
-  SectionHead,
+  EmptyState,
   KpiStrip,
-  DailyChart,
-  DailyChartLegend,
-  ModelsList,
   Panel,
   PanelFrame,
+  Section,
+  SectionHead,
+  isLongRange,
+  periodLabel,
+  useMaxWidth,
+  BREAKPOINTS,
+} from '../../../common';
+import type { UserId } from '../../../common/ids';
+import { useKpis, useCostSeries, useErrorSeries } from '../../overview/hooks/useMetrics';
+import {
+  DailyChart,
+  DailyChartLegend,
+  TokenChart,
+  TokenChartLegend,
+  TokenMix,
+  ModelsList,
   UsageMasthead,
   Breakdown,
   TabPill,
@@ -29,6 +27,7 @@ import {
 import type { BreakdownTab, SortKey } from '../components';
 import {
   useModelCosts,
+  useTokenSeries,
   useUserUsage,
   useWorkflowUsage,
   useAttributeKeys,
@@ -36,7 +35,9 @@ import {
 } from '../hooks/useUsage';
 import type { UserSummary, AttributeSummary, UserUsage, AttributeUsage } from '../interfaces';
 import {
+  UNATTRIBUTED,
   toDailySeries,
+  toTokenSeries,
   toModelSummaries,
   toWorkflowSummaries,
   sumCost,
@@ -50,8 +51,6 @@ interface UsageLivePageProps {
   setView: (v: string) => void;
   setSelected: (updater: (prev: Record<string, string>) => Record<string, string>) => void;
 }
-
-const UNATTRIBUTED = '—';
 
 const toUserSummaries = (users: UserUsage[]): UserSummary[] =>
   users.map((t) => ({
@@ -76,35 +75,30 @@ const toAttributeSummaries = (rows: AttributeUsage[]): AttributeSummary[] =>
     avg: r.runs > 0 ? r.cost / r.runs : 0,
   }));
 
-// ── Page ────────────────────────────────────────────────────────────────────
-
 export function UsageLivePage({ range, setView, setSelected }: UsageLivePageProps) {
   const [tab, setTab] = useState<BreakdownTab>('user');
   const [sortBy, setSortBy] = useState<SortKey>('cost');
 
-  // On the wide layout the models panel borrows its height from the chart beside
-  // it and scrolls; stacked, it has no sibling to match, so it grows freely.
   const stacked = useMaxWidth(BREAKPOINTS.tablet);
 
-  // The attribute view remembers which custom dimension was last picked.
   const [attrKey, setAttrKey] = useState('');
 
   const kpis = useKpis(range);
   const cost = useCostSeries(range);
   const errors = useErrorSeries(range);
   const models = useModelCosts(range);
+  const tokens = useTokenSeries(range);
   const users = useUserUsage(range);
   const workflows = useWorkflowUsage(range);
-  const attrKeys = useAttributeKeys(range);
+  const attrEnabled = !isLongRange(range);
+  const attrKeys = useAttributeKeys(range, attrEnabled);
 
   const attributeKeys = attrKeys.data?.items ?? [];
-  const activeAttr = attrKey || attributeKeys[0] || '';
-  // Only fetch the allocation for the active dimension while the attribute tab
-  // is selected.
-  const attrUsage = useAttributeUsage(range, tab === 'attribute' ? activeAttr : '');
+  const activeAttr = attributeKeys.includes(attrKey) ? attrKey : attributeKeys[0] ?? '';
+  const view: BreakdownTab = tab === 'attribute' && !attrEnabled ? 'user' : tab;
+  const attrUsage = useAttributeUsage(range, view === 'attribute' ? activeAttr : '');
 
   function openClient(id: string) {
-    if (!id || id === UNATTRIBUTED) return;
     setSelected((prev) => ({ ...prev, user: id }));
     setView('user');
   }
@@ -120,7 +114,6 @@ export function UsageLivePage({ range, setView, setSelected }: UsageLivePageProp
     setSortBy('cost');
   }
 
-  // Empty workspace: nothing ingested in the window — no spend and no runs.
   if (kpis.isSuccess && kpis.data.cost.value === 0 && kpis.data.runs.value === 0) {
     return (
       <EmptyState
@@ -132,6 +125,8 @@ export function UsageLivePage({ range, setView, setSelected }: UsageLivePageProp
 
   const dailySeries =
     cost.data && errors.data ? toDailySeries(cost.data.items, errors.data.items, range) : [];
+  const tokenSeries =
+    tokens.data && errors.data ? toTokenSeries(tokens.data.items, errors.data.items, range) : [];
   const modelRows = models.data ? toModelSummaries(models.data.items) : [];
   const totalTokens = models.data
     ? modelRows.reduce((s, m) => s + m.inputTokens + m.outputTokens, 0)
@@ -152,6 +147,7 @@ export function UsageLivePage({ range, setView, setSelected }: UsageLivePageProp
       cost.dataUpdatedAt,
       errors.dataUpdatedAt,
       models.dataUpdatedAt,
+      tokens.dataUpdatedAt,
       users.dataUpdatedAt,
       workflows.dataUpdatedAt,
     ) || undefined;
@@ -166,41 +162,62 @@ export function UsageLivePage({ range, setView, setSelected }: UsageLivePageProp
     >
       <UsageMasthead subtitle={subtitle} updatedAt={updatedAt} />
 
-      <div style={{ paddingBottom: 8 }}>
-        <Section isLoading={kpis.isLoading} isError={kpis.isError} minHeight={90}>
-          {kpis.data && <KpiStrip items={[spendTile(kpis.data), runsTile(kpis.data), tokensTile(totalTokens)]} />}
-        </Section>
-      </div>
+      <Section isLoading={kpis.isLoading} isError={kpis.isError} minHeight={90}>
+        {kpis.data && <KpiStrip items={[spendTile(kpis.data), runsTile(kpis.data), tokensTile(totalTokens)]} />}
+      </Section>
 
-      <div style={{ marginTop: 28 }}>
-        <PanelFrame
-          left={
-            <Panel eyebrow="Spend" title="Daily spend" right={<DailyChartLegend />}>
-              <Section
-                isLoading={cost.isLoading || errors.isLoading}
-                isError={cost.isError || errors.isError}
-                minHeight={200}
-              >
-                <DailyChart series={dailySeries} />
-              </Section>
-            </Panel>
-          }
-          right={
-            <Panel eyebrow="Models" title="Where it goes" scroll={!stacked}>
-              <Section isLoading={models.isLoading} isError={models.isError} minHeight={200}>
-                <ModelsList models={modelRows} />
-              </Section>
-            </Panel>
-          }
-        />
-      </div>
+      <PanelFrame
+        left={
+          <Panel eyebrow="Spend" title={range === '24h' ? 'Hourly spend' : 'Daily spend'} right={<DailyChartLegend />}>
+            <Section
+              isLoading={cost.isLoading || errors.isLoading}
+              isError={cost.isError || errors.isError}
+              minHeight={200}
+            >
+              <DailyChart series={dailySeries} />
+            </Section>
+          </Panel>
+        }
+        right={
+          <Panel eyebrow="Models" title="Where it goes" scroll={!stacked}>
+            <Section isLoading={models.isLoading} isError={models.isError} minHeight={200}>
+              <ModelsList models={modelRows} />
+            </Section>
+          </Panel>
+        }
+      />
+
+      <PanelFrame
+        left={
+          <Panel eyebrow="Tokens" title="Tokens in vs out" right={<TokenChartLegend />}>
+            <Section
+              isLoading={tokens.isLoading || errors.isLoading}
+              isError={tokens.isError || errors.isError}
+              minHeight={200}
+            >
+              <TokenChart series={tokenSeries} />
+            </Section>
+          </Panel>
+        }
+        right={
+          <Panel eyebrow="Mix" title="Token mix">
+            <Section
+              isLoading={tokens.isLoading || errors.isLoading}
+              isError={tokens.isError || errors.isError}
+              minHeight={200}
+            >
+              <TokenMix series={tokenSeries} />
+            </Section>
+          </Panel>
+        }
+      />
 
       <SectionHead
         title="Who's driving cost"
         hint="Dot marks the top 75% of spend: the rows worth reviewing first."
         right={
           <TabPill
-            tab={tab}
+            tab={view}
             setTab={handleTabChange}
             tabs={[
               { id: 'user', label: 'By client', count: userCount },
@@ -214,7 +231,7 @@ export function UsageLivePage({ range, setView, setSelected }: UsageLivePageProp
           />
         }
       />
-      {tab === 'user' && (
+      {view === 'user' && (
         <Section isLoading={users.isLoading} isError={users.isError}>
           <Breakdown
             rows={userRows}
@@ -226,7 +243,7 @@ export function UsageLivePage({ range, setView, setSelected }: UsageLivePageProp
           />
         </Section>
       )}
-      {tab === 'workflow' && (
+      {view === 'workflow' && (
         <Section isLoading={workflows.isLoading} isError={workflows.isError}>
           <Breakdown
             rows={workflowRows}
@@ -237,7 +254,7 @@ export function UsageLivePage({ range, setView, setSelected }: UsageLivePageProp
           />
         </Section>
       )}
-      {tab === 'attribute' && (
+      {view === 'attribute' && (
         <Section isLoading={attrUsage.isLoading} isError={attrUsage.isError}>
           <Breakdown
             rows={attrRows}

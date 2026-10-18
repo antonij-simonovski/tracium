@@ -20,13 +20,11 @@ describe('workflow detail series', () => {
     expect(buildRuns(WORKFLOW)).toEqual(buildRuns(WORKFLOW));
   });
 
-  it('produces a 7-day cost series with positive values and no anomaly markers', () => {
+  it('produces a 7-day cost series with positive values', () => {
     const series = buildCostSeries(WORKFLOW);
     expect(series).toHaveLength(7);
     for (const d of series) {
       expect(d.value).toBeGreaterThan(0);
-      // The OSS detail page carries no anomaly flag on cost points.
-      expect('anomaly' in d).toBe(false);
     }
   });
 

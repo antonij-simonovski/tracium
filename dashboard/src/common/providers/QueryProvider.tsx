@@ -47,5 +47,6 @@ export function QueryProvider({
   onUnauthorized?: () => void;
 }) {
   unauthorizedHandler.current = onUnauthorized ?? null;
+  React.useEffect(() => () => queryClient.clear(), []);
   return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
 }

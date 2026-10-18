@@ -11,11 +11,12 @@ package model
 // "info" | "warning" | "critical". Observed is the bucket's value, Expected the
 // baseline median, Deviation their difference, and Score the signed robust
 // z-score behind the ranking. Summary is a ready-to-read sentence; the dashboard
-// may reformat from the raw fields instead.
+// may reformat from the raw fields instead. VersionChange is a workflow version
+// first seen on the anomaly's day or the day before, or nil.
 type Anomaly struct {
 	Metric    string  `json:"metric"`
 	Scope     string  `json:"scope"`
-	Workflow     string  `json:"workflow"` // set when Scope == "workflow", else ""
+	Workflow  string  `json:"workflow"` // set when Scope == "workflow", else ""
 	BucketMs  int64   `json:"bucket_ms"`
 	Observed  float64 `json:"observed"`
 	Expected  float64 `json:"expected"`
@@ -24,6 +25,15 @@ type Anomaly struct {
 	Direction string  `json:"direction"`
 	Severity  string  `json:"severity"`
 	Summary   string  `json:"summary"`
+
+	VersionChange *VersionChange `json:"version_change"`
+}
+
+// VersionChange is a workflow version and the day it was first seen.
+type VersionChange struct {
+	Workflow    string `json:"workflow"`
+	Version     string `json:"version"`
+	FirstSeenMs int64  `json:"first_seen_ms"`
 }
 
 // KPI is a single headline metric with its period-over-period change.
@@ -99,13 +109,20 @@ type ErrorPoint struct {
 	Total    int64 `json:"total"`
 }
 
+// TokenPoint is one time bucket of token usage, split into prompt (input) and
+// completion (output) tokens. Span-sourced, like the model-costs token totals.
+type TokenPoint struct {
+	BucketMs     int64 `json:"bucket_ms"`
+	InputTokens  int64 `json:"input_tokens"`
+	OutputTokens int64 `json:"output_tokens"`
+}
+
 // WorkflowDetail is one workflow's detail-page payload: its headline metrics over the
-// window plus the tool surface from its most recent run. Span-backed only —
-// there is no workflow-config store, so runtime params (temperature, retries,
-// version, owner, …) are not served. P95LatencyMs is a pointer so it serialises
-// as null when undefined (no runs in the window). It is a raw-window payload
-// (≤30d): the handler rejects rollup ranges, since per-workflow latency can't be
-// derived from the daily rollup (same limitation as LatencySeries).
+// window plus the tool surface from its most recent run. Span-backed
+// only — there is no workflow-config store, so runtime params (temperature,
+// retries, owner, …) are not served. P95LatencyMs is a pointer so it serialises
+// as null when undefined: no runs in the window, or a rollup range (>30d), where
+// latency can't be derived (same limitation as LatencySeries).
 type WorkflowDetail struct {
 	Name         string          `json:"name"`
 	Calls        int64           `json:"calls"`
@@ -121,10 +138,23 @@ type WorkflowDetail struct {
 	LastTraceID  string          `json:"last_trace_id"`
 }
 
+// WorkflowVersion is one version of a workflow over the window; P95LatencyMs is nil over rollup ranges.
+type WorkflowVersion struct {
+	Version      string   `json:"version"`
+	FirstSeenMs  int64    `json:"first_seen_ms"`
+	LastSeenMs   int64    `json:"last_seen_ms"`
+	Calls        int64    `json:"calls"`
+	Cost         float64  `json:"cost"`
+	CostPerRun   float64  `json:"cost_per_run"`
+	P95LatencyMs *float64 `json:"p95_latency_ms"`
+	ErrorRate    float64  `json:"error_rate"`
+	TokensPerRun float64  `json:"tokens_per_run"`
+}
+
 // Failure aggregates errored runs for one workflow. Pct is the fraction of that
 // workflow's runs that failed.
 type Failure struct {
-	Workflow    string  `json:"workflow"`
+	Workflow string  `json:"workflow"`
 	Count    int64   `json:"count"`
 	Pct      float64 `json:"pct"`
 	TopError string  `json:"top_error"`

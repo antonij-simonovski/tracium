@@ -31,4 +31,15 @@ describe('prettifyMaybeJson', () => {
       '{\n  "msg": "brace } and quote \\" inside"\n}',
     );
   });
+
+  it('leaves single-scalar brackets in prose alone', () => {
+    expect(prettifyMaybeJson('see [1] and ["a"]')).toBe('see [1] and ["a"]');
+  });
+
+  it('handles deeply unbalanced and invalid nesting in linear time', () => {
+    const open = '['.repeat(200_000);
+    expect(prettifyMaybeJson(open)).toBe(open);
+    const invalid = '[x'.repeat(100_000) + ']'.repeat(100_000);
+    expect(prettifyMaybeJson(invalid)).toBe(invalid);
+  });
 });

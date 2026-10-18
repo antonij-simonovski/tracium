@@ -22,6 +22,10 @@ type UserLookup interface {
 	ByEmail(ctx context.Context, email string) (*model.User, error)
 }
 
+const maxWorkspaceBody = 4 << 10
+
+var validEnvs = map[string]bool{"production": true, "staging": true, "development": true}
+
 // WorkspaceHandler handles workspace CRUD and member management for the
 // authenticated user.
 type WorkspaceHandler struct {
@@ -64,6 +68,7 @@ func (h *WorkspaceHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxWorkspaceBody)
 	var body struct {
 		Name string `json:"name"`
 		Slug string `json:"slug"`
@@ -77,6 +82,10 @@ func (h *WorkspaceHandler) Create(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "MISSING_FIELDS", "name, slug, and env are required")
 		return
 	}
+	if !validEnvs[body.Env] {
+		respondError(w, http.StatusBadRequest, "INVALID_ENV", "env must be production, staging, or development")
+		return
+	}
 
 	ws := model.Workspace{
 		ID:      uuid.NewString(),
@@ -84,7 +93,7 @@ func (h *WorkspaceHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Name:    body.Name,
 		Slug:    body.Slug,
 		Env:     body.Env,
-		Role:    "Owner",
+		Role:    workspace.RoleOwner,
 		Members: 1,
 	}
 	if err := h.store.Create(r.Context(), ws); err != nil {
@@ -126,19 +135,15 @@ func (h *WorkspaceHandler) AddMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxWorkspaceBody)
 	var body struct {
 		Email string `json:"email"`
-		Role  string `json:"role"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Email == "" {
 		respondError(w, http.StatusBadRequest, "BAD_REQUEST", "email is required")
 		return
 	}
-	role := workspace.RoleMember
-	if body.Role == workspace.RoleOwner {
-		role = workspace.RoleOwner
-	}
-	member, err := h.users.ByEmail(r.Context(), body.Email)
+	member, err := h.users.ByEmail(r.Context(), auth.NormalizeEmail(body.Email))
 	if err != nil {
 		if errors.Is(err, auth.ErrUserNotFound) {
 			respondError(w, http.StatusNotFound, "USER_NOT_FOUND", "no account with that email")
@@ -155,12 +160,9 @@ func (h *WorkspaceHandler) AddMember(w http.ResponseWriter, r *http.Request) {
 		if invited {
 			feature = MemberAddFeature
 		}
-		if denial := checkMemberEntitlement(ctx, h.entitlements, extension.Subject{UserID: userID, WorkspaceID: workspaceID}, feature); denial != nil {
-			return denial
-		}
-		return nil
+		return checkMemberEntitlement(ctx, h.entitlements, extension.Subject{UserID: userID, WorkspaceID: workspaceID}, feature)
 	}
-	if err := h.store.GrantMember(r.Context(), workspaceID, member.ID, role, allow); err != nil {
+	if err := h.store.GrantMember(r.Context(), workspaceID, member.ID, allow); err != nil {
 		var denial *entitlementDenial
 		if errors.As(err, &denial) {
 			denial.respond(w)

@@ -5,11 +5,13 @@ import type {
   CostBucket,
   LatencyBucket,
   ErrorBucket,
+  TokenBucket,
   WorkflowCost,
   FailureRow,
   Anomaly,
   AnomalyMetric,
   AnomalySeverity,
+  SetupCheck,
 } from '../../modules/overview/interfaces';
 import type {
   ModelCost,
@@ -17,7 +19,7 @@ import type {
   WorkflowUsage,
   AttributeUsage,
 } from '../../modules/usage/interfaces';
-import type { Workflow, WorkflowDetail } from '../../modules/workflows/interfaces';
+import type { Workflow, WorkflowDetail, WorkflowVersion } from '../../modules/workflows/interfaces';
 
 // MetricsAPI reads the aggregated overview metrics. Each section is its own
 // endpoint so the dashboard can load and refresh them independently.
@@ -27,17 +29,18 @@ export class MetricsAPI extends BaseAPIClient {
   }
 
   // The series accept an optional `workflow` to scope the chart to one workflow (the
-  // detail page). Omitted, they return the workspace-wide series as before.
-  getCostSeries(range: string, workflow?: string, userId?: string): Promise<PaginatedResponse<CostBucket>> {
-    return this.get('/metrics/cost-series', { range, workflow, user_id: userId });
+  // detail page), and `version` to one of its versions.
+  // Omitted, they return the workspace-wide series as before.
+  getCostSeries(range: string, workflow?: string, userId?: string, version?: string): Promise<PaginatedResponse<CostBucket>> {
+    return this.get('/metrics/cost-series', { range, workflow, user_id: userId, version });
   }
 
-  getLatencySeries(range: string, workflow?: string): Promise<PaginatedResponse<LatencyBucket>> {
-    return this.get('/metrics/latency-series', { range, workflow });
+  getLatencySeries(range: string, workflow?: string, version?: string): Promise<PaginatedResponse<LatencyBucket>> {
+    return this.get('/metrics/latency-series', { range, workflow, version });
   }
 
-  getErrorSeries(range: string, workflow?: string, userId?: string): Promise<PaginatedResponse<ErrorBucket>> {
-    return this.get('/metrics/error-series', { range, workflow, user_id: userId });
+  getErrorSeries(range: string, workflow?: string, userId?: string, version?: string): Promise<PaginatedResponse<ErrorBucket>> {
+    return this.get('/metrics/error-series', { range, workflow, user_id: userId, version });
   }
 
   getTopWorkflows(range: string): Promise<PaginatedResponse<WorkflowCost>> {
@@ -52,6 +55,10 @@ export class MetricsAPI extends BaseAPIClient {
   // longer ranges, since per-workflow latency isn't in the daily rollup.
   getWorkflowDetail(name: string, range: string): Promise<WorkflowDetail> {
     return this.get(`/metrics/workflows/${encodeURIComponent(name)}`, { range });
+  }
+
+  getWorkflowVersions(name: string, range: string): Promise<PaginatedResponse<WorkflowVersion>> {
+    return this.get(`/metrics/workflows/${encodeURIComponent(name)}/versions`, { range });
   }
 
   getFailures(range: string): Promise<PaginatedResponse<FailureRow>> {
@@ -69,7 +76,15 @@ export class MetricsAPI extends BaseAPIClient {
     return this.get('/metrics/anomalies', { range, metric: opts?.metric, min_severity: opts?.min_severity });
   }
 
+  getSetupChecks(range: string): Promise<PaginatedResponse<SetupCheck>> {
+    return this.get('/metrics/setup-checks', { range });
+  }
+
   // Usage-page breakdowns. cost-series / kpis feed the rest of the page.
+  getTokenSeries(range: string, userId?: string, workflow?: string, version?: string): Promise<PaginatedResponse<TokenBucket>> {
+    return this.get('/metrics/token-series', { range, user_id: userId, workflow, version });
+  }
+
   getModelCosts(range: string, userId?: string): Promise<PaginatedResponse<ModelCost>> {
     return this.get('/metrics/model-costs', { range, user_id: userId });
   }

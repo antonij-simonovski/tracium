@@ -2,6 +2,7 @@ package clickhousespanexporter
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"go.opentelemetry.io/collector/pdata/pcommon"
@@ -23,7 +24,7 @@ func TestFromOTLP_MapsExceptionEventToError(t *testing.T) {
 	ev.Attributes().PutStr("exception.type", "NotFoundError")
 	ev.Attributes().PutStr("exception.message", "model_not_found: gpt-4o-miini")
 
-	row := fromOTLP(s, "", pcommon.NewMap(), false)
+	row := fromOTLP(s, "", pcommon.NewMap())
 
 	if row.ErrorType != "NotFoundError" {
 		t.Errorf("error_type = %q, want NotFoundError", row.ErrorType)
@@ -41,7 +42,7 @@ func TestFromOTLP_ErrorStatusWithoutExceptionEvent(t *testing.T) {
 	s.Status().SetCode(ptrace.StatusCodeError)
 	s.Status().SetMessage("upstream timeout")
 
-	row := fromOTLP(s, "", pcommon.NewMap(), false)
+	row := fromOTLP(s, "", pcommon.NewMap())
 
 	if row.ErrorType != "error" {
 		t.Errorf("error_type = %q, want generic \"error\"", row.ErrorType)
@@ -56,7 +57,7 @@ func TestFromOTLP_OkSpanHasNoError(t *testing.T) {
 	s := ptrace.NewSpan()
 	s.Status().SetCode(ptrace.StatusCodeOk)
 
-	row := fromOTLP(s, "", pcommon.NewMap(), false)
+	row := fromOTLP(s, "", pcommon.NewMap())
 
 	if row.ErrorType != "" || row.ErrorMessage != "" {
 		t.Errorf("ok span got error (%q, %q), want empty", row.ErrorType, row.ErrorMessage)
@@ -107,7 +108,7 @@ func TestFromOTLP_SetsKind(t *testing.T) {
 	s.SetName("retrieve_docs")
 	s.Attributes().PutStr("openinference.span.kind", "RETRIEVER")
 
-	if row := fromOTLP(s, "", pcommon.NewMap(), false); row.Kind != "retriever" {
+	if row := fromOTLP(s, "", pcommon.NewMap()); row.Kind != "retriever" {
 		t.Errorf("kind = %q, want retriever", row.Kind)
 	}
 }
@@ -147,6 +148,46 @@ func TestWorkflowName_DerivationPriority(t *testing.T) {
 	}
 }
 
+func TestFromOTLP_WorkflowVersion(t *testing.T) {
+	tests := []struct {
+		name           string
+		span, resource map[string]string
+		want           string
+	}{
+		{"resource version", nil, map[string]string{"tracium.workflow.version": "v11"}, "v11"},
+		{"span version is ignored", map[string]string{"tracium.workflow.version": "v12"}, map[string]string{"tracium.workflow.version": "v11"}, "v11"},
+		{"span version alone is ignored", map[string]string{"tracium.workflow.version": "v12"}, nil, ""},
+		{"other version attributes are ignored", map[string]string{"traceloop.prompt.version": "3"}, map[string]string{"service.version": "1.4.0"}, ""},
+		{"no version", nil, nil, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := ptrace.NewSpan()
+			for k, v := range tt.span {
+				s.Attributes().PutStr(k, v)
+			}
+			resource := pcommon.NewMap()
+			for k, v := range tt.resource {
+				resource.PutStr(k, v)
+			}
+			if got := fromOTLP(s, "", resource).WorkflowVersion; got != tt.want {
+				t.Errorf("version = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFromOTLP_SanitizesWorkflowVersion(t *testing.T) {
+	resource := pcommon.NewMap()
+	resource.PutStr("tracium.workflow.version", "v1\n"+strings.Repeat("x", 200))
+
+	row := fromOTLP(ptrace.NewSpan(), "", resource)
+
+	if strings.Contains(row.WorkflowVersion, "\n") || len(row.WorkflowVersion) != 128 {
+		t.Errorf("version = %q (%d bytes), want control characters dropped and 128 bytes", row.WorkflowVersion, len(row.WorkflowVersion))
+	}
+}
+
 // fromOTLP persists the resource service.name on its own column, storing the
 // OTel "unknown_service" default as empty so it never becomes a stable fallback.
 func TestFromOTLP_ServiceNameColumn(t *testing.T) {
@@ -162,7 +203,7 @@ func TestFromOTLP_ServiceNameColumn(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			row := fromOTLP(ptrace.NewSpan(), tt.service, pcommon.NewMap(), false)
+			row := fromOTLP(ptrace.NewSpan(), tt.service, pcommon.NewMap())
 			if row.ServiceName != tt.want {
 				t.Errorf("ServiceName = %q, want %q", row.ServiceName, tt.want)
 			}
@@ -185,7 +226,7 @@ func TestFromOTLP_RetainsCustomAttributes(t *testing.T) {
 	s.Attributes().PutStr("user.id", "alice@example.com")
 	s.Attributes().PutStr("team", "payments") // span overrides resource
 
-	row := fromOTLP(s, "billing-agent", res, false)
+	row := fromOTLP(s, "billing-agent", res)
 
 	want := map[string]string{
 		"deployment.environment": "prod",
@@ -207,14 +248,33 @@ func TestFromOTLP_RetainsCustomAttributes(t *testing.T) {
 	}
 }
 
-// The attribute bag is capped so an unauthenticated client can't bloat rows.
+// The attribute bag is capped so a client cannot bloat rows.
 func TestFromOTLP_CapsAttributeCount(t *testing.T) {
 	s := ptrace.NewSpan()
 	for i := 0; i < maxAttrs+50; i++ {
 		s.Attributes().PutStr(fmt.Sprintf("k%03d", i), "v")
 	}
-	row := fromOTLP(s, "", pcommon.NewMap(), false)
+	row := fromOTLP(s, "", pcommon.NewMap())
 	if len(row.Attributes) > maxAttrs {
 		t.Errorf("retained %d attributes, cap is %d", len(row.Attributes), maxAttrs)
+	}
+}
+
+func TestFromOTLP_ReadsUnmeteredStampedByProcessor(t *testing.T) {
+	s := ptrace.NewSpan()
+	s.Attributes().PutStr("gen_ai.request.model", "gpt-4o-mini")
+	s.Attributes().PutBool(attrUnmetered, true)
+
+	if row := fromOTLP(s, "", pcommon.NewMap()); !row.Unmetered {
+		t.Error("unmetered = false, want true")
+	}
+}
+
+func TestFromOTLP_IgnoresClientReportedCost(t *testing.T) {
+	s := ptrace.NewSpan()
+	s.Attributes().PutStr("gen_ai.usage.cost", "1000000")
+
+	if row := fromOTLP(s, "", pcommon.NewMap()); row.CostUSD != 0 {
+		t.Errorf("cost = %v, want 0", row.CostUSD)
 	}
 }

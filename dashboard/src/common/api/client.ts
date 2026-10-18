@@ -2,6 +2,10 @@ import type { APIClientConfig } from '../interfaces';
 
 export const API_VERSION = 'v1';
 
+export function apiBaseUrl(): string {
+  return import.meta.env.VITE_API_URL || window.location.origin;
+}
+
 export class APIError extends Error {
   status: number;
   code: string;
@@ -145,11 +149,5 @@ export abstract class BaseAPIClient {
       return undefined as T;
     }
     return response.json() as Promise<T>;
-  }
-}
-
-export class MockAPIClient extends BaseAPIClient {
-  constructor() {
-    super({ baseUrl: 'http://localhost', apiKey: 'mock-key' });
   }
 }

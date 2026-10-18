@@ -13,7 +13,6 @@ permissions:
   pull-requests: read   # dorny/paths-filter calls the PR listFiles API
 
 jobs:
-  # Detect which components changed so slow jobs (npm, helm) only run when relevant.
   changes:
     runs-on: ubuntu-latest
     outputs:
@@ -21,6 +20,7 @@ jobs:
       dashboard: ${{ steps.f.outputs.dashboard }}
       spec: ${{ steps.f.outputs.spec }}
       helm: ${{ steps.f.outputs.helm }}
+      infra: ${{ steps.f.outputs.infra }}
     steps:
       - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v4
@@ -31,6 +31,7 @@ jobs:
             dashboard: ['dashboard/**']
             spec: ['spec/**']
             helm: ['deploy/**']
+            infra: ['docker-compose.yml', 'compose.*.yaml', 'Makefile', '.github/workflows/**', 'examples/**']
 
   go-test:
     services:
@@ -41,19 +42,35 @@ jobs:
           POSTGRES_DB: core_test
         ports: ['5432:5432']
         options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 3s --health-retries 10
+      clickhouse:
+        image: clickhouse/clickhouse-server:24.6
+        env:
+          CLICKHOUSE_PASSWORD: test-password
+        ports: ['8123:8123', '9000:9000']
+        options: --health-cmd "wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1" --health-interval 5s --health-timeout 3s --health-retries 15
     env:
       TEST_POSTGRES_DSN: postgres://postgres:test-password@localhost:5432/core_test?sslmode=disable
+      TEST_CLICKHOUSE_DSN: clickhouse://default:test-password@localhost:9000/tracium
     needs: changes
-    if: ${{ needs.changes.outputs.go == 'true' || needs.changes.outputs.spec == 'true' }}
+    if: ${{ needs.changes.outputs.go == 'true' || needs.changes.outputs.spec == 'true' || needs.changes.outputs.infra == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.work
-          cache-dependency-path: |
-            collector/go.sum
-            api/go.sum
+          cache-dependency-path: '**/go.sum'
+      - name: Check gofmt
+        run: |
+          unformatted=$(gofmt -l api collector)
+          if [ -n "$unformatted" ]; then echo "$unformatted"; exit 1; fi
+      - name: Migrate the ClickHouse schema
+        env:
+          CLICKHOUSE_HTTP: http://localhost:8123
+          CLICKHOUSE_PASSWORD: test-password
+          POSTGRES_DSN: ${{ env.TEST_POSTGRES_DSN }}
+          MIGRATIONS_DIR: collector/schema
+        run: bash deploy/docker/migrate/run-migrations.sh
       - name: Test every Go module
         run: |
           set -e
@@ -66,7 +83,7 @@ jobs:
 
   dashboard:
     needs: changes
-    if: ${{ needs.changes.outputs.dashboard == 'true' || needs.changes.outputs.spec == 'true' }}
+    if: ${{ needs.changes.outputs.dashboard == 'true' || needs.changes.outputs.spec == 'true' || needs.changes.outputs.infra == 'true' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -75,7 +92,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           cache-dependency-path: dashboard/package-lock.json
       - run: npm ci --no-audit
@@ -84,35 +101,31 @@ jobs:
       - run: npm run build:library
 
   # The pinned TypeScript generator makes contract drift a release-blocking error.
-  # Go models remain hand-written; gen-go-models.sh is not run.
   codegen-sync:
     needs: changes
-    if: ${{ needs.changes.outputs.spec == 'true' }}
+    if: ${{ needs.changes.outputs.spec == 'true' || needs.changes.outputs.infra == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
       - run: bash spec/codegen/gen-ts-types.sh
       - name: Fail if generated types are stale
         run: git diff --exit-code -- dashboard/src/types
 
   helm-lint:
     needs: changes
-    if: ${{ needs.changes.outputs.helm == 'true' || needs.changes.outputs.spec == 'true' }}
+    if: ${{ needs.changes.outputs.helm == 'true' || needs.changes.outputs.spec == 'true' || needs.changes.outputs.infra == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: azure/setup-helm@v5
-      - run: make sync-generated   # single-source pricing/schema into the chart
-      - run: helm lint deploy/helm/tracium
+      - run: make helm-lint
 
   smoke:
     needs: changes
-    # The full-stack smoke test is expensive (~25 min). Only run it when code
-    # that ships in an image changed — skip it for docs/spec-only PRs.
-    if: ${{ needs.changes.outputs.go == 'true' || needs.changes.outputs.dashboard == 'true' || needs.changes.outputs.helm == 'true' || needs.changes.outputs.spec == 'true' }}
+    if: ${{ needs.changes.outputs.go == 'true' || needs.changes.outputs.dashboard == 'true' || needs.changes.outputs.helm == 'true' || needs.changes.outputs.spec == 'true' || needs.changes.outputs.infra == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:

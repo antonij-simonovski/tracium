@@ -2,9 +2,12 @@ package writer
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/tracium/collector/internal/deadletter"
 	"github.com/tracium/collector/pkg/spanmodel"
 )
 
@@ -13,9 +16,15 @@ type ClickHouseWriter struct {
 	conn clickhouse.Conn
 }
 
+// ErrRowRejected marks a batch that failed because a row could not be encoded,
+// which retrying will not fix.
+var ErrRowRejected = errors.New("row rejected")
+
+const pingTimeout = 10 * time.Second
+
 // NewClickHouseWriter opens a connection to ClickHouse using the native
 // interface and verifies it with a ping.
-func NewClickHouseWriter(dsn string) (*ClickHouseWriter, error) {
+func NewClickHouseWriter(ctx context.Context, dsn string) (*ClickHouseWriter, error) {
 	opts, err := clickhouse.ParseDSN(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("clickhouse: parse DSN: %w", err)
@@ -26,7 +35,10 @@ func NewClickHouseWriter(dsn string) (*ClickHouseWriter, error) {
 		return nil, fmt.Errorf("clickhouse: open connection: %w", err)
 	}
 
-	if err := conn.Ping(context.Background()); err != nil {
+	ctx, cancel := context.WithTimeout(ctx, pingTimeout)
+	defer cancel()
+	if err := conn.Ping(ctx); err != nil {
+		conn.Close()
 		return nil, fmt.Errorf("clickhouse: ping failed: %w", err)
 	}
 
@@ -45,6 +57,7 @@ const insertQuery = `INSERT INTO tracium.spans (
 	input, output, available_tools,
 	source,
 	workflow_name,
+	workflow_version,
 	service_name,
 	kind,
 	attributes
@@ -96,16 +109,34 @@ func (w *ClickHouseWriter) WriteBatch(ctx context.Context, spans []*spanmodel.Sp
 			s.AvailableTools,
 			source,
 			s.WorkflowName,
+			s.WorkflowVersion,
 			s.ServiceName,
 			s.Kind,
 			attributes,
 		); err != nil {
-			return fmt.Errorf("clickhouse: append row for span %s: %w", s.SpanID, err)
+			return fmt.Errorf("clickhouse: append row for span %s: %w: %w", s.SpanID, ErrRowRejected, err)
 		}
 	}
 
 	if err := batch.Send(); err != nil {
 		return fmt.Errorf("clickhouse: send batch: %w", err)
+	}
+	return nil
+}
+
+// WriteRejected inserts rejection counts into tracium.rejected_spans.
+func (w *ClickHouseWriter) WriteRejected(ctx context.Context, tally map[deadletter.Rejection]uint64) error {
+	batch, err := w.conn.PrepareBatch(ctx, "INSERT INTO tracium.rejected_spans (workspace_id, code, spans)")
+	if err != nil {
+		return fmt.Errorf("clickhouse: prepare rejected batch: %w", err)
+	}
+	for r, n := range tally {
+		if err := batch.Append(r.WorkspaceID, r.Code, n); err != nil {
+			return fmt.Errorf("clickhouse: append rejected row: %w", err)
+		}
+	}
+	if err := batch.Send(); err != nil {
+		return fmt.Errorf("clickhouse: send rejected batch: %w", err)
 	}
 	return nil
 }

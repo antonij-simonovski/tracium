@@ -81,6 +81,9 @@ and renders its `children` once setup is complete. Declare extensions once at ap
 assembly; don't change registration while mounted. Use one React and React Query
 runtime in the consuming app (Vite `resolve.dedupe` is appropriate for local links).
 
+`ingestEndpoint` sets the OTLP endpoint shown in the workspace connection
+instructions. Without it they show the local collector, `http://localhost:4318`.
+
 ## Migrations and versioning
 
 Postgres migrations live in `api/migrations/sql`. `001_identity.sql` adopts existing

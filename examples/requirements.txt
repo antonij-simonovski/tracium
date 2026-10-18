@@ -2,9 +2,3 @@ openai>=1.40
 traceloop-sdk>=0.33
 opentelemetry-exporter-otlp-proto-http>=1.27
 opentelemetry-sdk>=1.27
-
-# Additional providers and tooling for the live conformance suite (tests/).
-anthropic>=0.40
-google-genai>=1.0
-pytest>=8.0
-clickhouse-connect>=0.8

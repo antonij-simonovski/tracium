@@ -1,13 +1,15 @@
 import { useRef, useState } from 'react';
-import type { LatencyPoint } from '../../interfaces';
+import type { LatencyPoint, ChartMarker } from '../../interfaces';
 import { useResize } from '../../hooks/useResize';
 
 export interface LatencyChartProps {
   series: LatencyPoint[];
   height?: number;
+  // Dashed rules at the given buckets, e.g. version releases.
+  markers?: ChartMarker[];
 }
 
-export function LatencyChart({ series, height = 220 }: LatencyChartProps) {
+export function LatencyChart({ series, height = 220, markers = [] }: LatencyChartProps) {
   const [hover, setHover] = useState<number | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const width = useResize(ref);
@@ -94,10 +96,23 @@ export function LatencyChart({ series, height = 220 }: LatencyChartProps) {
           );
         })}
 
-        {/* Area fill under p99 */}
         <path d={areaPath} fill="var(--accent)" opacity="0.06" />
 
-        {/* Lines */}
+        {markers
+          .filter((m) => m.index >= 0 && m.index < series.length)
+          .map((m) => (
+            <line
+              key={`mk-${m.index}-${m.label ?? ''}`}
+              x1={pad.left + m.index * step}
+              x2={pad.left + m.index * step}
+              y1={pad.top}
+              y2={pad.top + innerH}
+              stroke={m.color}
+              strokeOpacity="0.6"
+              strokeDasharray="4 3"
+            />
+          ))}
+
         <path
           d={linePath(p99Segs)}
           stroke="var(--warning)"
@@ -136,7 +151,6 @@ export function LatencyChart({ series, height = 220 }: LatencyChartProps) {
           <circle key={`i95-${i}`} cx={p.x} cy={p.y} r={3} fill="var(--accent)" />
         ))}
 
-        {/* Hit areas + hover dots + x-axis labels */}
         {series.map((d, i) => {
           const x = pad.left + i * step;
           return (
@@ -189,7 +203,6 @@ export function LatencyChart({ series, height = 220 }: LatencyChartProps) {
           );
         })}
 
-        {/* Tooltip */}
         {hover !== null && (() => {
           const d = series[hover];
           const x = pad.left + hover * step;

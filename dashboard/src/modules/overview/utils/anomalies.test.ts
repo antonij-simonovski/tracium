@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import { SEVERITY_META } from '../../../common';
 import type { Anomaly } from '../interfaces';
-import { anomalyChips, anomalyValue, bySeverity, groupIncidents, ratioLabel, toChartMarkers, SEVERITY_META } from './anomalies';
+import { anomalyChips, anomalyValue, bySeverity, groupIncidents, ratioLabel, toChartMarkers, versionChangeLabel } from './anomalies';
 
 const DAY = 86_400_000;
 
@@ -17,6 +18,7 @@ function anom(over: Partial<Anomaly>): Anomaly {
     direction: 'spike',
     severity: 'warning',
     summary: '',
+    version_change: null,
     ...over,
   };
 }
@@ -36,10 +38,10 @@ describe('anomalyChips', () => {
       anom({ metric: 'cost' }),
       anom({ metric: 'runs' }),
     ]);
-    const byKey = Object.fromEntries(chips.map((c) => [c.key, c]));
-    expect(byKey.cost.label).toBe('2 cost spikes');
-    expect(byKey.runs.label).toBe('1 volume shift');
-    expect(byKey.errors).toBeUndefined(); // no error_rate anomalies
+    expect(chips.map((c) => [c.metric, c.label])).toEqual([
+      ['cost', '2 cost spikes'],
+      ['runs', '1 volume shift'],
+    ]);
   });
 });
 
@@ -127,5 +129,14 @@ describe('toChartMarkers', () => {
     const markers = toChartMarkers([a], axis, { onSelect: (x) => (picked = x) });
     markers[0].onClick?.();
     expect(picked).toBe(a);
+  });
+});
+
+describe('versionChangeLabel', () => {
+  const v = { workflow: 'rewrite-message', version: 'v2', first_seen_ms: 0 };
+  it('names only the version on its own workflow, and the workflow too workspace-wide', () => {
+    expect(versionChangeLabel(anom({}))).toBe('');
+    expect(versionChangeLabel(anom({ version_change: v }))).toBe('after v2');
+    expect(versionChangeLabel(anom({ scope: 'workspace', workflow: '', version_change: v }))).toBe('after rewrite-message v2');
   });
 });

@@ -1,29 +1,32 @@
 /**
  * Pretty-print any JSON objects or arrays found in the text with 2-space
  * indentation, in place. JSON may span the whole string or be embedded in
- * surrounding prose; non-JSON content passes through unchanged.
+ * surrounding prose; non-JSON content passes through unchanged. Scanning stops
+ * at the first bracket that never closes, keeping the work linear.
  */
 export function prettifyMaybeJson(text: string): string {
   let out = '';
-  let i = 0;
-  while (i < text.length) {
-    const ch = text[i];
-    if (ch === '{' || ch === '[') {
-      const end = findBalancedEnd(text, i);
-      if (end !== -1) {
-        try {
-          out += JSON.stringify(JSON.parse(text.slice(i, end + 1)), null, 2);
-          i = end + 1;
-          continue;
-        } catch {
-          // not valid JSON — fall through and emit the character as-is
-        }
-      }
-    }
-    out += ch;
-    i++;
+  let last = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] !== '{' && text[i] !== '[') continue;
+    const end = findBalancedEnd(text, i);
+    if (end === -1) break;
+    out += text.slice(last, i) + prettifyGroup(text.slice(i, end + 1));
+    last = end + 1;
+    i = end;
   }
-  return out;
+  return out + text.slice(last);
+}
+
+function prettifyGroup(group: string): string {
+  try {
+    const value = JSON.parse(group);
+    // A one-element scalar array is more likely prose, like a "[1]" citation.
+    const isScalarRef = Array.isArray(value) && value.length === 1 && (value[0] === null || typeof value[0] !== 'object');
+    return isScalarRef ? group : JSON.stringify(value, null, 2);
+  } catch {
+    return group;
+  }
 }
 
 /**

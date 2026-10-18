@@ -1,16 +1,9 @@
-// ---------------------------------------------------------------------------
-// WorkflowDetailDemoPage — the embedded (logged-out preview) workflow detail. It
-// assembles the presentational WorkflowDetailPage's props from the mock WORKFLOWS +
-// WORKFLOW_META and the deterministic demo series, so the auth-page preview shows a
-// fully-populated workflow without hitting the API. The live app uses
-// WorkflowDetailLivePage instead.
-// ---------------------------------------------------------------------------
-
 import { fmtNum } from '../../../common';
+import type { MetaRowProps } from '../../../common';
 import type { LatencyPoint } from '../../../common/interfaces';
 import { WORKFLOW_META, DEFAULT_WORKFLOW_META } from '../data';
 import { buildCostSeries, buildLatencySeries, buildErrorSeries, buildRuns, deriveRunOutcomes } from '../utils';
-import { WorkflowDetailPage, type WorkflowConfigRow } from './WorkflowDetailPage';
+import { WorkflowDetailPage } from './WorkflowDetailPage';
 import type { Workflow } from '../interfaces';
 
 interface WorkflowDetailDemoPageProps {
@@ -34,7 +27,7 @@ export function WorkflowDetailDemoPage({ workflow, range, setView, setSelected }
   const runs = buildRuns(workflow);
   const { completed, failed } = deriveRunOutcomes(workflow.calls, workflow.error_rate);
 
-  const configRows: WorkflowConfigRow[] = [
+  const configRows: MetaRowProps[] = [
     { label: 'endpoint', value: meta.endpoint, mono: true },
     { label: 'model', value: meta.model, mono: true },
     { label: 'provider', value: meta.provider },
@@ -49,9 +42,6 @@ export function WorkflowDetailDemoPage({ workflow, range, setView, setSelected }
     <WorkflowDetailPage
       name={workflow.name}
       version={meta.version}
-      model={meta.model}
-      provider={meta.provider}
-      deploy={meta.lastDeploy}
       description={meta.description}
       range={range}
       calls={workflow.calls}

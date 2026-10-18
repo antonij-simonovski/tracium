@@ -3,20 +3,21 @@
 // resolution, per-span cost, model filtering).
 //
 // It is a thin adapter: all domain behaviour lives in the framework-free
-// github.com/tracium/collector/enrich package behind the Enricher seam, so the
-// Enterprise edition can extend enrichment without forking this plumbing.
+// github.com/tracium/collector/enrich package behind the Enricher seam.
 package traciumprocessor
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
+	"io/fs"
+	"time"
 
 	"github.com/tracium/collector/enrich"
 	"github.com/tracium/collector/internal/deadletter"
 	"github.com/tracium/collector/internal/pricing"
 	"github.com/tracium/collector/internal/user"
+	"github.com/tracium/collector/internal/writer"
 
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
@@ -48,20 +49,19 @@ func createDefaultConfig() component.Config {
 	}
 }
 
-// buildResolvers constructs the OSS pricing and user resolvers from config.
+// buildResolvers constructs the pricing and user resolvers from config.
 // Both the traces enrichment chain and the metrics processor share them, so a
 // single price table and user policy govern spans and metric-derived rows
-// alike. This is the seam the Enterprise edition swaps to inject its own
-// resolvers.
+// alike.
 func buildResolvers(cfg *Config, logger *zap.Logger) (pricing.Resolver, user.Resolver, error) {
-	// Pricing source (OSS: static).
+	// Pricing source: static.
 	prices := pricing.DefaultPrices()
 	if cfg.Pricing.StaticFilePath != "" {
 		loaded, err := pricing.LoadStaticFile(cfg.Pricing.StaticFilePath)
 		switch {
 		case err == nil:
 			prices = loaded
-		case os.IsNotExist(errors.Unwrap(err)):
+		case errors.Is(err, fs.ErrNotExist):
 			// Absent file is a valid "use built-in defaults" signal (local dev).
 			logger.Info("pricing file not found, using built-in defaults",
 				zap.String("path", cfg.Pricing.StaticFilePath))
@@ -73,11 +73,6 @@ func buildResolvers(cfg *Config, logger *zap.Logger) (pricing.Resolver, user.Res
 	}
 	pricingResolver := pricing.NewStaticResolver(prices)
 
-	// User source (OSS: passthrough — the attribute value is the user ID).
-	// Passthrough is a no-op lookup, so it is used directly, never wrapped in the
-	// cache: caching an identity operation keyed by a sender-supplied label would
-	// grow memory without bound for no benefit. NewCachedResolver (bounded LRU) is
-	// for the Enterprise resolver that performs a costly external lookup.
 	var userResolver user.Resolver
 	if cfg.User.Source == "passthrough" || cfg.User.Source == "" {
 		userResolver = user.Passthrough{}
@@ -86,8 +81,7 @@ func buildResolvers(cfg *Config, logger *zap.Logger) (pricing.Resolver, user.Res
 	return pricingResolver, userResolver, nil
 }
 
-// buildChain turns the validated Config into the OSS enrichment chain. This is
-// the function the Enterprise edition overrides/wraps to inject its enrichers.
+// buildChain turns the validated Config into the enrichment chain.
 func buildChain(cfg *Config, logger *zap.Logger) (*enrich.Chain, error) {
 	pricingResolver, userResolver, err := buildResolvers(cfg, logger)
 	if err != nil {
@@ -126,19 +120,37 @@ func createTracesProcessor(
 		ctx, set, cfg, next,
 		tp.processTraces,
 		processorhelper.WithCapabilities(consumer.Capabilities{MutatesData: true}),
-		processorhelper.WithShutdown(func(context.Context) error { return dlq.Close() }),
+		processorhelper.WithStart(func(ctx context.Context, _ component.Host) error {
+			return tp.startTally(ctx, pCfg.DeadLetter.ClickHouseDSN)
+		}),
+		processorhelper.WithShutdown(func(context.Context) error { return tp.deadLetter.Close() }),
 	)
 }
 
+const rejectedFlushInterval = 10 * time.Second
+
 // buildDeadLetter selects the dead-letter store: an NDJSON file when the
 // operator configured a path (drops are then recoverable), otherwise the log
-// store, which keeps every drop visible with zero configuration. This is the
-// seam the Enterprise edition swaps to persist drops elsewhere.
+// store, which keeps every drop visible with zero configuration.
 func buildDeadLetter(cfg *Config, logger *zap.Logger) (deadletter.Store, error) {
 	if path := cfg.DeadLetter.Path; path != "" {
 		return deadletter.NewFileStore(path)
 	}
 	return deadletter.NewLogStore(zapDeadLetterLogger{logger}), nil
+}
+
+// startTally connects to ClickHouse and starts counting rejections per
+// workspace when a DSN is configured.
+func (p *traciumProcessor) startTally(ctx context.Context, dsn string) error {
+	if dsn == "" {
+		return nil
+	}
+	w, err := writer.NewClickHouseWriter(ctx, dsn)
+	if err != nil {
+		return err
+	}
+	p.deadLetter = deadletter.NewTallyStore(p.deadLetter, w, zapDeadLetterLogger{p.logger}, rejectedFlushInterval)
+	return nil
 }
 
 // zapDeadLetterLogger adapts the collector's zap logger to deadletter.Logger,

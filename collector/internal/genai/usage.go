@@ -134,8 +134,7 @@ func unmetered(attrs map[string]string, u TokenUsage) bool {
 		return false
 	}
 	// A completion proves the call did work worth billing, and distinguishes it
-	// from a structural or failed span. Read before the processor's content
-	// gate strips anything, so it holds with capture disabled too.
+	// from a structural or failed span.
 	return outputText(attrs) != ""
 }
 

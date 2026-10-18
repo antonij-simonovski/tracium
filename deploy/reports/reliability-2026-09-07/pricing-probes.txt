@@ -1,8 +1,0 @@
-=== RUN   TestReliabilityReviewAggregateTierPricing
-    reliability_review_test.go:27: CONFIRMED: two 150000-token calls; per-call total=0.37500000000000006 USD, aggregated metric cost=0.7500000000000001 USD, ratio=2
---- PASS: TestReliabilityReviewAggregateTierPricing (0.01s)
-=== RUN   TestReliabilityReviewOutputLosesInputTier
-    reliability_review_test.go:49: CONFIRMED: one 250000-input/1000-output call; combined usage=0.64 USD, separate metric points=0.635 USD
---- PASS: TestReliabilityReviewOutputLosesInputTier (0.01s)
-PASS
-ok  	github.com/tracium/collector/processor/traciumprocessor	0.404s

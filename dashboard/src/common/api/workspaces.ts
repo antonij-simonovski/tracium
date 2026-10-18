@@ -44,27 +44,27 @@ export class WorkspacesAPI extends BaseAPIClient {
   }
 
   remove(id: string): Promise<void> {
-    return this.delete(`/workspaces/${id}`);
+    return this.delete(`/workspaces/${encodeURIComponent(id)}`);
   }
 
   members(id: string): Promise<WorkspaceMember[]> {
-    return this.get<WorkspaceMember[]>(`/workspaces/${id}/members`);
+    return this.get<WorkspaceMember[]>(`/workspaces/${encodeURIComponent(id)}/members`);
   }
 
   removeMember(id: string, userId: string): Promise<void> {
-    return this.delete(`/workspaces/${id}/members/${encodeURIComponent(userId)}`);
+    return this.delete(`/workspaces/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`);
   }
 
   invites(id: string): Promise<WorkspaceInvite[]> {
-    return this.get<WorkspaceInvite[]>(`/workspaces/${id}/invites`);
+    return this.get<WorkspaceInvite[]>(`/workspaces/${encodeURIComponent(id)}/invites`);
   }
 
   invite(id: string, email: string): Promise<CreatedInvite> {
-    return this.post<CreatedInvite>(`/workspaces/${id}/invites`, { email });
+    return this.post<CreatedInvite>(`/workspaces/${encodeURIComponent(id)}/invites`, { email });
   }
 
   revokeInvite(id: string, inviteId: string): Promise<void> {
-    return this.delete(`/workspaces/${id}/invites/${inviteId}`);
+    return this.delete(`/workspaces/${encodeURIComponent(id)}/invites/${encodeURIComponent(inviteId)}`);
   }
 
   acceptInvite(token: string): Promise<{ workspace_id: string }> {

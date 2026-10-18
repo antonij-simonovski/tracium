@@ -1,0 +1,16 @@
+.frame {
+  display: grid;
+  border-top: 1px solid var(--border);
+}
+
+.cell {
+  min-width: 0;
+}
+
+.divider {
+  border-right: 1px solid var(--border);
+}
+
+.stackDivider {
+  border-bottom: 1px solid var(--border);
+}

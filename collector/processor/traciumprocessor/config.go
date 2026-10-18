@@ -29,20 +29,19 @@ type Config struct {
 	CaptureContent bool `mapstructure:"capture_content"`
 }
 
-// PricingConfig selects a pricing source. The OSS edition ships the "static"
-// source; the Enterprise edition registers additional sources (e.g. "dynamic").
+// PricingConfig selects a pricing source. Only "static" is supported.
 type PricingConfig struct {
-	// Source is the pricing strategy. OSS supports "static" (the default).
+	// Source is the pricing strategy: "static" (the default).
 	Source string `mapstructure:"source"`
 	// StaticFilePath is a JSON price table for Source=="static". When empty,
 	// built-in DefaultPrices are used.
 	StaticFilePath string `mapstructure:"static_file_path"`
 }
 
-// UserConfig selects a user-resolution source. OSS supports "passthrough"
-// (use the attribute value as the user ID); Enterprise adds e.g. "postgres".
+// UserConfig selects a user-resolution source. Only "passthrough" (use the
+// attribute value as the user ID) is supported.
 type UserConfig struct {
-	// Source is the user strategy. OSS supports "passthrough" (the default).
+	// Source is the user strategy: "passthrough" (the default).
 	Source string `mapstructure:"source"`
 }
 
@@ -54,6 +53,9 @@ type DeadLetterConfig struct {
 	// (the default) uses the log store. A path that cannot be opened fails at
 	// startup, not on the first dropped span.
 	Path string `mapstructure:"path"`
+
+	// ClickHouseDSN, when set, counts rejections per workspace for setup checks.
+	ClickHouseDSN string `mapstructure:"clickhouse_dsn"`
 }
 
 // Validate implements component.ConfigValidator.
@@ -61,12 +63,12 @@ func (c *Config) Validate() error {
 	switch c.Pricing.Source {
 	case "", "static":
 	default:
-		return fmt.Errorf("pricing.source %q is not supported in this edition", c.Pricing.Source)
+		return fmt.Errorf("pricing.source %q is not supported", c.Pricing.Source)
 	}
 	switch c.User.Source {
 	case "", "passthrough":
 	default:
-		return fmt.Errorf("user.source %q is not supported in this edition", c.User.Source)
+		return fmt.Errorf("user.source %q is not supported", c.User.Source)
 	}
 	return nil
 }

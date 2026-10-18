@@ -17,6 +17,8 @@ import (
 var coreFiles embed.FS
 var Core = Set{Namespace: "core", Files: coreFiles, Dir: "sql"}
 
+var namespacePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
+
 type Set struct {
 	Namespace string
 	Files     fs.FS
@@ -27,7 +29,7 @@ type Set struct {
 // history commit atomically. A checksum mismatch refuses an edited migration.
 // This ledger is separate from the deployment's existing ClickHouse history.
 func Apply(ctx context.Context, pool *pgxpool.Pool, set Set) error {
-	if !regexp.MustCompile(`^[a-z][a-z0-9_-]*$`).MatchString(set.Namespace) || set.Files == nil {
+	if !namespacePattern.MatchString(set.Namespace) || set.Files == nil {
 		return fmt.Errorf("invalid migration set %q", set.Namespace)
 	}
 	entries, err := fs.ReadDir(set.Files, set.Dir)

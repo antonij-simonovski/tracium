@@ -1,0 +1,14 @@
+{
+  "name": "tracium-node-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node genai-span.mjs"
+  },
+  "dependencies": {
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/exporter-trace-otlp-proto": "^0.222.0",
+    "@opentelemetry/resources": "^2.11.0",
+    "@opentelemetry/sdk-node": "^0.222.0"
+  }
+}

@@ -48,9 +48,7 @@ CHECK_IMAGE_PROJECT=tracium-production-<build-project-id> \
 
 `KIND_BIN` and `HELM_BIN` can select explicit binaries. The script uses a separate
 kubeconfig and a new kind cluster, reduced resource requests, and locally built
-images. It tests installation with the documented secrets, then applies diagnostic
-workarounds in the disposable cluster and attempts PVC persistence. Those
-workarounds do not constitute a successful installation of the unchanged chart.
-The cluster is deleted on exit. Existing user clusters and kubeconfig are untouched.
-
-See [the September 6 findings](../../reports/production-2026-09-06/README.md).
+images. It installs the unchanged chart with the documented secrets, waits for
+every workload to roll out, and checks that ClickHouse data survives a pod
+replacement. The cluster is deleted on exit. Existing user clusters and
+kubeconfig are untouched.

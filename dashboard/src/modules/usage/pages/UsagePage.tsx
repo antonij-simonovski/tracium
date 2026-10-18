@@ -1,66 +1,45 @@
-// ---------------------------------------------------------------------------
-// UsagePage — the demo usage view (embedded auth preview), fed by mock
-// USAGE_DATA. The signed-in dashboard renders UsageLivePage instead; both share
-// the presentational components in ../components.
-// ---------------------------------------------------------------------------
-
-import { useMemo, useState } from 'react';
-import { costFormatter, tokenFormatter } from '../../../common';
-import {
-  SectionHead,
-  KpiStrip,
-  DailyChart,
-  DailyChartLegend,
-  ModelsList,
-  Panel,
-  PanelFrame,
-  UsageMasthead,
-  Breakdown,
-  TabPill,
-} from '../components';
-import type { KpiItem, BreakdownTab, SortKey } from '../components';
+import { useState } from 'react';
+import { KpiStrip, Panel, PanelFrame, SectionHead, fmtCost, fmtDelta, fmtNum, fmtTokens } from '../../../common';
+import type { KpiItem } from '../../../common';
+import { DailyChart, DailyChartLegend, TokenChart, TokenChartLegend, TokenMix, ModelsList, UsageMasthead, Breakdown, TabPill } from '../components';
+import type { BreakdownTab, SortKey } from '../components';
 import { USAGE_DATA } from '../data';
 
-export interface UsagePageProps {
-  range: string;
-}
-
 function kpiItems(data: typeof USAGE_DATA): KpiItem[] {
-  const costDelta = ((data.totalCost - data.totalCostPrev) / data.totalCostPrev) * 100;
-  const runsDelta = ((data.totalRuns - data.totalRunsPrev) / data.totalRunsPrev) * 100;
+  const costDelta = (data.totalCost - data.totalCostPrev) / data.totalCostPrev;
+  const runsDelta = (data.totalRuns - data.totalRunsPrev) / data.totalRunsPrev;
   const avgPer1k = data.totalRuns > 0 ? (data.totalCost / data.totalRuns) * 1000 : 0;
   const totalTokens = data.models.reduce((s, m) => s + m.inputTokens + m.outputTokens, 0);
 
   return [
     {
       label: 'Spend',
-      value: costFormatter.format(data.totalCost),
-      delta: (costDelta > 0 ? '+' : '') + costDelta.toFixed(1) + '%',
+      value: fmtCost(data.totalCost),
+      delta: fmtDelta(costDelta),
       deltaTone: costDelta > 0 ? 'bad' : 'good',
-      hint: 'vs ' + costFormatter.format(data.totalCostPrev) + ' prev',
+      hint: 'vs ' + fmtCost(data.totalCostPrev) + ' prev',
     },
     {
       label: 'Runs',
-      value: data.totalRuns.toLocaleString(),
-      delta: (runsDelta > 0 ? '+' : '') + runsDelta.toFixed(1) + '%',
+      value: fmtNum(data.totalRuns),
+      delta: fmtDelta(runsDelta),
       deltaTone: 'neutral',
-      hint: costFormatter.format(avgPer1k) + ' / 1K runs',
+      hint: fmtCost(avgPer1k) + ' / 1K runs',
     },
     {
       label: 'Tokens',
-      value: tokenFormatter.format(totalTokens),
-      delta: '',
-      deltaTone: 'neutral',
+      value: fmtTokens(totalTokens),
       hint: 'input + output',
     },
   ];
 }
 
-export default function UsagePage({ range: _range }: UsagePageProps) {
+const KPI_ITEMS = kpiItems(USAGE_DATA);
+
+export default function UsagePage() {
   const data = USAGE_DATA;
   const [tab, setTab] = useState<BreakdownTab>('user');
   const [sortBy, setSortBy] = useState<SortKey>('cost');
-  const items = useMemo(() => kpiItems(data), [data]);
 
   function handleTabChange(t: BreakdownTab) {
     setTab(t);
@@ -79,24 +58,33 @@ export default function UsagePage({ range: _range }: UsagePageProps) {
         subtitle={`${data.range.start} – ${data.range.end} · ${data.users.length} active clients, ${data.workflows.length} workflows`}
       />
 
-      <div style={{ paddingBottom: 8 }}>
-        <KpiStrip items={items} />
-      </div>
+      <KpiStrip items={KPI_ITEMS} />
 
-      <div style={{ marginTop: 28 }}>
-        <PanelFrame
-          left={
-            <Panel eyebrow="Spend" title="Daily spend" right={<DailyChartLegend />}>
-              <DailyChart series={data.dailySeries} />
-            </Panel>
-          }
-          right={
-            <Panel eyebrow="Models" title="Where it goes">
-              <ModelsList models={data.models} />
-            </Panel>
-          }
-        />
-      </div>
+      <PanelFrame
+        left={
+          <Panel eyebrow="Spend" title="Daily spend" right={<DailyChartLegend />}>
+            <DailyChart series={data.dailySeries} />
+          </Panel>
+        }
+        right={
+          <Panel eyebrow="Models" title="Where it goes">
+            <ModelsList models={data.models} />
+          </Panel>
+        }
+      />
+
+      <PanelFrame
+        left={
+          <Panel eyebrow="Tokens" title="Tokens in vs out" right={<TokenChartLegend />}>
+            <TokenChart series={data.tokenSeries} />
+          </Panel>
+        }
+        right={
+          <Panel eyebrow="Mix" title="Token mix">
+            <TokenMix series={data.tokenSeries} />
+          </Panel>
+        }
+      />
 
       <SectionHead
         title="Who's driving cost"

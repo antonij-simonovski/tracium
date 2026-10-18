@@ -171,3 +171,29 @@ func TestValidKeyReuseNotThrottled(t *testing.T) {
 		t.Fatalf("API called %d times after budget exhausted, want still 1", got)
 	}
 }
+
+func TestRateLimitedSenderFallsBackToStaleKey(t *testing.T) {
+	var calls atomic.Int32
+	a, _ := newTestAuth(t, func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		_, _ = w.Write([]byte(`{"workspace_id":"ws-1"}`))
+	})
+	a.cfg.MaxStaleAge = 10 * time.Minute
+	a.senderLimiter = newSenderLimiter(1, time.Minute)
+	token := "trc_valid"
+	key := cacheKeyFor(token)
+	a.store(key, cacheEntry{workspace: "ws-1", ok: true})
+	a.items[key].Value.(*cacheNode).entry.expires = time.Now().Add(-time.Second)
+	a.senderLimiter.allow("10.0.0.1")
+
+	ctx, err := a.Authenticate(ctxFromSender("10.0.0.1"), map[string][]string{"authorization": {"Bearer " + token}})
+	if err != nil {
+		t.Fatalf("rate-limited sender with a just-expired valid key was rejected: %v", err)
+	}
+	if got := client.FromContext(ctx).Auth.GetAttribute(AttrWorkspace); got != "ws-1" {
+		t.Fatalf("workspace = %v, want ws-1", got)
+	}
+	if calls.Load() != 0 {
+		t.Fatal("rate-limited sender reached the verify API")
+	}
+}

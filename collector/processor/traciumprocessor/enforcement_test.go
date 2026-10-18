@@ -138,3 +138,46 @@ func TestProcessTracesNoAuthDropsSpan(t *testing.T) {
 		t.Fatalf("drop code = %q, want %q", got, customerrors.ErrUnauthenticated)
 	}
 }
+
+func TestProcessTracesDeadLettersChainDropWithCode(t *testing.T) {
+	p, dlq := newTestProcessor()
+	td := tracesWithWorkspace("")
+	span := td.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0)
+	span.SetEndTimestamp(span.StartTimestamp() - 1_000_000_000)
+
+	out, err := p.processTraces(ctxWithAuth(fakeAuth{workspace: "ws-1"}), td)
+	if err != nil {
+		t.Fatalf("processTraces: %v", err)
+	}
+	if got := spanCount(out); got != 0 {
+		t.Fatalf("invalid span survived: span count = %d", got)
+	}
+	if len(dlq.records) != 1 || dlq.records[0].Code != string(customerrors.ErrInvalidTimestamp) {
+		t.Fatalf("dead-letter records = %+v, want one %s", dlq.records, customerrors.ErrInvalidTimestamp)
+	}
+	if got := dlq.records[0].Span.WorkspaceID; got != "ws-1" {
+		t.Fatalf("dead-lettered workspace = %q, want ws-1", got)
+	}
+}
+
+func TestProcessTracesKeepsUnmeteredFlagWhenContentStripped(t *testing.T) {
+	p, _ := newTestProcessor()
+	p.captureContent = false
+	td := tracesWithWorkspace("")
+	attrs := td.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+	attrs.PutStr("gen_ai.request.model", "gpt-4o-mini")
+	attrs.PutStr("gen_ai.is_streaming", "true")
+	attrs.PutStr("gen_ai.completion.0.content", "one, two, three")
+
+	out, err := p.processTraces(ctxWithAuth(fakeAuth{workspace: "ws-1"}), td)
+	if err != nil {
+		t.Fatalf("processTraces: %v", err)
+	}
+	got := out.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+	if _, ok := got.Get("gen_ai.completion.0.content"); ok {
+		t.Fatal("content was not stripped")
+	}
+	if v, ok := got.Get(attrUnmetered); !ok || !v.Bool() {
+		t.Fatalf("%s not stamped", attrUnmetered)
+	}
+}

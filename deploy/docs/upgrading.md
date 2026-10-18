@@ -1,4 +1,6 @@
-# Upgrading to workspace-scoped telemetry
+# Upgrade notes
+
+## Workspace-scoped telemetry
 
 Fresh installations run all migrations automatically. Existing installations
 whose spans still contain `tenant_id` must explicitly choose an existing
@@ -10,7 +12,7 @@ including history whose raw spans have expired. It retains the original rollup
 as `tracium.metrics_daily_pre_workspace`. Back up ClickHouse and Postgres before
 upgrading and keep the old images until validation completes.
 
-## Docker Compose
+### Docker Compose
 
 1. Using the existing dashboard, create or select the workspace that should own
    **all legacy telemetry**. Record its ID and owner. If old telemetry belongs to
@@ -25,24 +27,25 @@ upgrading and keep the old images until validation completes.
    LEGACY_INGESTION_PAUSED=true
    ```
 
-4. With the new source checked out, run `docker compose build`, then
-   `docker compose run --rm migrate`. On failure, leave ingestion stopped and
+4. Check out the new release's source (migrations run from its
+   `collector/schema/`), set `TRACIUM_VERSION` in `.env` to that release, run
+   `docker compose pull`, then `docker compose run --rm migrate`. On failure, leave ingestion stopped and
    rerun the migration with the **same workspace ID**. The migration checks its
    saved mapping and rebuilds the new rollup from the retained old states so a
    retry does not duplicate totals.
 5. Start the new services with `docker compose up -d`. Existing workspace owners
    receive owner memberships automatically. Sign in as the chosen owner and
    verify both recent traces and long-range totals before resuming exporters.
-6. Configure every exporter with
-   `OTEL_RESOURCE_ATTRIBUTES=tracium.workspace.id=THE_WORKSPACE_ID` (append it to
-   any existing attributes). Remove the two `LEGACY_*` settings and resume
-   ingestion. New spans with no workspace ID remain inaccessible in the UI.
+6. Create an API key for the workspace (its **API keys** screen) and configure
+   every exporter to send it as `Authorization: Bearer <key>`. The key decides
+   the workspace, so exporters set no workspace attribute. Remove the two
+   `LEGACY_*` settings and resume ingestion.
 
 Do not restart the old collector after migrating: it still writes `tenant_id`.
 Rollback requires restoring the pre-upgrade databases and old images together.
 Do not drop the retained rollup until the upgrade has been verified.
 
-## Kubernetes
+### Kubernetes
 
 Pause producers, drain queues, and scale the old collector and API to zero
 before upgrading. Pass `migrate.legacyWorkspaceId` and
@@ -54,7 +57,7 @@ The migration script runs only once according to Postgres `schema_migrations`.
 Do not delete migration records or manually rerun completed upgrade scripts
 against an active installation.
 
-# Backfilling the reconciled cost rollup
+## Backfilling the reconciled cost rollup
 
 Migrations `007`/`008` add `tracium.metrics_daily_cost`, a source-aware cost
 rollup that lets long windows (90d/1y) reconcile span- and metric-derived spend
@@ -91,7 +94,7 @@ directing users at long-range cost if that transient is unacceptable.
 > `metrics_daily_cost`. The `repair-rollup` command (in the API image) rebuilds
 > **both** rollups for the affected days; see `rollup-repair.md`.
 
-# Typed read views (calls / usage_metrics)
+## Typed read views (calls / usage_metrics)
 
 Migrations `009`/`010` add two views over `tracium.spans`:
 `tracium.calls` (`source='span'`) and `tracium.usage_metrics` (`source='metric'`).
@@ -110,3 +113,21 @@ If you later `ADD COLUMN` to `tracium.spans` and the API must read it, recreate
 the views (they are `CREATE VIEW IF NOT EXISTS`, so a re-run alone is a no-op):
 `DROP VIEW IF EXISTS tracium.calls;` then re-apply the migration, likewise for
 `tracium.usage_metrics`.
+
+## Workflow versions (migration 014)
+
+Migration `014` adds `workflow_version` to `tracium.spans` and to the
+`tracium.metrics_daily` sorting key. A sorting key can't gain a column
+in place, so the migration renames the rollup to
+`tracium.metrics_daily_pre_version`, recreates it, and copies every aggregate
+state across as unversioned. It also recreates the `calls` and `usage_metrics`
+views so they expose the new column.
+
+Stop the collector while it runs: spans written while the rollup's view is
+dropped are not added to `metrics_daily`. If it fails, rerun it; a retry picks
+up from the retained table. The new API reads the new column, so apply the
+migration before rolling the API (the standard deploy order already does). Drop
+`tracium.metrics_daily_pre_version` once long-range totals check out.
+
+Spans stored before the upgrade have no version. Only spans ingested afterwards
+carry one.

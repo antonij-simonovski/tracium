@@ -10,7 +10,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tracium/api/internal/model"
-	"github.com/tracium/api/migrations"
 )
 
 // ErrNotFound is returned when no active key matches a lookup. It is returned
@@ -18,14 +17,11 @@ import (
 // another workspace — callers must not be able to distinguish those cases.
 var ErrNotFound = errors.New("api key not found")
 
-// Store persists API keys in Postgres. Handlers depend on this interface rather
-// than the concrete type.
+// Store persists API keys. Handlers depend on this interface rather than the
+// concrete type.
 type Store interface {
-	// Insert records a new key and returns the server-assigned creation time. hash
-	// is the stored SHA-256 lookup value; the plaintext token never reaches the
-	// store. The created_at column defaults to NOW() in the database, so returning
-	// it here lets the caller surface an accurate timestamp in the create response
-	// instead of a zero value.
+	// Insert records a key by the SHA-256 hash of its token and returns the
+	// database-assigned creation time.
 	Insert(ctx context.Context, key model.APIKey, hash string) (time.Time, error)
 	// List returns every key in a workspace, newest first, including revoked ones
 	// so the UI can show history. Secrets and hashes are never returned.
@@ -38,10 +34,6 @@ type Store interface {
 	// workspace it grants), ignoring revoked keys, and stamps last_used_at.
 	// Returns ErrNotFound when there is no active match.
 	FindActiveByHash(ctx context.Context, hash string) (*model.APIKey, error)
-	// Ping verifies the underlying connection. Used by the readiness probe.
-	Ping(ctx context.Context) error
-	// Close releases the connection pool.
-	Close()
 }
 
 // PostgresStore is the Postgres-backed Store.
@@ -49,22 +41,8 @@ type PostgresStore struct {
 	pool *pgxpool.Pool
 }
 
-// NewStore connects to Postgres and ensures the api_keys table exists.
-func NewStore(ctx context.Context, dsn string) (*PostgresStore, error) {
-	pool, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		return nil, fmt.Errorf("postgres: connect: %w", err)
-	}
-	if err := pool.Ping(ctx); err != nil {
-		pool.Close()
-		return nil, fmt.Errorf("postgres: ping: %w", err)
-	}
-	store := &PostgresStore{pool: pool}
-	if err := migrations.Apply(ctx, pool, migrations.Core); err != nil {
-		pool.Close()
-		return nil, err
-	}
-	return store, nil
+func NewStore(pool *pgxpool.Pool) *PostgresStore {
+	return &PostgresStore{pool: pool}
 }
 
 func (s *PostgresStore) Insert(ctx context.Context, key model.APIKey, hash string) (time.Time, error) {
@@ -108,7 +86,7 @@ func (s *PostgresStore) List(ctx context.Context, workspaceID string) ([]model.A
 func (s *PostgresStore) Revoke(ctx context.Context, id, workspaceID string) error {
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE api_keys SET revoked_at = NOW()
-		   WHERE id = $1 AND workspace_id = $2 AND revoked_at IS NULL`, id, workspaceID,
+		   WHERE id::text = $1 AND workspace_id = $2 AND revoked_at IS NULL`, id, workspaceID,
 	)
 	if err != nil {
 		return fmt.Errorf("postgres: revoke api key: %w", err)
@@ -120,18 +98,8 @@ func (s *PostgresStore) Revoke(ctx context.Context, id, workspaceID string) erro
 }
 
 func (s *PostgresStore) FindActiveByHash(ctx context.Context, hash string) (*model.APIKey, error) {
-	// Resolve the key and, when it is stale, bump last_used_at — in one round
-	// trip, but writing only when needed.
-	//
-	// last_used_at is purely informational, so stamping it on every verify is
-	// wasteful: it churns the row (dead tuples, WAL, autovacuum) on the ingest
-	// hot path, and with the collector's verify-cache disabled that is a write
-	// per request. The data-modifying CTE below always SELECTs the row (so a
-	// fresh key is still returned without a write) and only performs the UPDATE
-	// when last_used_at is older than the throttle window. Both CTE arms share
-	// one snapshot, so the returned last_used_at is the pre-bump value — fine for
-	// a "roughly when was this last used" field. The revoked_at IS NULL guard
-	// makes a revoked key indistinguishable from a nonexistent one.
+	// last_used_at is written at most once a minute to keep the ingest hot path
+	// read-only; both CTE arms share a snapshot, so the pre-bump value is returned.
 	var k model.APIKey
 	err := s.pool.QueryRow(ctx,
 		`WITH found AS (
@@ -152,7 +120,3 @@ func (s *PostgresStore) FindActiveByHash(ctx context.Context, hash string) (*mod
 	}
 	return &k, nil
 }
-
-func (s *PostgresStore) Ping(ctx context.Context) error { return s.pool.Ping(ctx) }
-
-func (s *PostgresStore) Close() { s.pool.Close() }

@@ -19,9 +19,22 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/component: postgres
     spec:
+      automountServiceAccountToken: false
       containers:
         - name: postgres
           image: postgres:16-alpine
+          # New volumes keep data in a subdirectory, since a block volume's root
+          # holds lost+found; volumes already initialized at the root stay there.
+          command:
+            - sh
+            - -c
+            - |
+              if [ -s /var/lib/postgresql/data/PG_VERSION ]; then
+                export PGDATA=/var/lib/postgresql/data
+              else
+                export PGDATA=/var/lib/postgresql/data/pgdata
+              fi
+              exec docker-entrypoint.sh postgres
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
           ports:
             - name: postgres
@@ -59,7 +72,9 @@ spec:
         name: data
       spec:
         accessModes: ["ReadWriteOnce"]
-        storageClassName: {{ .Values.postgres.storageClass }}
+        {{- with .Values.postgres.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
         resources:
           requests:
             storage: {{ .Values.postgres.storageSize | default "10Gi" }}

@@ -77,10 +77,7 @@ func (h *InviteHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// The store runs this only for a new invitation: replacing an open invite's
 	// link takes no new seat, which keeps "New link" working in a full workspace.
 	allow := func(ctx context.Context) error {
-		if denial := checkMemberEntitlement(ctx, h.entitlements, extension.Subject{UserID: userID, WorkspaceID: workspaceID}, InviteFeature); denial != nil {
-			return denial
-		}
-		return nil
+		return checkMemberEntitlement(ctx, h.entitlements, extension.Subject{UserID: userID, WorkspaceID: workspaceID}, InviteFeature)
 	}
 	if err := h.invites.CreateInvite(r.Context(), &inv, tokens.Hash(token), allow); err != nil {
 		var denial *entitlementDenial
@@ -190,10 +187,7 @@ func (h *InviteHandler) Accept(w http.ResponseWriter, r *http.Request) {
 	// The seat check runs inside the accept transaction, once the invite is known
 	// to be open and addressed to this account.
 	allow := func(ctx context.Context, workspaceID string) error {
-		if denial := checkMemberEntitlement(ctx, h.entitlements, extension.Subject{UserID: principal.UserID, WorkspaceID: workspaceID}, MemberAddFeature); denial != nil {
-			return denial
-		}
-		return nil
+		return checkMemberEntitlement(ctx, h.entitlements, extension.Subject{UserID: principal.UserID, WorkspaceID: workspaceID}, MemberAddFeature)
 	}
 	workspaceID, err := h.invites.AcceptInvite(r.Context(), tokens.Hash(token), principal.UserID, allow)
 	if err != nil {

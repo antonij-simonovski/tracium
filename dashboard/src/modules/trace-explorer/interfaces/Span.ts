@@ -1,5 +1,5 @@
-import type { TraceId, SpanId } from '../ids';
-import type { UserId } from '../../../common/ids';
+import type { TraceId, SpanId, UserId } from '../../../common/ids';
+import type { AvailableTool, SetupIssue } from '../../../common/interfaces';
 
 export interface Span {
   trace_id: TraceId;
@@ -35,12 +35,6 @@ export interface Span {
   // when the collector has content capture enabled.
   input?: string;
   output?: string;
-  available_tools?: SpanTool[];
-}
-
-/** A tool offered to the model on a span, and whether the model invoked it. */
-export interface SpanTool {
-  name: string;
-  description: string;
-  used: boolean;
+  available_tools?: AvailableTool[];
+  setup_issues?: SetupIssue[];
 }

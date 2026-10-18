@@ -43,9 +43,7 @@ func (h *SpanHandler) ListSpans(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Rule 5: never serve a row a newer collector wrote — its fields may mean
-	// something else. Checked here rather than in one repository so it holds for
-	// every TraceRepository implementation.
+	// Never serve a row a newer collector wrote: its fields may mean something else.
 	if err := model.CheckSchemaCompatibility(spans); err != nil {
 		respondError(w, http.StatusInternalServerError, "SCHEMA_INCOMPATIBLE", err.Error())
 		return

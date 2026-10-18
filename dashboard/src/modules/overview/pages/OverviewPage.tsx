@@ -1,13 +1,6 @@
-// ---------------------------------------------------------------------------
-// OverviewPage — the demo overview shown in the logged-out auth-page preview.
-// It renders the shared editorial sections from static demo data and a
-// simulated live feed. The live (signed-in) variant is OverviewLivePage.
-// ---------------------------------------------------------------------------
-
 import { useEffect, useState } from 'react';
 import {
   Masthead,
-  KpiStrip,
   ChartsRow,
   FailuresBlock,
   TopWorkflows,
@@ -16,10 +9,12 @@ import {
   OutlierChips,
   OutliersPanel,
 } from '../components';
-import type { KpiItem, TopWorkflowRow } from '../components';
+import type { TopWorkflowRow } from '../components';
 import type { Anomaly } from '../interfaces';
 import { anomalyKey, anomalyValue, toChartMarkers } from '../utils/anomalies';
-import { fmtNum } from '../../../common';
+import { KpiStrip, fmtCost, fmtNum, rangeLabel } from '../../../common';
+import type { KpiItem } from '../../../common';
+import type { TraceId } from '../../../common/ids';
 import { WORKFLOWS } from '../../workflows';
 import {
   ACTIVITY_FEED,
@@ -32,67 +27,39 @@ import {
   ERROR_SERIES_7D,
 } from '../data';
 import type { ActivityItem } from '../interfaces';
-import type { ActivityId } from '../ids';
-
-export interface Tweaks {
-  feedPosition: 'left' | 'right';
-}
 
 export interface OverviewPageProps {
   range: string;
   setView: (v: string) => void;
   setSelected: (updater: (prev: Record<string, string>) => Record<string, string>) => void;
-  tweaks: Tweaks;
 }
 
-const RANGE_LABEL: Record<string, string> = {
-  '24h': 'last 24 hours',
-  '30d': 'last 30 days',
-  '7d': 'last 7 days',
-};
-
-// Most-used workflows for the volume list: busiest first, carrying the trend the
-// editorial row renders.
 const TOP_WORKFLOWS: TopWorkflowRow[] = WORKFLOWS.slice()
   .sort((a, b) => b.calls - a.calls)
   .slice(0, 6)
   .map((a) => ({ name: a.name, calls: a.calls, cost: a.cost, trend: a.trend }));
 
-// Demo outliers for the logged-out preview — four flagged buckets over a 7-day
-// axis (two cost spikes, one error-rate spike, one volume surge), mirroring the
-// live /metrics/anomalies payload so the outlier surfaces render without a
-// backend. Observed cost values are read off the demo cost series so the flags
-// sit on the right bars.
 const DAY_MS = 86_400_000;
 function buildDemoOutliers(cost: { value: number }[]): { axisMs: number[]; anomalies: Anomaly[] } {
-  const n = cost.length; // 7 for the 7d series
+  const n = cost.length;
   const today = Math.floor(Date.now() / DAY_MS) * DAY_MS;
   const axisMs = Array.from({ length: n }, (_, i) => today - (n - 1 - i) * DAY_MS);
-  // Anchor the cost outliers on the tallest bars so the flags sit on real spikes
-  // and observed > expected holds (the live API guarantees this; the demo has to
-  // arrange it by hand).
+  // Anchor the cost outliers on the tallest bars so observed > expected holds.
   const byHeight = cost.map((c, i) => ({ i, v: c.value })).sort((a, b) => b.v - a.v);
   const bigIdx = byHeight[0]?.i ?? n - 1;
   const midIdx = byHeight[1]?.i ?? Math.max(0, n - 2);
   const bigVal = cost[bigIdx]?.value ?? 4.71;
   const midVal = cost[midIdx]?.value ?? 0.34;
   const anomalies: Anomaly[] = [
-    // Scores match the backend's severity bands (info ≥3, warning ≥4.5, critical
-    // ≥6). checkout-workflow trips both cost and errors on the same day so the
-    // grouped view has a multi-flag incident to show; the rest are single flags.
-    { metric: 'cost', scope: 'workflow', workflow: 'checkout-workflow', bucket_ms: axisMs[bigIdx], observed: bigVal, expected: bigVal / 4.6, deviation: bigVal - bigVal / 4.6, score: 6.4, direction: 'spike', severity: 'critical', summary: 'Workflow "checkout-workflow" cost spiked, 4.6× the typical day.' },
-    { metric: 'error_rate', scope: 'workflow', workflow: 'checkout-workflow', bucket_ms: axisMs[bigIdx], observed: 0.22, expected: 0.05, deviation: 0.17, score: 5.2, direction: 'spike', severity: 'warning', summary: 'Workflow "checkout-workflow" error rate rose to 22% the same day.' },
-    { metric: 'error_rate', scope: 'workflow', workflow: 'support-ticket-resolver', bucket_ms: axisMs[Math.min(n - 1, 5)], observed: 0.19, expected: 0.04, deviation: 0.15, score: 7.1, direction: 'spike', severity: 'critical', summary: 'Workflow "support-ticket-resolver" error rate rose to 19%.' },
-    { metric: 'runs', scope: 'workspace', workflow: '', bucket_ms: axisMs[Math.min(n - 1, 3)], observed: 512, expected: 190, deviation: 322, score: 4.8, direction: 'spike', severity: 'warning', summary: 'Workspace run volume rose to 512, 2.7× the typical day.' },
-    { metric: 'cost', scope: 'workflow', workflow: 'invoice-parser', bucket_ms: axisMs[midIdx], observed: midVal, expected: midVal / 2.4, deviation: midVal - midVal / 2.4, score: 3.4, direction: 'spike', severity: 'info', summary: 'Workflow "invoice-parser" is drifting 2.4× costlier per run.' },
+    // Scores follow the API's severity bands (info ≥3, warning ≥4.5, critical ≥6).
+    { metric: 'cost', scope: 'workflow', workflow: 'checkout-workflow', bucket_ms: axisMs[bigIdx], observed: bigVal, expected: bigVal / 4.6, deviation: bigVal - bigVal / 4.6, score: 6.4, direction: 'spike', severity: 'critical', summary: 'Workflow "checkout-workflow" cost spiked, 4.6× the typical day. Started near checkout-workflow v3.', version_change: { workflow: 'checkout-workflow', version: 'v3', first_seen_ms: axisMs[bigIdx] } },
+    { metric: 'error_rate', scope: 'workflow', workflow: 'checkout-workflow', bucket_ms: axisMs[bigIdx], observed: 0.22, expected: 0.05, deviation: 0.17, score: 5.2, direction: 'spike', severity: 'warning', summary: 'Workflow "checkout-workflow" error rate rose to 22% the same day.', version_change: null },
+    { metric: 'error_rate', scope: 'workflow', workflow: 'support-ticket-resolver', bucket_ms: axisMs[Math.min(n - 1, 5)], observed: 0.19, expected: 0.04, deviation: 0.15, score: 7.1, direction: 'spike', severity: 'critical', summary: 'Workflow "support-ticket-resolver" error rate rose to 19%.', version_change: null },
+    { metric: 'runs', scope: 'workspace', workflow: '', bucket_ms: axisMs[Math.min(n - 1, 3)], observed: 512, expected: 190, deviation: 322, score: 4.8, direction: 'spike', severity: 'warning', summary: 'Workspace run volume rose to 512, 2.7× the typical day.', version_change: null },
+    { metric: 'cost', scope: 'workflow', workflow: 'invoice-parser', bucket_ms: axisMs[midIdx], observed: midVal, expected: midVal / 2.4, deviation: midVal - midVal / 2.4, score: 3.4, direction: 'spike', severity: 'info', summary: 'Workflow "invoice-parser" is drifting 2.4× costlier per run.', version_change: null },
   ];
   return { axisMs, anomalies };
 }
-
-// ---------------------------------------------------------------------------
-// Simulated live feed — ages existing rows and prepends a fresh event so the
-// activity list ticks like a real stream.
-// ---------------------------------------------------------------------------
 
 const FEED_WORKFLOWS = ['summarize-comments', 'classify-intent', 'detect-sentiment', 'moderate-content', 'extract-entities', 'rewrite-message'];
 const FEED_ERRORS = ['rate_limit_exceeded', 'timeout', 'context_length'];
@@ -106,12 +73,11 @@ function useSimulatedFeed(): ActivityItem[] {
       setItems((prev) => {
         const failed = Math.random() < 1 / 6;
         const next: ActivityItem = {
-          id: ('t_' + Math.random().toString(16).slice(2, 8)) as ActivityId,
+          id: ('t_' + Math.random().toString(16).slice(2, 8)) as TraceId,
           workflow: pick(FEED_WORKFLOWS),
           status: failed ? 'failed' : 'completed',
           time: 'just now',
-          cost: parseFloat((Math.random() * 0.002).toFixed(4)),
-          latency: parseFloat((Math.random() * 3 + 0.3).toFixed(1)),
+          latency: Math.random() * 3 + 0.3,
           msg: failed ? pick(FEED_ERRORS) : undefined,
         };
         const aged = prev.map((it) => (it.time === 'just now' ? { ...it, time: '2s ago' } : it));
@@ -124,12 +90,7 @@ function useSimulatedFeed(): ActivityItem[] {
   return items;
 }
 
-// ---------------------------------------------------------------------------
-// OverviewPage (demo)
-// ---------------------------------------------------------------------------
-
-export function OverviewPage({ range, setView, setSelected, tweaks }: OverviewPageProps) {
-  const feedPosition = tweaks.feedPosition ?? 'right';
+export function OverviewPage({ range, setView, setSelected }: OverviewPageProps) {
   const feedItems = useSimulatedFeed();
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [selectedOutlier, setSelectedOutlier] = useState<string | null>(null);
@@ -137,8 +98,7 @@ export function OverviewPage({ range, setView, setSelected, tweaks }: OverviewPa
   const costSeries = range === '24h' ? COST_SERIES_24H : range === '30d' ? COST_SERIES_30D : COST_SERIES_7D;
   const latSeries = range === '24h' ? LATENCY_SERIES_24H : range === '30d' ? LATENCY_SERIES_30D : LATENCY_SERIES_7D;
 
-  // Demo outliers are wired for the default 7d range (its axis matches the demo
-  // error series), so the outlier surfaces are visible in the logged-out preview.
+  // The demo outliers sit on the 7d axis, which matches the demo error series.
   const showOutliers = range === '7d';
   const demo = showOutliers ? buildDemoOutliers(costSeries) : null;
   const liveAnoms = demo ? demo.anomalies.filter((a) => !dismissed.has(anomalyKey(a))) : [];
@@ -161,7 +121,6 @@ export function OverviewPage({ range, setView, setSelected, tweaks }: OverviewPa
 
   const totalCost = costSeries.reduce((s, d) => s + d.value, 0);
   const allTraces = WORKFLOWS.reduce((s, a) => s + a.calls, 0);
-  // error_rate is a fraction (0–1); failedCount sums failed runs, errorRate is the percent shown.
   const failedRuns = WORKFLOWS.reduce((s, a) => s + a.error_rate * a.calls, 0);
   const errorRate = (failedRuns / allTraces) * 100;
   const failedCount = Math.round(failedRuns);
@@ -172,7 +131,7 @@ export function OverviewPage({ range, setView, setSelected, tweaks }: OverviewPa
   const kpis: KpiItem[] = [
     {
       label: 'Total spend',
-      value: '$' + totalCost.toFixed(totalCost < 1 ? 4 : 2),
+      value: fmtCost(totalCost),
       delta: '-12%',
       deltaTone: 'good',
       sparkData: costSeries.map((d) => d.value),
@@ -208,11 +167,10 @@ export function OverviewPage({ range, setView, setSelected, tweaks }: OverviewPa
 
   return (
     <OverviewLayout
-      feedPosition={feedPosition}
       masthead={
         <Masthead
           title="Overview"
-          subtitle={`Workspace health and AI spend across the ${RANGE_LABEL[range] ?? RANGE_LABEL['7d']}.`}
+          subtitle={`Workspace health and AI spend across the ${rangeLabel(range)}.`}
         />
       }
       kpis={<KpiStrip items={kpis} />}

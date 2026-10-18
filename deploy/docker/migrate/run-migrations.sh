@@ -14,7 +14,7 @@ MIGRATIONS_DIR="${MIGRATIONS_DIR:-/migrations}"
 # clause is dropped entirely. Defaults to 90 days.
 RETENTION_DAYS="${RETENTION_DAYS:-90}"
 if ! printf '%s' "${RETENTION_DAYS}" | grep -Eq '^[0-9]+$'; then
-  echo "✘ RETENTION_DAYS must be a non-negative integer (got '${RETENTION_DAYS}')" >&2
+  echo "error: RETENTION_DAYS must be a non-negative integer (got '${RETENTION_DAYS}')" >&2
   exit 1
 fi
 
@@ -37,22 +37,22 @@ ch_query() {
     --data-binary "${sql}"
 }
 
-echo "▶ Waiting for ClickHouse at ${CLICKHOUSE_HTTP}..."
+echo "Waiting for ClickHouse at ${CLICKHOUSE_HTTP}..."
 until curl -s -f "${CLICKHOUSE_HTTP}/ping" >/dev/null 2>&1; do
   sleep 2
 done
 echo "  ClickHouse ready."
 
-echo "▶ Waiting for Postgres..."
+echo "Waiting for Postgres..."
 until pg_isready -d "${POSTGRES_DSN}" >/dev/null 2>&1; do
   sleep 2
 done
 echo "  Postgres ready."
 
-echo "▶ Creating ClickHouse database..."
+echo "Creating ClickHouse database..."
 ch_query "CREATE DATABASE IF NOT EXISTS tracium"
 
-echo "▶ Ensuring migration tracking table..."
+echo "Ensuring migration tracking table..."
 psql "${POSTGRES_DSN}" -v ON_ERROR_STOP=1 -q -c "
   CREATE TABLE IF NOT EXISTS schema_migrations (
     filename   TEXT PRIMARY KEY,
@@ -61,12 +61,12 @@ psql "${POSTGRES_DSN}" -v ON_ERROR_STOP=1 -q -c "
 "
 
 if [ "${RETENTION_DAYS}" -eq 0 ]; then
-  echo "▶ Span retention: unlimited (no TTL)"
+  echo "Span retention: unlimited (no TTL)"
 else
-  echo "▶ Span retention: ${RETENTION_DAYS} days"
+  echo "Span retention: ${RETENTION_DAYS} days"
 fi
 
-echo "▶ Running migrations from ${MIGRATIONS_DIR}..."
+echo "Running migrations from ${MIGRATIONS_DIR}..."
 for sql_file in $(find -L "${MIGRATIONS_DIR}" -maxdepth 1 -type f \( -name "*.sql" -o -name "*.sh" \) | sort); do
   filename=$(basename "${sql_file}")
   count=$(psql "${POSTGRES_DSN}" -v ON_ERROR_STOP=1 -t -c \
@@ -86,4 +86,4 @@ for sql_file in $(find -L "${MIGRATIONS_DIR}" -maxdepth 1 -type f \( -name "*.sq
   fi
 done
 
-echo "✔ Migrations complete."
+echo "Migrations complete."

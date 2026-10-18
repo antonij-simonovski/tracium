@@ -99,7 +99,7 @@ describe('live API keys page', () => {
     show();
     await screen.findByText('Production ingest');
 
-    fireEvent.click(screen.getByTitle('Revoke'));
+    fireEvent.click(screen.getByRole('button', { name: 'Revoke Production ingest' }));
     fireEvent.click(screen.getByRole('button', { name: /Revoke key/ }));
 
     await waitFor(() => expect(api.revoke).toHaveBeenCalledWith('ws-1', 'k1'));
@@ -124,16 +124,12 @@ describe('live API keys page', () => {
     fireEvent.click(createButtons[createButtons.length - 1]);
     expect(await screen.findByText('trc_secret_full_token')).toBeInTheDocument();
 
-    // The parent swaps workspaceId without remounting the page. The plaintext key
-    // belongs to ws-1 and must not linger on screen once ws-2 is selected.
     rerender(
       <QueryClientProvider client={client}>
         <ApiKeysPage workspaceId="ws-2" />
       </QueryClientProvider>,
     );
-    await waitFor(() =>
-      expect(screen.queryByText('trc_secret_full_token')).not.toBeInTheDocument(),
-    );
+    expect(screen.queryByText('trc_secret_full_token')).not.toBeInTheDocument();
   });
 
   it('surfaces a load failure instead of inventing keys', async () => {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   IconHome,
   IconWorkflows,
@@ -8,7 +8,7 @@ import {
   IconSettings,
   IconSearch,
   IconChevronRight,
-  IconAlert,
+  handleDialogKeyDown,
 } from '../../../common';
 import type { CommandAction } from '../interfaces';
 
@@ -31,29 +31,15 @@ const CMD_ITEMS: CmdItemData[] = [
   { label: 'Clients', icon: <IconUsers size={14} />, action: { view: 'users' } },
   { label: 'API Keys', icon: <IconKey size={14} />, action: { view: 'keys' } },
   { label: 'Settings', icon: <IconSettings size={14} />, action: { view: 'settings' } },
-  {
-    label: 'Failed trace: rewrite-message',
-    icon: <IconAlert size={14} />,
-    action: { view: 'trace', trace: 't_a9f2' },
-  },
 ];
 
-export function CommandPalette({
-  open,
-  onClose,
-  onSelect,
-}: CommandPaletteProps): React.ReactElement | null {
+export function CommandPalette({ open, ...props }: CommandPaletteProps): React.ReactElement | null {
+  return open ? <Palette {...props} /> : null;
+}
+
+function Palette({ onClose, onSelect }: Omit<CommandPaletteProps, 'open'>): React.ReactElement {
   const [query, setQuery] = useState('');
   const [idx, setIdx] = useState(0);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (open) {
-      setQuery('');
-      setIdx(0);
-      setTimeout(() => inputRef.current?.focus(), 50);
-    }
-  }, [open]);
 
   const filtered = useMemo<CmdItemData[]>(() => {
     if (!query.trim()) return CMD_ITEMS;
@@ -61,9 +47,10 @@ export function CommandPalette({
     return CMD_ITEMS.filter((item) => item.label.toLowerCase().includes(q));
   }, [query]);
 
-  useEffect(() => {
-    setIdx(0);
-  }, [filtered]);
+  const choose = (action: CommandAction | undefined) => {
+    onSelect(action);
+    onClose();
+  };
 
   const handleKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'ArrowDown') {
@@ -76,15 +63,9 @@ export function CommandPalette({
     }
     if (e.key === 'Enter') {
       e.preventDefault();
-      onSelect(filtered[idx]?.action);
-      onClose();
-    }
-    if (e.key === 'Escape') {
-      onClose();
+      choose(filtered[idx]?.action);
     }
   };
-
-  if (!open) return null;
 
   return (
     <div
@@ -101,7 +82,11 @@ export function CommandPalette({
       }}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Command palette"
         onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => handleDialogKeyDown(e, onClose)}
         style={{
           width: 560,
           maxWidth: '92vw',
@@ -109,7 +94,7 @@ export function CommandPalette({
           background: 'var(--surface)',
           border: '1px solid var(--border-strong)',
           borderRadius: 12,
-          boxShadow: '0 24px 60px rgba(0,0,0,0.6)',
+          boxShadow: '0 24px 60px var(--shadow-popover)',
           overflow: 'hidden',
         }}
       >
@@ -124,11 +109,15 @@ export function CommandPalette({
         >
           <IconSearch size={15} style={{ color: 'var(--muted)', flexShrink: 0 }} />
           <input
-            ref={inputRef}
+            autoFocus
+            aria-label="Search views"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setIdx(0);
+            }}
             onKeyDown={handleKey}
-            placeholder="Search views, traces, workflows…"
+            placeholder="Search views…"
             style={{
               flex: 1,
               background: 'transparent',
@@ -168,11 +157,8 @@ export function CommandPalette({
           ) : (
             filtered.map((item, i) => (
               <button
-                key={i}
-                onClick={() => {
-                  onSelect(item.action);
-                  onClose();
-                }}
+                key={item.label}
+                onClick={() => choose(item.action)}
                 onMouseEnter={() => setIdx(i)}
                 style={{
                   display: 'flex',

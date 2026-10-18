@@ -16,7 +16,7 @@ CHECK_DIR = Path(os.environ['CHECK_DIR'])
 PROJECT = os.environ['CHECK_PROJECT']
 API, OTLP = os.environ['API_URL'], os.environ['OTLP_URL']
 COMPOSE = ['docker', 'compose', '--project-name', PROJECT, '--env-file', str(CHECK_DIR / 'env'),
-           '-f', str(ROOT / 'docker-compose.yml'), '-f', str(ROOT / 'deploy/tests/production/compose.yaml')]
+           '-f', str(ROOT / 'docker-compose.yml'), '-f', str(ROOT / 'compose.build.yaml'), '-f', str(ROOT / 'deploy/tests/production/compose.yaml')]
 if (CHECK_DIR / 'images.yaml').exists():
     COMPOSE += ['-f', str(CHECK_DIR / 'images.yaml')]
 RESULTS = []

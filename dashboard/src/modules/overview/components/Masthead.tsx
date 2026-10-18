@@ -1,13 +1,4 @@
-// Page masthead: an eyebrow, the page title, a one-line description, and a
-// right-aligned sync indicator. Sits above all sections on the overview.
-
 import { LastUpdated, type SyncTone } from '../../../common';
-
-// The sync indicator carries a tone so it can tell the truth: green only when
-// data is fresh, amber when it's gone stale, red when a section failed to load.
-// SyncTone is defined alongside the shared LastUpdated indicator; re-exported
-// here so existing overview imports keep working.
-export type { SyncTone };
 
 export interface SyncStatus {
   label: string;

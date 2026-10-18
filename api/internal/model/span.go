@@ -17,7 +17,7 @@ type Span struct {
 	OutputTokens int64   `json:"output_tokens"`
 	CostUSD      float64 `json:"cost_usd"`
 	// SubtreeCostUSD is CostUSD plus the cost of every transitive descendant
-	// span, so a parent (an workflow that fans out to sub-workflows and tool calls)
+	// span, so a parent (a workflow that fans out to sub-workflows and tool calls)
 	// carries the total cost of everything beneath it. Derived at read time by
 	// AssignSubtreeTotals — there is no backing column, because spans stream in
 	// independently and out of order, so a subtree total can only be computed
@@ -37,8 +37,7 @@ type Span struct {
 	ErrorType           string `json:"error_type"`
 	ErrorMessage        string `json:"error_message"`
 
-	// Content & tools (schema v3). Input/Output are present only when the
-	// collector has content capture enabled; otherwise empty and omitted.
+	// Input/Output are present only when the collector has content capture enabled.
 	Input          string          `json:"input,omitempty"`
 	Output         string          `json:"output,omitempty"`
 	AvailableTools []AvailableTool `json:"available_tools,omitempty"`
@@ -48,6 +47,8 @@ type Span struct {
 	// Empty (omitted) when the collector could not classify the span or for
 	// pre-migration rows; the dashboard then infers the role from the trace tree.
 	Kind string `json:"kind,omitempty"`
+
+	SetupIssues []SetupIssue `json:"setup_issues,omitempty"`
 }
 
 // CheckSchemaCompatibility reports whether every span can be interpreted by

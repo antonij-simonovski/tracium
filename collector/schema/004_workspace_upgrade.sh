@@ -39,6 +39,8 @@ else
   # name here — 011 runs later. Rename it inline, exactly as tenant_id above.
   ch_query "ALTER TABLE tracium.spans RENAME COLUMN IF EXISTS agent_name TO workflow_name"
   ch_query "ALTER TABLE tracium.spans ADD COLUMN IF NOT EXISTS workspace_id String DEFAULT ''"
+  # The rollup DDL reads the column migration 014 adds.
+  ch_query "ALTER TABLE tracium.spans ADD COLUMN IF NOT EXISTS workflow_version LowCardinality(String) DEFAULT ''"
   # Store ownership explicitly. A permanent legacy default would silently grant
   # the old workspace access to future untagged spans. UPDATE is retry-safe
   # while ingestion is paused and does not overwrite already assigned rows.
@@ -59,6 +61,8 @@ else
   ch_query "$(cat "$MIGRATIONS_DIR/002_create_metrics_daily.sql")"
   ch_query "TRUNCATE TABLE tracium.metrics_daily"
   ch_query "INSERT INTO tracium.metrics_daily
+    (bucket_date, user_id, workspace_id, workflow_name, model,
+     cost, input_tokens, output_tokens, span_count, runs, error_runs)
     SELECT bucket_date, tenant_id, '$requested_workspace', agent_name, model,
            cost, input_tokens, output_tokens, span_count, runs, error_runs
     FROM tracium.metrics_daily_pre_workspace"

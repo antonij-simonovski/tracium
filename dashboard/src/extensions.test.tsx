@@ -20,7 +20,7 @@ describe('application extensions',()=>{
  });
  it('adds navigation without replacing core pages',()=>{
   const views:string[]=[];
-  render(<Sidebar items={pages} currentView="overview" setView={v=>views.push(v)} workspace={null} workspaces={[]} setWorkspace={()=>{}} createWorkspace={()=>{}} deleteWorkspace={()=>{}}/>);
+  render(<Sidebar items={pages} currentView="overview" setView={v=>views.push(v)} workspace={null} workspaces={[]} setWorkspace={()=>{}} createWorkspace={()=>{}} deleteWorkspace={async()=>{}}/>);
   expect(screen.getByRole('button',{name:'Overview'})).toBeTruthy();
   fireEvent.click(screen.getByRole('button',{name:'Billing'}));
   expect(views).toEqual(['extension:billing']);

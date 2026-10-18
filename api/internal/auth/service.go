@@ -2,12 +2,15 @@ package auth
 
 import (
 	"context"
+	"crypto/hmac"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/google/uuid"
 
 	"github.com/tracium/api/extension"
+	"github.com/tracium/api/internal/middleware"
 	"github.com/tracium/api/internal/model"
 )
 
@@ -38,8 +41,26 @@ func NewService(users *UserStore, tokens *TokenIssuer, lifecycle extension.Accou
 	return &Service{users: users, tokens: tokens, lifecycle: lifecycle}
 }
 
-// Authenticator exposes the token verifier for the auth middleware.
-func (s *Service) Authenticator() *TokenIssuer { return s.tokens }
+// Authenticate verifies a session token and returns its account. A token
+// issued before the account's last password change is rejected.
+func (s *Service) Authenticate(ctx context.Context, token string) (*model.Principal, error) {
+	claims, err := s.tokens.parse(token)
+	if err != nil {
+		return nil, err
+	}
+	user, err := s.users.ByID(ctx, claims.userID)
+	if errors.Is(err, ErrUserNotFound) {
+		return nil, err
+	}
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", middleware.ErrUnavailable, err)
+	}
+	// Tokens without a stamp predate it and expire within tokenTTL of rollout.
+	if claims.passwordStamp != "" && !hmac.Equal([]byte(claims.passwordStamp), []byte(s.tokens.passwordStamp(user.PasswordHash))) {
+		return nil, errors.New("token predates a password change")
+	}
+	return &model.Principal{UserID: user.ID, TenantID: user.TenantID, Role: user.Role}, nil
+}
 
 // RegisterResult reports the outcome of a registration. Token is empty when
 // ConfirmationRequired is true — the account must confirm its email before it
@@ -60,7 +81,7 @@ func (s *Service) Register(ctx context.Context, email, password string) (Registe
 
 	user := model.User{
 		ID:           uuid.NewString(),
-		Email:        normalizeEmail(email),
+		Email:        NormalizeEmail(email),
 		PasswordHash: hash,
 		TenantID:     uuid.NewString(),
 		Role:         "admin",
@@ -79,7 +100,7 @@ func (s *Service) Register(ctx context.Context, email, password string) (Registe
 		}
 	}
 
-	token, err := s.tokens.Issue(user.ID, user.TenantID, user.Role)
+	token, err := s.tokens.Issue(user)
 	if err != nil {
 		return RegisterResult{}, err
 	}
@@ -90,9 +111,10 @@ func (s *Service) Register(ctx context.Context, email, password string) (Registe
 // configured it also enforces email confirmation, returning
 // extension.ErrEmailUnverified for an unconfirmed account.
 func (s *Service) Login(ctx context.Context, email, password string) (string, error) {
-	user, err := s.users.ByEmail(ctx, normalizeEmail(email))
+	user, err := s.users.ByEmail(ctx, NormalizeEmail(email))
 	if err != nil {
 		if errors.Is(err, ErrUserNotFound) {
+			checkPassword(dummyHash, password)
 			return "", ErrInvalidCredentials
 		}
 		return "", err
@@ -107,7 +129,7 @@ func (s *Service) Login(ctx context.Context, email, password string) (string, er
 		}
 	}
 
-	return s.tokens.Issue(user.ID, user.TenantID, user.Role)
+	return s.tokens.Issue(*user)
 }
 
 // Issue signs a session token for an existing account without checking a
@@ -123,32 +145,35 @@ func (s *Service) Issue(ctx context.Context, userID string) (string, error) {
 			return "", err
 		}
 	}
-	return s.tokens.Issue(user.ID, user.TenantID, user.Role)
+	return s.tokens.Issue(*user)
 }
 
 // ChangePassword updates a signed-in user's password after verifying their
 // current one. Unlike the CLI reset-password tool (for operators without
 // access to the old password) and the hosted email-reset flow, this is the
 // self-service path available to every deployment, since it needs no email.
-func (s *Service) ChangePassword(ctx context.Context, userID, currentPassword, newPassword string) error {
+// Every existing session ends; the returned token is the caller's new one.
+func (s *Service) ChangePassword(ctx context.Context, userID, currentPassword, newPassword string) (string, error) {
 	user, err := s.users.ByID(ctx, userID)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if user.PasswordHash == "" {
-		return ErrNoPassword
+		return "", ErrNoPassword
 	}
 	if !checkPassword(user.PasswordHash, currentPassword) {
-		return ErrInvalidCurrentPassword
+		return "", ErrInvalidCurrentPassword
 	}
 	if err := ValidateCredentials(user.Email, newPassword); err != nil {
-		return err
+		return "", err
 	}
-	hash, err := HashPassword(newPassword)
-	if err != nil {
-		return err
+	if user.PasswordHash, err = HashPassword(newPassword); err != nil {
+		return "", err
 	}
-	return s.users.UpdatePasswordHash(ctx, user.ID, hash)
+	if err := s.users.UpdatePasswordHash(ctx, user.ID, user.PasswordHash); err != nil {
+		return "", err
+	}
+	return s.tokens.Issue(*user)
 }
 
 var _ extension.Sessions = (*Service)(nil)
@@ -157,6 +182,7 @@ func account(u model.User) extension.Account {
 	return extension.Account{ID: u.ID, Email: u.Email, TenantID: u.TenantID, Role: u.Role}
 }
 
-func normalizeEmail(email string) string {
+// NormalizeEmail returns the canonical form emails are stored and looked up in.
+func NormalizeEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))
 }

@@ -1,12 +1,7 @@
-// Breakdown — the "who's driving cost" table. One sortable grid shared by the
-// user and workflow tabs. Each numeric column carries its own up/down red/green
-// change vs the previous period (MetricCell + DeltaTag).
-//
-// The Avg column reports cost per 1,000 runs — sub-cent per-run figures compress
-// to a comparable two-decimal dollar value instead of a noisy six-decimal one.
+// The Avg column reports cost per 1,000 runs so sub-cent per-run figures stay readable.
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties, KeyboardEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import {
   Sparkline,
   IconArrowUp,
@@ -14,10 +9,13 @@ import {
   IconChevron,
   IconCheck,
   IconSearch,
-  costFormatter,
+  fmtCost,
   fmtNum,
+  useClickOutside,
 } from '../../../common';
+import hover from '../../../common/styles/hover.module.css';
 import type { UserSummary, WorkflowSummary, AttributeSummary } from '../interfaces';
+import { UNATTRIBUTED, rowButtonProps } from '../utils';
 import styles from './Breakdown.module.css';
 
 export type BreakdownTab = 'user' | 'workflow' | 'attribute';
@@ -56,8 +54,6 @@ const WORKFLOW_COLS: ColDef[] = [
   { key: 'share', label: 'Share',    w: 'minmax(140px, 1fr)',    sortable: false, align: 'left'  },
 ];
 
-// Attribute allocation shares the workflow layout (no trend column); only the name
-// header differs — it's labelled with the chosen attribute key (e.g. "team").
 const ATTRIBUTE_COLS: ColDef[] = [
   { key: 'name',  label: 'Value',    w: 'minmax(220px, 1.4fr)', sortable: true,  align: 'left'  },
   { key: 'runs',  label: 'Runs',     w: '110px',                 sortable: true,  align: 'right' },
@@ -81,9 +77,6 @@ export function TabPill({
   tab: BreakdownTab;
   setTab: (t: BreakdownTab) => void;
   tabs: TabDef[];
-  // When provided (and it has keys), appends the "By attribute" dropdown tab —
-  // the third selector in "Who's driving cost". Sits in the same tab row so it
-  // aligns with the fixed user/workflow tabs.
   attribute?: AttributeTabConfig;
 }) {
   return (
@@ -114,39 +107,36 @@ function isUserSummary(row: BreakdownRowData): row is UserSummary {
   return 'id' in row;
 }
 
-// pctChange returns the signed % change; 0 when there's no baseline.
-function pctChange(curr: number, prev: number): number {
-  if (!prev) return 0;
-  return ((curr - prev) / prev) * 100;
+function pctChange(curr: number, prev: number): number | null {
+  return prev ? ((curr - prev) / prev) * 100 : null;
 }
 
-// DeltaTag — up arrow + green when the metric rose, down arrow + red when it fell.
-function DeltaTag({ pct }: { pct: number }) {
-  const up = pct >= 0;
+function DeltaTag({ pct, higherIsBad }: { pct: number; higherIsBad: boolean }) {
+  const shown = Math.round(pct);
+  const tone = shown === 0 ? styles.flat : shown > 0 !== higherIsBad ? styles.good : styles.bad;
   return (
-    <span className={`${styles.deltaTag} ${up ? styles.up : styles.down}`}>
-      {up ? <IconArrowUp size={9} /> : <IconArrowDown size={9} />}
-      {Math.abs(pct).toFixed(0)}%
+    <span className={`${styles.deltaTag} ${tone}`}>
+      {shown > 0 ? <IconArrowUp size={9} /> : shown < 0 ? <IconArrowDown size={9} /> : null}
+      {Math.abs(shown)}%
     </span>
   );
 }
 
 type MetricVariant = 'runs' | 'avg' | 'cost';
 
-// MetricCell — right-aligned value with its delta tag stacked beneath.
 function MetricCell({
   value,
   pct,
   variant,
 }: {
   value: string;
-  pct: number;
+  pct: number | null;
   variant: MetricVariant;
 }) {
   return (
     <div className={styles.metricCell}>
       <span className={`${styles.metricValue} ${styles[variant]}`}>{value}</span>
-      <DeltaTag pct={pct} />
+      {pct != null && <DeltaTag pct={pct} higherIsBad={variant !== 'runs'} />}
     </div>
   );
 }
@@ -164,32 +154,19 @@ interface BreakdownRowProps {
 function BreakdownRow({ row, kind, sharePct, isTop, isLast, tmpl, onClick }: BreakdownRowProps) {
   const user = isUserSummary(row) ? row : null;
 
-  // Per-column change vs the previous period
   const runsPct = pctChange(row.runs, row.runsPrev);
   const costPct = pctChange(row.cost, row.costPrev);
   const avgPrev = row.runsPrev ? row.costPrev / row.runsPrev : 0;
   const avgPct = pctChange(row.avg, avgPrev);
 
-  // Falling cost reads calmer (muted); flat/rising uses the accent.
-  const barColor = costPct < 0 ? 'var(--muted)' : 'var(--accent)';
+  const barColor = costPct != null && costPct < 0 ? 'var(--muted)' : 'var(--accent)';
 
   return (
     <div
       className={`${styles.row} ${isLast ? styles.last : ''} ${onClick ? styles.clickable : ''}`}
       style={{ gridTemplateColumns: tmpl } as CSSProperties}
-      {...(onClick && {
-        role: 'button',
-        tabIndex: 0,
-        onClick,
-        onKeyDown: (e: KeyboardEvent) => {
-          if (!e.repeat && (e.key === 'Enter' || e.key === ' ')) {
-            e.preventDefault();
-            onClick();
-          }
-        },
-      })}
+      {...(onClick && rowButtonProps(onClick))}
     >
-      {/* Name column */}
       <div className={styles.nameCell}>
         <div className={styles.nameTop}>
           {isTop && <span className={styles.topDot} title="Top 75% of spend" />}
@@ -203,7 +180,6 @@ function BreakdownRow({ row, kind, sharePct, isTop, isLast, tmpl, onClick }: Bre
         </span>
       </div>
 
-      {/* Trend column (user only) */}
       {kind === 'user' && user && (
         <div>
           <Sparkline
@@ -216,16 +192,12 @@ function BreakdownRow({ row, kind, sharePct, isTop, isLast, tmpl, onClick }: Bre
         </div>
       )}
 
-      {/* Runs */}
       <MetricCell value={fmtNum(row.runs)} pct={runsPct} variant="runs" />
 
-      {/* Avg cost per 1,000 runs */}
-      <MetricCell value={costFormatter.format(row.avg * 1000)} pct={avgPct} variant="avg" />
+      <MetricCell value={fmtCost(row.avg * 1000)} pct={avgPct} variant="avg" />
 
-      {/* Cost */}
-      <MetricCell value={costFormatter.format(row.cost)} pct={costPct} variant="cost" />
+      <MetricCell value={fmtCost(row.cost)} pct={costPct} variant="cost" />
 
-      {/* Share bar */}
       <div className={styles.shareCell}>
         <div className={styles.shareTrack}>
           <div
@@ -245,8 +217,7 @@ export interface BreakdownProps {
   kind: BreakdownTab;
   sortBy: SortKey;
   setSortBy: (k: SortKey) => void;
-  // For kind="attribute", the header label of the name column — the chosen
-  // attribute key (e.g. "team"). Ignored for the user/workflow tabs.
+  // Name column header for the attribute tab: the chosen attribute key.
   nameLabel?: string;
   onRowClick?: (row: BreakdownRowData) => void;
 }
@@ -261,20 +232,18 @@ export function Breakdown({ rows, totalCost, kind, sortBy, setSortBy, nameLabel,
     });
   }, [rows, sortBy]);
 
-  // Compute the set of rows making up the top 75% of spend (the dot marker).
   const cumThresh = totalCost * 0.75;
   let cum = 0;
   const sortedDesc = [...rows].sort((a, b) => b.cost - a.cost);
   const top75Set = new Set<string>();
   for (const r of sortedDesc) {
+    if (cum >= cumThresh) break;
     cum += r.cost;
     top75Set.add(isUserSummary(r) ? r.id : r.name);
-    if (cum >= cumThresh) break;
   }
 
   const baseCols =
     kind === 'user' ? USER_COLS : kind === 'workflow' ? WORKFLOW_COLS : ATTRIBUTE_COLS;
-  // The attribute tab labels its name column with the chosen key.
   const cols =
     kind === 'attribute' && nameLabel
       ? baseCols.map((c) => (c.key === 'name' ? { ...c, label: nameLabel } : c))
@@ -283,7 +252,6 @@ export function Breakdown({ rows, totalCost, kind, sortBy, setSortBy, nameLabel,
 
   return (
     <div className={styles.scroll}>
-      {/* Header row */}
       <div className={styles.headRow} style={{ gridTemplateColumns: tmpl } as CSSProperties}>
         {cols.map((c) => (
           <button
@@ -298,7 +266,6 @@ export function Breakdown({ rows, totalCost, kind, sortBy, setSortBy, nameLabel,
         ))}
       </div>
 
-      {/* Data rows */}
       {sorted.map((row, i) => {
         const sharePct = totalCost ? (row.cost / totalCost) * 100 : 0;
         const rowId = isUserSummary(row) ? row.id : row.name;
@@ -311,7 +278,7 @@ export function Breakdown({ rows, totalCost, kind, sortBy, setSortBy, nameLabel,
             isTop={top75Set.has(rowId)}
             isLast={i === sorted.length - 1}
             tmpl={tmpl}
-            onClick={onRowClick && (() => onRowClick(row))}
+            onClick={onRowClick && rowId !== UNATTRIBUTED ? () => onRowClick(row) : undefined}
           />
         );
       })}
@@ -319,12 +286,7 @@ export function Breakdown({ rows, totalCost, kind, sortBy, setSortBy, nameLabel,
   );
 }
 
-// AttributeTab is the third selector in the "Who's driving cost" tab row: a
-// tab-styled trigger that, unlike the fixed user/workflow tabs, opens a searchable
-// popover over every custom attribute the instrumentation tags spans with
-// (team, user.id, environment, …). Picking a key both activates the attribute
-// view and chooses the dimension. `active` mirrors the user/workflow tabs'
-// selected styling. Closes on outside-click or Escape.
+// Picking a key both activates the attribute view and chooses the dimension.
 function AttributeTab({
   keys,
   value,
@@ -341,16 +303,9 @@ function AttributeTab({
   const ref = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    const h = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
-  }, [open]);
+  const dismiss = useCallback(() => setOpen(false), []);
+  useClickOutside(ref, open, dismiss);
 
-  // Focus the filter and reset the query each time the popover opens.
   useEffect(() => {
     if (open) {
       setQuery('');
@@ -369,10 +324,10 @@ function AttributeTab({
   const label = active && value ? value : 'By attribute';
 
   return (
-    <div ref={ref} style={{ position: 'relative' }}>
+    <div ref={ref} style={{ position: 'relative' }} onKeyDown={(e) => e.key === 'Escape' && setOpen(false)}>
       <button
         onClick={() => setOpen((o) => !o)}
-        onKeyDown={(e) => e.key === 'Escape' && setOpen(false)}
+        aria-expanded={open}
         className={`${styles.tab} ${active ? styles.active : ''}`}
       >
         {label}
@@ -388,7 +343,7 @@ function AttributeTab({
             position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 60,
             minWidth: 240, maxWidth: 360,
             background: 'var(--surface)', border: '1px solid var(--border-strong)',
-            borderRadius: 10, boxShadow: '0 12px 40px rgba(0,0,0,0.5)', overflow: 'hidden',
+            borderRadius: 10, boxShadow: '0 12px 40px var(--shadow-popover)', overflow: 'hidden',
             animation: 'fadeIn .12s ease',
           }}
         >
@@ -398,10 +353,7 @@ function AttributeTab({
               ref={inputRef}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') setOpen(false);
-                if (e.key === 'Enter' && matches.length > 0) select(matches[0]);
-              }}
+              onKeyDown={(e) => e.key === 'Enter' && matches.length > 0 && select(matches[0])}
               placeholder="Search attributes…"
               style={{
                 flex: 1, minWidth: 0, background: 'transparent', border: 'none', outline: 'none',
@@ -416,21 +368,20 @@ function AttributeTab({
             {matches.map((k) => {
               const isActive = active && k === value;
               return (
-                <div
+                <button
                   key={k}
                   onClick={() => select(k)}
-                  onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = 'var(--surface-alt)'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = isActive ? 'var(--surface-active)' : 'transparent'; }}
+                  className={hover.row}
                   style={{
-                    display: 'flex', alignItems: 'center', gap: 8,
-                    padding: '7px 12px', cursor: 'pointer',
-                    background: isActive ? 'var(--surface-active)' : 'transparent',
-                    fontSize: 14, color: 'var(--foreground)',
+                    display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+                    padding: '7px 12px', border: 'none', textAlign: 'left',
+                    background: isActive ? 'var(--surface-active)' : undefined,
+                    fontFamily: 'inherit', fontSize: 14, color: 'var(--foreground)',
                   }}
                 >
                   <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{k}</span>
                   {isActive && <IconCheck size={13} style={{ color: 'var(--accent)', flexShrink: 0 }} />}
-                </div>
+                </button>
               );
             })}
           </div>

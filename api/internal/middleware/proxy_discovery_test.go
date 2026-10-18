@@ -46,6 +46,43 @@ func TestNamedProxyIsolatesClientsAndRejectsSpoofing(t *testing.T) {
 	}
 }
 
+func TestNamedProxyRefreshDoesNotBlockOtherRequests(t *testing.T) {
+	rl := NewRateLimiter(1, time.Minute, []string{"dns:dashboard"})
+	block := false
+	started, release := make(chan struct{}), make(chan struct{})
+	rl.lookupProxy = func(context.Context, string) ([]net.IPAddr, error) {
+		if block {
+			close(started)
+			<-release
+		}
+		return []net.IPAddr{{IP: net.ParseIP("10.0.0.3")}}, nil
+	}
+	if !rl.isTrustedProxy("10.0.0.3") {
+		t.Fatal("current proxy was not trusted")
+	}
+
+	block = true
+	rl.proxyExpires = time.Time{}
+	refreshed := make(chan bool)
+	go func() { refreshed <- rl.isTrustedProxy("10.0.0.3") }()
+	<-started
+
+	checked := make(chan bool)
+	go func() { checked <- rl.isTrustedProxy("10.0.0.3") }()
+	select {
+	case trusted := <-checked:
+		if !trusted {
+			t.Fatal("request during refresh lost the previous snapshot")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("request blocked behind the DNS refresh")
+	}
+	close(release)
+	if !<-refreshed {
+		t.Fatal("refreshing request did not trust the proxy")
+	}
+}
+
 func TestNamedProxyRefreshRemovesOldAndUnresolvableAddresses(t *testing.T) {
 	rl := NewRateLimiter(1, time.Minute, []string{"dns:dashboard-peers.namespace.svc"})
 	address := "10.0.0.3"

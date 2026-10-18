@@ -37,7 +37,7 @@ migrations/            embedded, tracked Postgres schema
 internal/handler/      HTTP handlers (traces, spans, metrics, auth, workspaces)
 internal/query/        ClickHouse repository + the windowing/rollup logic
 internal/auth/         accounts, password hashing, JWT issuing (Postgres-backed)
-internal/middleware/   CORS, API version prefix, auth, tenant scoping
+internal/middleware/   CORS, API version prefix, auth, rate limiting
 internal/model/        response types (mirrors spec)
 testing/mocks/         interface mocks, the only backend unit tests touch
 ```
@@ -52,6 +52,8 @@ go test ./...
 Config comes from env vars and is validated at startup: a missing DSN or
 `JWT_SECRET` exits the process with a listed error rather than starting in a
 degraded state. Copy [`.env.example`](.env.example) to `.env` for local dev.
+`make up` from the repo root publishes ClickHouse (8123) and Postgres (5432) on
+localhost for this.
 
 | Env | Required | Notes |
 |---|---|---|
@@ -60,23 +62,22 @@ degraded state. Copy [`.env.example`](.env.example) to `.env` for local dev.
 | `JWT_SECRET` | yes | signs **and** verifies admin tokens, never a shared default |
 | `LISTEN_ADDR` | no | defaults to `:8090` |
 
-**Auth fails closed.** With both DSNs and a secret set, auth is on. The only way
-to disable it is an explicit `auth.mode=none`, which logs a loud warning and is
-for local dev only; there is no silent fallback to an open API.
+**Auth fails closed.** There is no way to run the API without authentication.
 
 ## Routes
 
 All prefixed `/v1`. Health and auth are unauthenticated; everything else requires
-a bearer token, and the data routes additionally require a tenant.
+a bearer token. Changing a password ends every session issued before it.
 
 ```
 GET  /health  /ready
 POST /auth/register  /auth/login
 GET|POST /workspaces        DELETE /workspaces/{id}         (auth only)
 POST /workspaces/{id}/members   DELETE /workspaces/{id}/members/{userId}   (owner only)
-GET  /traces  /traces/{id}  /traces/{traceId}/spans        (auth + tenant)
+GET  /traces  /traces/{id}  /traces/{traceId}/spans        (auth)
 GET  /metrics/kpis  /cost-series  /latency-series  /error-series
 GET  /metrics/top-workflows  /workflows  /workflows/{name}  /failures
+GET  /metrics/workflows/{name}/versions
 GET  /metrics/model-costs  /usage-users  /usage-workflows
 GET  /metrics/attribute-keys  /usage-by-attribute        (allocate cost by any attribute)
 ```

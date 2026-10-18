@@ -1,27 +1,35 @@
-// ---------------------------------------------------------------------------
-// OverviewLivePage — the signed-in overview, fed by the metrics API. Each
-// section loads independently (Section handles its spinner / error); when there
-// are no runs at all we show the "no data yet" empty state. The presentational
-// components are shared with the demo OverviewPage.
-// ---------------------------------------------------------------------------
-
 import { useState } from 'react';
-import { EmptyState, fmtCost, fmtNum, fmtMs, fmtPct, isLongRange, RANGE_LABEL, toCostPoints, toLatencyPoints, toErrorPoints } from '../../../common';
+import {
+  EmptyState,
+  KpiStrip,
+  Section,
+  deltaParts,
+  fmtCost,
+  fmtNum,
+  fmtMs,
+  fmtPct,
+  isLongRange,
+  rangeLabel,
+  relativeTime,
+  toCostPoints,
+  toLatencyPoints,
+  toErrorPoints,
+} from '../../../common';
+import type { KpiItem } from '../../../common';
 import type { CostPoint, LatencyPoint, ErrorPoint } from '../../../common/interfaces';
+import { useAPIClient } from '../../../common/providers/APIProvider';
 import type { Trace } from '../../trace-explorer/interfaces';
 import {
   Masthead,
-  KpiStrip,
   ChartsRow,
   FailuresBlock,
   TopWorkflows,
   ActivityFeed,
   OverviewLayout,
-  Section,
   OutlierChips,
   OutliersPanel,
+  SetupChecks,
 } from '../components';
-import type { KpiItem, TopWorkflowRow, SyncStatus, SyncTone } from '../components';
 import {
   useKpis,
   useCostSeries,
@@ -30,123 +38,44 @@ import {
   useTopWorkflows,
   useFailures,
   useAnomalies,
+  useSetupChecks,
   useRecentActivity,
 } from '../hooks/useMetrics';
-import type { Kpi, KpiSet, WorkflowCost, FailureRow, ActivityItem, Anomaly } from '../interfaces';
+import type { KpiSet, ActivityItem, Anomaly } from '../interfaces';
 import { anomalyKey, anomalyValue, toChartMarkers } from '../utils/anomalies';
-import type { ActivityId } from '../ids';
-import type { Tweaks } from './OverviewPage';
+import { failuresSummary, syncStatus } from '../utils/status';
 
 interface OverviewLivePageProps {
   range: string;
   setView: (v: string) => void;
   setSelected: (updater: (prev: Record<string, string>) => Record<string, string>) => void;
-  tweaks: Tweaks;
-}
-
-
-// ── Formatting helpers ──────────────────────────────────────────────────────
-// bucketLabel / toCostPoints / toLatencyPoints / toErrorPoints are shared with
-// the workflow detail charts (common/utils/buckets).
-
-// Split a fractional delta into a signed display value (drives the arrow) and a
-// "vs prev" hint, the way the KPI strip expects.
-function deltaParts(k: Kpi): { delta: string; hint: string } {
-  // Drive "no change" off delta_type, not the fraction: the backend marks a
-  // metric neutral exactly when there's nothing to compare — cur == prev, or no
-  // data in the previous period — and only those cases carry a zero delta.
-  if (k.delta_type === 'neutral') return { delta: '', hint: 'no change' };
-  // Sign comes from the raw fraction (so it always matches the arrow tone);
-  // magnitude keeps one decimal so a real sub-1% move shows as +0.4%, not 0%.
-  const mag = Math.round(Math.abs(k.delta) * 1000) / 10;
-  return { delta: `${k.delta > 0 ? '+' : '-'}${mag}%`, hint: 'vs prev period' };
 }
 
 function toKpiItems(kpis: KpiSet, cost: CostPoint[], latency: LatencyPoint[], errors: ErrorPoint[], range: string): KpiItem[] {
-  // Both span the full window: Traces is a count; failure rate reads 0 in empty
-  // buckets, which is truthful — no runs means nothing failed.
+  // An empty bucket reads as a 0% failure rate: no runs means nothing failed.
   const tracesTrend = errors.map((d) => d.total);
   const failureTrend = errors.map((d) => (d.total > 0 ? d.errors / d.total : 0));
-  // Latency comes from raw spans only; long ranges read the daily rollup, which
-  // can't reconstruct per-trace durations, so the tile reads "—" rather than 0.
-  const latencyAvailable = !isLongRange(range);
-  const latencyItem: KpiItem = latencyAvailable
-    ? { label: 'p95 latency', value: fmtMs(kpis.latency_p95.value), ...deltaParts(kpis.latency_p95), deltaTone: kpis.latency_p95.delta_type, sparkData: latency.map((d) => d.p95), sparkColor: 'var(--accent)' }
+  const latencyItem: KpiItem = !isLongRange(range)
+    ? { label: 'p95 latency', value: fmtMs(kpis.latency_p95.value), ...deltaParts(kpis.latency_p95), sparkData: latency.map((d) => d.p95), sparkColor: 'var(--accent)' }
     : { label: 'p95 latency', value: '—', hint: 'not tracked over long ranges' };
   return [
-    { label: 'Total spend', value: fmtCost(kpis.cost.value), ...deltaParts(kpis.cost), deltaTone: kpis.cost.delta_type, sparkData: cost.map((d) => d.value) },
-    { label: 'Traces', value: fmtNum(Math.round(kpis.runs.value)), ...deltaParts(kpis.runs), deltaTone: kpis.runs.delta_type, sparkData: tracesTrend },
-    { label: 'Failure rate', value: fmtPct(kpis.error_rate.value * 100), ...deltaParts(kpis.error_rate), deltaTone: kpis.error_rate.delta_type, sparkData: failureTrend, sparkColor: 'var(--warning)' },
+    { label: 'Total spend', value: fmtCost(kpis.cost.value), ...deltaParts(kpis.cost), sparkData: cost.map((d) => d.value) },
+    { label: 'Traces', value: fmtNum(Math.round(kpis.runs.value)), ...deltaParts(kpis.runs), sparkData: tracesTrend },
+    { label: 'Failure rate', value: fmtPct(kpis.error_rate.value * 100), ...deltaParts(kpis.error_rate), sparkData: failureTrend, sparkColor: 'var(--warning)' },
     latencyItem,
   ];
 }
 
-const toWorkflowRows = (workflows: WorkflowCost[]): TopWorkflowRow[] =>
-  workflows.map((a) => ({ name: a.name, calls: a.calls, cost: a.cost, trend: a.trend }));
-
-// The failures endpoint reports per-workflow rows plus the true total of errored
-// runs across all workflows; we derive the strip's summary line (total failed,
-// worst workflow) from them. totalFailed comes from the envelope's total —
-// the rows are only the top workflows, so re-summing them would undercount once
-// more than that many workflows have failures. The horizon strip itself is fed by
-// the separate error-series endpoint.
-function failuresSummary(rows: FailureRow[], total: number): { totalFailed: number; worstWorkflow: string } {
-  const worst = rows.reduce<FailureRow | null>((m, r) => (!m || r.count > m.count ? r : m), null);
-  return { totalFailed: total, worstWorkflow: worst?.workflow ?? '—' };
-}
-
-// ── Sync status ─────────────────────────────────────────────────────────────
-// The masthead chip must reflect reality, not a hardcoded "Synced just now":
-// red if any section failed, amber once data has gone stale, green when fresh.
-// Metrics sections don't poll, so "synced" is only as true as the stalest one —
-// we drive freshness off the oldest successful fetch.
-const STALE_AFTER_MS = 5 * 60 * 1000;
-
-function syncedLabel(ageMs: number): string {
-  const s = Math.round(ageMs / 1000);
-  if (s < 10) return 'Synced just now';
-  if (s < 60) return `Synced ${s}s ago`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `Synced ${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `Synced ${h}h ago`;
-  return `Synced ${Math.floor(h / 24)}d ago`;
-}
-
-function syncStatus(queries: { isError: boolean; isSuccess: boolean; dataUpdatedAt: number }[]): SyncStatus {
-  if (queries.some((q) => q.isError)) return { label: 'Sync failed', tone: 'error' };
-  const updates = queries.filter((q) => q.isSuccess).map((q) => q.dataUpdatedAt);
-  if (updates.length === 0) return { label: 'Syncing…', tone: 'syncing' };
-  const ageMs = Date.now() - Math.min(...updates);
-  const tone: SyncTone = ageMs > STALE_AFTER_MS ? 'stale' : 'live';
-  return { label: syncedLabel(ageMs), tone };
-}
-
-function relTime(startMs: number): string {
-  const s = Math.max(0, Math.round((Date.now() - startMs) / 1000));
-  if (s < 60) return `${s}s ago`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
-}
-
 const toActivityItems = (traces: Trace[]): ActivityItem[] =>
   traces.map((t) => ({
-    id: t.trace_id as unknown as ActivityId,
+    id: t.trace_id,
     workflow: t.name,
     status: t.has_error ? 'failed' : 'completed',
-    time: relTime(t.start_time_ms),
-    cost: t.total_cost_usd,
-    latency: parseFloat((t.duration_ms / 1000).toFixed(1)),
+    time: relativeTime(t.start_time_ms),
+    latency: t.duration_ms / 1000,
   }));
 
-// ── Page ────────────────────────────────────────────────────────────────────
-
-export function OverviewLivePage({ range, setView, setSelected, tweaks }: OverviewLivePageProps) {
-  const feedPosition = tweaks.feedPosition ?? 'right';
-
+export function OverviewLivePage({ range, setView, setSelected }: OverviewLivePageProps) {
   const kpis = useKpis(range);
   const cost = useCostSeries(range);
   const latency = useLatencySeries(range);
@@ -154,22 +83,29 @@ export function OverviewLivePage({ range, setView, setSelected, tweaks }: Overvi
   const failures = useFailures(range);
   const errorSeries = useErrorSeries(range);
   const anomalies = useAnomalies(range);
+  const setupChecks = useSetupChecks();
+  const { workspaceId } = useAPIClient();
   const activity = useRecentActivity();
 
-  // Outliers (design 1b + 1c). Dismissal is session-local (there is no dismiss
-  // endpoint yet); selection is shared so a chart flag and the panel stay in sync.
+  // Dismissal is session-local; there is no dismiss endpoint yet.
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [selectedOutlier, setSelectedOutlier] = useState<string | null>(null);
+  // Also shown on the empty state: rejected spans leave a workspace looking empty.
+  const setupChecksBlock = workspaceId && setupChecks.data && setupChecks.data.items.length > 0 && (
+    <SetupChecks
+      key={workspaceId}
+      checks={setupChecks.data.items}
+      workspaceId={workspaceId}
+      onOpenTrace={(id) => {
+        setSelected((s) => ({ ...s, traceId: id }));
+        setView('trace');
+      }}
+    />
+  );
 
-  // No runs in the window: either nothing has ever been ingested (onboarding
-  // empty state) or there just weren't any traces in the selected range. The
-  // activity feed lists the latest traces with no time bound, so it tells the
-  // two apart; while it's still loading, fall through to the sections' own
-  // spinners rather than flashing the wrong message.
-  //
-  // Cost can come from the metric source independently of spans, so a
-  // workspace that only emits token-usage metrics has runs === 0 but non-zero
-  // cost. That's real spend, not an empty workspace — render the dashboard.
+  // The activity feed has no time bound, so it tells a never-ingested
+  // workspace apart from an empty range. Cost can come from metrics without
+  // spans, so a workspace with spend but no runs still gets the dashboard.
   if (
     kpis.isSuccess &&
     kpis.data.runs.value === 0 &&
@@ -177,20 +113,25 @@ export function OverviewLivePage({ range, setView, setSelected, tweaks }: Overvi
     activity.isSuccess
   ) {
     const hasAnyTraces = activity.data.items.length > 0;
-    return hasAnyTraces ? (
-      <EmptyState
-        message={`No traces in the ${RANGE_LABEL[range] ?? RANGE_LABEL['7d']}`}
-        description="Your workflows haven't reported any activity in this window. Try a wider time range to see earlier traces."
-      />
-    ) : (
+    return (
       <div>
-        <EmptyState
-          message="Connect your application to see data"
-          description="Create an API key for this workspace, add it to your OpenTelemetry exporter, then send your first trace."
-        />
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '0 24px 40px' }}>
-          <button onClick={() => setView('settings')} style={{ padding: '9px 16px', borderRadius: 7, border: '1px solid var(--accent)', background: 'var(--accent)', color: 'var(--accent-contrast)', fontFamily: 'inherit', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>View setup instructions</button>
-        </div>
+        {setupChecksBlock && <div style={{ maxWidth: 880, margin: '0 auto', padding: '32px 16px 0' }}>{setupChecksBlock}</div>}
+        {hasAnyTraces ? (
+          <EmptyState
+            message={`No traces in the ${rangeLabel(range)}`}
+            description="Your workflows haven't reported any activity in this window. Try a wider time range to see earlier traces."
+          />
+        ) : (
+          <>
+            <EmptyState
+              message="Connect your application to see data"
+              description="Create an API key for this workspace, add it to your OpenTelemetry exporter, then send your first trace."
+            />
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '0 24px 40px' }}>
+              <button onClick={() => setView('settings')} style={{ padding: '9px 16px', borderRadius: 7, border: '1px solid var(--accent)', background: 'var(--accent)', color: 'var(--accent-contrast)', fontFamily: 'inherit', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>View setup instructions</button>
+            </div>
+          </>
+        )}
       </div>
     );
   }
@@ -202,8 +143,7 @@ export function OverviewLivePage({ range, setView, setSelected, tweaks }: Overvi
   const summary = failures.data ? failuresSummary(failures.data.items, failures.data.total) : null;
   const errorPoints = errorSeries.data ? toErrorPoints(errorSeries.data.items, range) : [];
 
-  // Detection is daily/rollup-backed, so outliers are unavailable for 24h (the
-  // hook is disabled there); render no outlier UI in that case.
+  // Detection is daily, so there are no outliers at 24h.
   const outliersAvailable = range !== '24h';
   const allAnoms = anomalies.data?.items ?? [];
   const liveAnoms = allAnoms.filter((a) => !dismissed.has(anomalyKey(a)));
@@ -216,8 +156,7 @@ export function OverviewLivePage({ range, setView, setSelected, tweaks }: Overvi
     costAxisMs,
     { label: (a) => anomalyValue(a.metric, a.observed), onSelect: selectOutlier },
   );
-  // Only error-rate anomalies belong on the failures strip; run-volume shifts
-  // aren't failures, so they surface in the chips and panel instead.
+  // Run-volume shifts aren't failures, so only error-rate flags go on the strip.
   const errorMarkers = toChartMarkers(
     liveAnoms.filter((a) => a.metric === 'error_rate'),
     errorAxisMs,
@@ -231,15 +170,15 @@ export function OverviewLivePage({ range, setView, setSelected, tweaks }: Overvi
 
   return (
     <OverviewLayout
-      feedPosition={feedPosition}
       masthead={
         <Masthead
           eyebrow="Workspace"
           title="Overview"
-          subtitle={`Workspace health and AI spend across the ${RANGE_LABEL[range] ?? RANGE_LABEL['7d']}.`}
+          subtitle={`Workspace health and AI spend across the ${rangeLabel(range)}.`}
           status={status}
         />
       }
+      setupChecks={setupChecksBlock}
       kpis={
         <Section isLoading={kpis.isLoading} isError={kpis.isError}>
           {kpis.data && <KpiStrip items={toKpiItems(kpis.data, costPoints, latencyPoints, errorPoints, range)} />}
@@ -310,7 +249,7 @@ export function OverviewLivePage({ range, setView, setSelected, tweaks }: Overvi
           {workflows.data && (
             <TopWorkflows
               range={range}
-              workflows={toWorkflowRows(workflows.data.items)}
+              workflows={workflows.data.items}
               onSelectWorkflow={(name) => {
                 setSelected((s) => ({ ...s, workflow: name }));
                 setView('workflows');

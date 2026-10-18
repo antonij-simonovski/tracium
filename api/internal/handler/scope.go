@@ -16,19 +16,10 @@ type WorkspaceAccess interface {
 	AllowedIDs(ctx context.Context, userID string) ([]string, error)
 }
 
-// resolveWorkspaceScope determines the set of workspace ids a request is allowed
-// to read, and enforces access. `requested` is the optional workspace_id query
-// param:
-//
-//   - present: the caller must be a member of it, or the request is refused with
-//     403; the scope is that one workspace.
-//   - absent: the scope is every workspace the caller is a member of (so a direct
-//     API call without a workspace_id sees all of the caller's data, and the
-//     dashboard — which always sends the active workspace — sees just that one).
-//
-// An account that is a member of no workspace yields an empty scope, which the
-// query layer compiles to "match nothing" — never "match everything". On any
-// failure it writes the HTTP error and returns ok=false.
+// resolveWorkspaceScope returns the workspaces a request may read: the requested
+// one (403 unless the caller is a member), or all of the caller's when requested
+// is empty. An empty result matches nothing in the query layer. On failure it
+// writes the error response and returns ok=false.
 func resolveWorkspaceScope(w http.ResponseWriter, r *http.Request, access WorkspaceAccess, requested string) ([]string, bool) {
 	principal, ok := middleware.PrincipalFromContext(r.Context())
 	if !ok || principal.UserID == "" {

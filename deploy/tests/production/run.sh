@@ -7,7 +7,7 @@ check_dir=$(mktemp -d /tmp/tracium-production.XXXXXX)
 check_project="tracium-production-$$"
 report_dir="${TRACIUM_REPORT_DIR:-$PWD/deploy/reports/production-$(date +%Y%m%d-%H%M%S)}"
 mkdir -p "$report_dir"
-compose=(docker compose --project-name "$check_project" --env-file "$check_dir/env" -f docker-compose.yml -f deploy/tests/production/compose.yaml)
+compose=(docker compose --project-name "$check_project" --env-file "$check_dir/env" -f docker-compose.yml -f compose.build.yaml -f deploy/tests/production/compose.yaml)
 cleanup() {
   code=$?
   "${compose[@]}" logs --no-color --tail=150 > "$report_dir/compose.log" 2>&1 || true

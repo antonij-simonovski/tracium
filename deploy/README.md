@@ -1,29 +1,38 @@
 # deploy/
 
 Infrastructure for running Tracium: the Helm chart, the schema-migration runner,
-and default service configs. **The Docker Compose quickstart lives at the repo
-root** (`docker compose up --build`, see the top-level [README](../README.md));
+and runbooks. **The Docker Compose quickstart lives at the repo
+root** (`docker compose up`, see the top-level [README](../README.md));
 this directory is the Kubernetes/production side plus the shared pieces both use.
 
 ```
 deploy/
   helm/tracium/     Helm chart (StatefulSets, PVCs, ConfigMaps, Ingress)
   docker/migrate/   migration-runner image (also used by the root compose)
-  config/           default collector.yaml / api.yaml
-  scripts/          wait-for-db (rollup repair is now the repair-rollup command in the API image)
   docs/             collector-auth, rollup-repair runbooks
 ```
 
 ## Kubernetes (Helm)
 
-Create the secrets the chart references, then install:
+Each release attaches a packaged chart (`tracium-<version>.tgz`) that requests
+that release's images from `ghcr.io/antonij-simonovski`. Create the secrets the
+chart references, then install it:
 
 ```bash
 kubectl create secret generic tracium-clickhouse-secret --from-literal=password=$(openssl rand -hex 16)
 kubectl create secret generic tracium-postgres-secret   --from-literal=password=$(openssl rand -hex 16)
 kubectl create secret generic tracium-api-jwt           --from-literal=jwt-secret=$(openssl rand -hex 32)
-helm install tracium ./helm/tracium
+VERSION=1.1.0
+helm install tracium "https://github.com/antonij-simonovski/tracium/releases/download/v$VERSION/tracium-$VERSION.tgz"
 ```
+
+Don't pass `--wait`: schema migrations run as a post-install hook, and the API
+and collector only become ready once they finish. The API and collector restart a
+few times while the migration job runs; that is expected.
+
+To install from a checkout instead, run `make sync-generated` and pass
+`--set global.imageTag=<version>`; the source chart's `appVersion` is not a
+release.
 
 Every tunable is documented in [`helm/tracium/values.yaml`](helm/tracium/values.yaml).
 Ingress exposes the API and dashboard. OTLP and database services stay internal.

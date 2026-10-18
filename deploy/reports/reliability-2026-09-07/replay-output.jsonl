@@ -1,3 +1,0 @@
-{"check":"raw_after_replay","rows":"2","unique_spans":"1","cost":2,"input_tokens":"200"}
-{"check":"rollup_after_replay","spans":"2","unique_traces":"1","cost":2,"input_tokens":"200"}
-{"check":"dedup_default","name":"non_replicated_deduplication_window","value":"0"}

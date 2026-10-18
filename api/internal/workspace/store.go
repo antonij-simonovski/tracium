@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/tracium/api/migrations"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -35,15 +34,12 @@ type Store interface {
 	// IsOwner reports whether userID owns the workspace. Used to gate member
 	// management.
 	IsOwner(ctx context.Context, workspaceID, userID string) (bool, error)
-	// AddMember grants a user access to a workspace with the given role. Adding a
-	// member who already exists is a no-op (their role is left unchanged).
-	AddMember(ctx context.Context, workspaceID, userID, role string) error
-	// GrantMember is AddMember for owner requests. Under the workspace lock it
-	// returns early for an existing member (no seat taken), otherwise runs allow,
-	// adds the member and closes their open invites. invited tells allow whether
-	// an open invite already holds this user's seat; allow's error aborts the add
-	// and is returned unchanged.
-	GrantMember(ctx context.Context, workspaceID, userID, role string, allow func(ctx context.Context, invited bool) error) error
+	// GrantMember adds userID as a member (never an owner) at the owner's
+	// request. Under the workspace lock it returns early for an existing member
+	// (no seat taken), otherwise runs allow, adds the member and closes their
+	// open invites. invited tells allow whether an open invite already holds this
+	// user's seat; allow's error aborts the add and is returned unchanged.
+	GrantMember(ctx context.Context, workspaceID, userID string, allow func(ctx context.Context, invited bool) error) error
 	// RemoveMember revokes a user's access. Removing the owner is refused with
 	// ErrCannotRemoveOwner.
 	RemoveMember(ctx context.Context, workspaceID, userID string) error
@@ -65,23 +61,8 @@ type PostgresStore struct {
 	pool *pgxpool.Pool
 }
 
-// NewStore connects to Postgres and ensures the workspaces table exists.
-func NewStore(ctx context.Context, dsn string) (*PostgresStore, error) {
-	pool, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		return nil, fmt.Errorf("workspace store: connect: %w", err)
-	}
-	if err := pool.Ping(ctx); err != nil {
-		pool.Close()
-		return nil, fmt.Errorf("workspace store: ping: %w", err)
-	}
-
-	s := &PostgresStore{pool: pool}
-	if err := migrations.Apply(ctx, pool, migrations.Core); err != nil {
-		pool.Close()
-		return nil, err
-	}
-	return s, nil
+func NewStore(pool *pgxpool.Pool) *PostgresStore {
+	return &PostgresStore{pool: pool}
 }
 
 // List returns every workspace the user is a member of, ordered by creation
@@ -120,9 +101,8 @@ func (s *PostgresStore) Create(ctx context.Context, ws model.Workspace) error {
 	defer tx.Rollback(ctx) //nolint:errcheck // no-op after a successful Commit
 
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO workspaces (id, user_id, name, slug, env, role, members)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		ws.ID, ws.UserID, ws.Name, ws.Slug, ws.Env, ws.Role, ws.Members); err != nil {
+		`INSERT INTO workspaces (id, user_id, name, slug, env) VALUES ($1, $2, $3, $4, $5)`,
+		ws.ID, ws.UserID, ws.Name, ws.Slug, ws.Env); err != nil {
 		return fmt.Errorf("workspace store: create: %w", err)
 	}
 	if _, err := tx.Exec(ctx,
@@ -197,21 +177,8 @@ func (s *PostgresStore) IsOwner(ctx context.Context, workspaceID, userID string)
 	return exists, nil
 }
 
-// AddMember grants a user access to a workspace. Re-adding an existing member is
-// a no-op (ON CONFLICT), so it is safe to call from an idempotent seeder.
-func (s *PostgresStore) AddMember(ctx context.Context, workspaceID, userID, role string) error {
-	_, err := s.pool.Exec(ctx,
-		`INSERT INTO workspace_members (workspace_id, user_id, role) VALUES ($1, $2, $3)
-		 ON CONFLICT (workspace_id, user_id) DO NOTHING`,
-		workspaceID, userID, role)
-	if err != nil {
-		return fmt.Errorf("workspace store: add member: %w", err)
-	}
-	return nil
-}
-
-// GrantMember implements WorkspaceStore.
-func (s *PostgresStore) GrantMember(ctx context.Context, workspaceID, userID, role string, allow func(ctx context.Context, invited bool) error) error {
+// GrantMember implements Store.
+func (s *PostgresStore) GrantMember(ctx context.Context, workspaceID, userID string, allow func(ctx context.Context, invited bool) error) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("workspace store: begin: %w", err)
@@ -240,7 +207,7 @@ func (s *PostgresStore) GrantMember(ctx context.Context, workspaceID, userID, ro
 	}
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO workspace_members (workspace_id, user_id, role) VALUES ($1, $2, $3)`,
-		workspaceID, userID, role); err != nil {
+		workspaceID, userID, RoleMember); err != nil {
 		return fmt.Errorf("workspace store: add member: %w", err)
 	}
 	// The direct add fulfils any open invite, which would otherwise keep holding
@@ -278,9 +245,4 @@ func (s *PostgresStore) RemoveMember(ctx context.Context, workspaceID, userID st
 		return ErrNotFound
 	}
 	return nil
-}
-
-// Close releases the underlying connection pool.
-func (s *PostgresStore) Close() {
-	s.pool.Close()
 }

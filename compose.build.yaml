@@ -1,0 +1,21 @@
+services:
+  migrate:
+    image: !reset null
+    build:
+      context: .
+      dockerfile: deploy/docker/migrate/Dockerfile
+  collector:
+    image: !reset null
+    build:
+      context: ./collector
+      dockerfile: Dockerfile
+  api:
+    image: !reset null
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+  dashboard:
+    image: !reset null
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile

@@ -1,100 +1,34 @@
-// ---------------------------------------------------------------------------
-// WorkflowsPage — sortable, filterable workflow list (from the workflows.html design).
-//
-// Pure presentational component: it renders whatever `workflows` it is handed. The
-// demo/embedded app passes the mock WORKFLOWS; the signed-in app passes the live
-// list via WorkflowsLivePage. Health/status and "needs attention" features are
-// intentionally omitted: no status column, no status filter pills, no "needs
-// attention" stat tile.
-// ---------------------------------------------------------------------------
-
-import React, { useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   IconArrowDown,
   IconArrowUp,
   IconSearch,
   LastUpdated,
   Sparkline,
+  StatTile,
   fmtCost,
   fmtNum,
   fmtMs,
+  plural,
+  rangeLabel,
 } from '../../../common';
+import hover from '../../../common/styles/hover.module.css';
 import type { Workflow } from '../interfaces';
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+import { ERR_BAD, ERR_WARN } from '../utils';
 
 export interface WorkflowsPageProps {
   workflows: Workflow[];
+  range?: string;
   setView: (v: string) => void;
   setSelected: (updater: (prev: Record<string, string>) => Record<string, string>) => void;
-  /** Active workspace name, shown in the page eyebrow. */
   workspaceName?: string;
-  /** Epoch ms of the last successful fetch; drives the live "Updated …" label. Omitted for demo data. */
   updatedAt?: number;
 }
 
 type SortKey = keyof Pick<Workflow, 'name' | 'calls' | 'cost' | 'avg_latency_ms' | 'error_rate'>;
 type SortDir = 'asc' | 'desc';
 
-// [Workflow, Trend, Calls, Cost, Avg latency, Error] — the status column is dropped.
 const GRID_COLS = '2fr 1fr 100px 100px 100px 80px';
-
-// Error-rate thresholds (fractions): above 2% reads as an error, above 0.5% as a warning.
-const ERR_BAD = 0.02;
-const ERR_WARN = 0.005;
-
-// ---------------------------------------------------------------------------
-// SmallStat — a single tile in the summary strip
-// ---------------------------------------------------------------------------
-
-function SmallStat({
-  label,
-  value,
-  sub,
-  isFirst,
-}: {
-  label: string;
-  value: React.ReactNode;
-  sub?: string;
-  isFirst?: boolean;
-}) {
-  return (
-    <div
-      style={{
-        padding: '18px 22px 20px',
-        borderLeft: isFirst ? 'none' : '1px solid var(--border)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 8,
-      }}
-    >
-      <span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 500 }}>{label}</span>
-      <span
-        title={typeof value === 'string' ? value : undefined}
-        style={{
-          fontSize: 22,
-          fontWeight: 500,
-          letterSpacing: '-0.02em',
-          color: 'var(--foreground)',
-          fontVariantNumeric: 'tabular-nums',
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          lineHeight: 1,
-        }}
-      >
-        {value}
-      </span>
-      {sub && <span style={{ fontSize: 13, color: 'var(--muted)' }}>{sub}</span>}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// SortHeader — a clickable, sortable column header
-// ---------------------------------------------------------------------------
 
 function SortHeader({
   label,
@@ -115,6 +49,7 @@ function SortHeader({
   return (
     <button
       onClick={() => onSort(k)}
+      aria-label={active ? `${label}, sorted ${sortDir === 'asc' ? 'ascending' : 'descending'}` : `Sort by ${label}`}
       style={{
         background: 'transparent',
         border: 'none',
@@ -134,11 +69,7 @@ function SortHeader({
   );
 }
 
-// ---------------------------------------------------------------------------
-// WorkflowsPage
-// ---------------------------------------------------------------------------
-
-export function WorkflowsPage({ workflows, setView, setSelected, workspaceName, updatedAt }: WorkflowsPageProps) {
+export function WorkflowsPage({ workflows, range = '7d', setView, setSelected, workspaceName, updatedAt }: WorkflowsPageProps) {
   const [sortKey, setSortKey] = useState<SortKey>('calls');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [q, setQ] = useState('');
@@ -169,7 +100,6 @@ export function WorkflowsPage({ workflows, setView, setSelected, workspaceName, 
   const topVolume = workflows.reduce<Workflow | null>((m, a) => (!m || a.calls > m.calls ? a : m), null);
   const topCost = workflows.reduce<Workflow | null>((m, a) => (!m || a.cost > m.cost ? a : m), null);
 
-  // Drill into the workflow's detail page (charts, recent runs, config, tools).
   const openWorkflow = (a: Workflow) => {
     setSelected(prev => ({ ...prev, workflow: a.name }));
     setView('workflows');
@@ -177,7 +107,6 @@ export function WorkflowsPage({ workflows, setView, setSelected, workspaceName, 
 
   return (
     <div style={{ padding: '32px 40px 64px', maxWidth: 1480, margin: '0 auto' }}>
-      {/* ── Header ─────────────────────────────────────────────────────── */}
       <div
         style={{
           display: 'flex',
@@ -200,13 +129,12 @@ export function WorkflowsPage({ workflows, setView, setSelected, workspaceName, 
           </span>
           <h1 style={{ fontSize: 26, fontWeight: 600, letterSpacing: '-0.02em', margin: 0 }}>Workflows</h1>
           <p style={{ fontSize: 14, color: 'var(--muted)', margin: 0 }}>
-            {workflows.length} active workflows · {fmtNum(totalCalls)} runs · {fmtCost(totalCost)} spend
+            {plural(workflows.length, 'active workflow')} · {fmtNum(totalCalls)} runs · {fmtCost(totalCost)} spend
           </p>
         </div>
         {updatedAt != null && <LastUpdated at={updatedAt} />}
       </div>
 
-      {/* ── Summary strip ──────────────────────────────────────────────── */}
       <div
         style={{
           display: 'grid',
@@ -216,12 +144,11 @@ export function WorkflowsPage({ workflows, setView, setSelected, workspaceName, 
           margin: '4px 0 28px',
         }}
       >
-        <SmallStat isFirst label="Active workflows" value={workflows.length} sub="deployed" />
-        <SmallStat label="Highest volume" value={topVolume?.name ?? '—'} sub={topVolume ? `${fmtNum(topVolume.calls)} runs` : undefined} />
-        <SmallStat label="Most expensive" value={topCost?.name ?? '—'} sub={topCost ? fmtCost(topCost.cost) : undefined} />
+        <StatTile isFirst label="Active workflows" value={workflows.length} />
+        <StatTile label="Highest volume" value={topVolume?.name ?? '—'} sub={topVolume ? `${fmtNum(topVolume.calls)} runs` : undefined} />
+        <StatTile label="Most expensive" value={topCost?.name ?? '—'} sub={topCost ? fmtCost(topCost.cost) : undefined} />
       </div>
 
-      {/* ── Search ─────────────────────────────────────────────────────── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
         <div
           style={{
@@ -241,6 +168,7 @@ export function WorkflowsPage({ workflows, setView, setSelected, workspaceName, 
             value={q}
             onChange={e => setQ(e.target.value)}
             placeholder="Filter workflows..."
+            aria-label="Filter workflows"
             style={{
               flex: 1,
               background: 'transparent',
@@ -253,7 +181,6 @@ export function WorkflowsPage({ workflows, setView, setSelected, workspaceName, 
         </div>
       </div>
 
-      {/* ── Table ──────────────────────────────────────────────────────── */}
       <div>
         <div
           style={{
@@ -265,7 +192,7 @@ export function WorkflowsPage({ workflows, setView, setSelected, workspaceName, 
           }}
         >
           <SortHeader label="Workflow" k="name" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-          <span style={{ fontSize: 13, color: 'var(--muted)' }}>Trend (7d)</span>
+          <span style={{ fontSize: 13, color: 'var(--muted)' }}>Trend · {rangeLabel(range)}</span>
           <SortHeader label="Calls" k="calls" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
           <SortHeader label="Cost" k="cost" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
           <SortHeader label="Avg latency" k="avg_latency_ms" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
@@ -291,20 +218,14 @@ export function WorkflowsPage({ workflows, setView, setSelected, workspaceName, 
   );
 }
 
-// ---------------------------------------------------------------------------
-// WorkflowRow — isolated so hover state is per-row
-// ---------------------------------------------------------------------------
-
 function WorkflowRow({ workflow: a, isLast, onOpen }: { workflow: Workflow; isLast: boolean; onOpen: () => void }) {
-  const [hovered, setHovered] = useState(false);
   const errColor =
     a.error_rate > ERR_BAD ? 'var(--error)' : a.error_rate > ERR_WARN ? 'var(--warning)' : 'var(--muted)';
 
   return (
     <button
       onClick={onOpen}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      className={hover.row}
       style={{
         display: 'grid',
         gridTemplateColumns: GRID_COLS,
@@ -318,9 +239,6 @@ function WorkflowRow({ workflow: a, isLast, onOpen }: { workflow: Workflow; isLa
         borderBottom: isLast
           ? 'none'
           : '1px solid color-mix(in srgb, var(--border) 55%, transparent)',
-        background: hovered
-          ? 'color-mix(in srgb, var(--surface-alt) 60%, transparent)'
-          : 'transparent',
       }}
     >
       <span style={{ fontSize: 14.5, fontWeight: 500, color: 'var(--foreground)' }}>{a.name}</span>

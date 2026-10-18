@@ -2,23 +2,40 @@ package clickhousespanexporter
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/tracium/collector/internal/genai"
+	"github.com/tracium/collector/internal/ingest"
 	"github.com/tracium/collector/internal/writer"
 	"github.com/tracium/collector/pkg/spanmodel"
 
+	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/consumer/consumererror"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 )
 
 type chExporter struct {
+	dsn    string
 	writer *writer.ClickHouseWriter
+}
 
-	// trustReportedCost mirrors enrich.PricingEnricher.TrustReportedCost and
-	// must stay the same decision: a cost the client declared itself is ignored
-	// unless the operator opted in. Default false. See fromOTLP.
-	trustReportedCost bool
+func (e *chExporter) start(ctx context.Context, _ component.Host) error {
+	w, err := writer.NewClickHouseWriter(ctx, e.dsn)
+	if err != nil {
+		return fmt.Errorf("clickhousespan: %w", err)
+	}
+	e.writer = w
+	return nil
+}
+
+func (e *chExporter) shutdown(context.Context) error {
+	if e.writer == nil {
+		return nil
+	}
+	return e.writer.Close()
 }
 
 // pushTraces flattens an OTLP batch into spanmodel.Span rows and writes them in
@@ -29,50 +46,45 @@ func (e *chExporter) pushTraces(ctx context.Context, td ptrace.Traces) error {
 
 	rss := td.ResourceSpans()
 	for i := 0; i < rss.Len(); i++ {
-		// service.name is a resource-level attribute shared by every span in the
-		// batch; it is the most stable workflow identity, so we lift it out once and
-		// pass it down to each span's workflow-name derivation.
 		resourceAttrs := rss.At(i).Resource().Attributes()
 		serviceName := strAttr(resourceAttrs, attrServiceName)
 		sss := rss.At(i).ScopeSpans()
 		for j := 0; j < sss.Len(); j++ {
 			ss := sss.At(j).Spans()
 			for k := 0; k < ss.Len(); k++ {
-				spans = append(spans, fromOTLP(ss.At(k), serviceName, resourceAttrs, e.trustReportedCost))
+				spans = append(spans, fromOTLP(ss.At(k), serviceName, resourceAttrs))
 			}
 		}
 	}
-	return e.writer.WriteBatch(ctx, spans)
+	err := e.writer.WriteBatch(ctx, spans)
+	if errors.Is(err, writer.ErrRowRejected) {
+		return consumererror.NewPermanent(err)
+	}
+	return err
 }
 
-// Attribute keys mirror traciumprocessor; duplicated here to keep the exporter
-// independently usable (it can ingest pre-enriched spans from any source).
+// Attribute keys mirror traciumprocessor, so the exporter also works for spans
+// that did not pass through it.
 const (
-	attrModelRequest  = "gen_ai.request.model"
-	attrModelResponse = "gen_ai.response.model"
-	attrFinishReason  = "gen_ai.response.finish_reasons"
-	// Dotted to match the key the tracium processor writes on enriched spans
-	// (writeBack → tracium.user.id). The underscore form left span rows with
-	// an empty user_id in the processor→exporter pipeline.
-	attrUserID        = "tracium.user.id"
+	attrModelRequest    = "gen_ai.request.model"
+	attrModelResponse   = "gen_ai.response.model"
+	attrFinishReason    = "gen_ai.response.finish_reasons"
+	attrUserID          = "tracium.user.id"
 	attrWorkspaceID     = "tracium.workspace.id"
 	attrCostUSD         = "tracium.cost_usd"
 	attrModelNormalized = "tracium.model_normalized"
 	attrSchemaVersion   = "tracium.schema_version"
 	attrAvailableTools  = "tracium.available_tools"
+	attrUnmetered       = "tracium.usage.unmetered"
 
-	// Workflow-identity signals. The span-scoped semconv/decorator names come first
-	// (they name the actual workflow that owns this span); the resource-level
-	// service.name is only a fallback. service.name is also persisted on its own
-	// column so the query layer keeps a stable, always-present name for in-flight
-	// traces without conflating it with workflow identity.
 	attrServiceName       = "service.name"
 	attrGenAIAgentName    = "gen_ai.agent.name"
 	attrTraceloopWorkflow = "traceloop.workflow.name"
 	attrTraceloopEntity   = "traceloop.entity.name"
+	attrWorkflowVersion   = "tracium.workflow.version"
 )
 
-func fromOTLP(s ptrace.Span, serviceName string, resourceAttrs pcommon.Map, trustReportedCost bool) *spanmodel.Span {
+func fromOTLP(s ptrace.Span, serviceName string, resourceAttrs pcommon.Map) *spanmodel.Span {
 	attrs := s.Attributes()
 	model := strAttr(attrs, attrModelRequest)
 	if model == "" {
@@ -83,29 +95,8 @@ func fromOTLP(s ptrace.Span, serviceName string, resourceAttrs pcommon.Map, trus
 	startMs := s.StartTimestamp().AsTime().UnixMilli()
 	endMs := s.EndTimestamp().AsTime().UnixMilli()
 
-	// Flatten whatever content attributes survived the processor's capture gate
-	// (both OTel gen_ai.*.messages and OpenLLMetry indexed shapes). When capture
-	// is disabled these were stripped, so input/output come back empty.
+	// Empty when the processor stripped content because capture is disabled.
 	input, output := genai.Content(am)
-
-	// Cost is normally set by the processor (tracium.cost_usd). Spans can also
-	// reach this exporter without passing through the processor's pricing step,
-	// so a client-reported cost (gen_ai.usage.cost) is the only fallback — but
-	// it is used only where the operator has declared that source trustworthy,
-	// exactly as enrich.PricingEnricher.TrustReportedCost does.
-	//
-	// A valid ingest key authenticates the sender, not the truth of its numbers,
-	// so trusting a client-reported cost unconditionally still lets any
-	// authenticated sender declare a span worth $1,000,000 and have it stored
-	// verbatim — and every cost figure in the product is a sum(cost_usd). A zero
-	// from the processor means "the price table could not
-	// price this model", not "ask the client"; such a span is stored at 0, and
-	// stays visible as a row with tokens but no cost.
-	cost := floatAttr(attrs, attrCostUSD)
-	if trustReportedCost && cost == 0 && usage.ReportedCostUSD > 0 {
-		cost = usage.ReportedCostUSD
-	}
-
 	errType, errMessage := spanError(s)
 
 	return &spanmodel.Span{
@@ -124,11 +115,11 @@ func fromOTLP(s ptrace.Span, serviceName string, resourceAttrs pcommon.Map, trus
 		// count above is trustworthy. Stored so a $0 span is distinguishable from
 		// a genuinely free one.
 		OutputTokensDerived: usage.OutputTokensDerived,
-		Unmetered:           usage.Unmetered,
+		Unmetered:           usage.Unmetered || boolAttr(attrs, attrUnmetered),
 		FinishReason:        finishReason(attrs),
 		Kind:                spanKind(attrs, model, usage.InputTokens, usage.OutputTokens),
-		CostUSD:             cost,
-		UserID:            strAttr(attrs, attrUserID),
+		CostUSD:             floatAttr(attrs, attrCostUSD),
+		UserID:              strAttr(attrs, attrUserID),
 		WorkspaceID:         workspaceID(attrs, resourceAttrs),
 		SchemaVersion:       int(intAttr(attrs, attrSchemaVersion)),
 		ErrorType:           errType,
@@ -140,6 +131,9 @@ func fromOTLP(s ptrace.Span, serviceName string, resourceAttrs pcommon.Map, trus
 			strAttr(attrs, attrTraceloopEntity),
 			s.Name(),
 		),
+		// Resource only, so every span of a run carries the same version and the
+		// daily rollup, keyed per span, matches the per-run numbers.
+		WorkflowVersion: ingest.SanitizeIdentifier(strAttr(resourceAttrs, attrWorkflowVersion), ingest.MaxVersionBytes),
 		// ServiceName is the resource-level service.name, persisted verbatim (the
 		// OTel "unknown_service" default treated as absent). The query layer uses
 		// it as the stable in-flight fallback for a trace's display/workflow name.
@@ -153,11 +147,8 @@ func fromOTLP(s ptrace.Span, serviceName string, resourceAttrs pcommon.Map, trus
 	}
 }
 
-// Ingest bounds for the custom-attribute map. The OTLP ports are
-// unauthenticated, so a span's attribute bag is capped before it can reach
-// storage — without a ceiling a client could attach thousands of oversized keys
-// and bloat every row. These are generous; a working instrumentation stays well
-// under them.
+// Ingest bounds for the client-controlled custom-attribute map, so no sender
+// can bloat every row with thousands of oversized keys.
 const (
 	maxAttrs          = 64 // custom keys retained per span
 	maxAttrKeyBytes   = 128
@@ -219,16 +210,9 @@ func isDeniedAttr(k string) bool {
 }
 
 // workflowName picks the workflow that owns this span, preferring span-scoped
-// signals over the resource-level service.name so a trace made of many sub-spans
-// attributes each span to its real workflow instead of collapsing every span
-// under one service. Priority: gen_ai.agent.name, traceloop.workflow.name,
-// traceloop.entity.name, then service.name, then the span name as a last resort.
-// The OTel SDK default of "unknown_service" (optionally suffixed with the process
-// name) is treated as absent — grouping under it would be as useless as grouping
-// under a raw operation name like "openai.chat". The stability the resource
-// service.name used to provide (present on the very first auto-instrumented span,
-// before any invoke_agent span exports) is preserved by persisting it as its own
-// column and letting the query layer fall back to it for a trace's in-flight name.
+// signals over the resource-level service.name: gen_ai.agent.name,
+// traceloop.workflow.name, traceloop.entity.name, then service.name (ignoring
+// the SDK's "unknown_service" default), then the span name.
 func workflowName(serviceName, genaiAgent, traceloopWorkflow, traceloopEntity, spanName string) string {
 	for _, c := range []string{genaiAgent, traceloopWorkflow, traceloopEntity, resourceServiceName(serviceName), spanName} {
 		if name := strings.TrimSpace(c); name != "" {
@@ -322,9 +306,7 @@ func finishReason(attrs pcommon.Map) string {
 }
 
 // workspaceID reads tracium.workspace.id from the span, falling back to the
-// resource. The processor promotes the resource value onto the span, but the
-// exporter is independently usable (it can ingest spans that never passed
-// through the processor), so it checks the resource too.
+// resource for spans that did not pass through the processor.
 func workspaceID(spanAttrs, resourceAttrs pcommon.Map) string {
 	if v := strAttr(spanAttrs, attrWorkspaceID); v != "" {
 		return v
@@ -344,6 +326,11 @@ func intAttr(attrs pcommon.Map, key string) int64 {
 		return v.Int()
 	}
 	return 0
+}
+
+func boolAttr(attrs pcommon.Map, key string) bool {
+	v, ok := attrs.Get(key)
+	return ok && v.Type() == pcommon.ValueTypeBool && v.Bool()
 }
 
 func floatAttr(attrs pcommon.Map, key string) float64 {

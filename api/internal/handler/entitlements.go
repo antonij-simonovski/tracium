@@ -33,7 +33,7 @@ func (d *entitlementDenial) respond(w http.ResponseWriter) {
 // checkMemberEntitlement consults the provider for a member-management feature.
 // A nil provider allows everything. A denial that carries a limit means the
 // workspace is full and is reported as MEMBER_LIMIT_REACHED.
-func checkMemberEntitlement(ctx context.Context, ents extension.Entitlements, subject extension.Subject, feature string) *entitlementDenial {
+func checkMemberEntitlement(ctx context.Context, ents extension.Entitlements, subject extension.Subject, feature string) error {
 	if ents == nil {
 		return nil
 	}

@@ -30,11 +30,12 @@ type RateLimiter struct {
 	trustedProxies []*net.IPNet
 	// Explicit dns: entries identify proxy services with changing addresses.
 	// Kubernetes callers must use a headless Service, which resolves to pod IPs.
-	proxyMu      sync.Mutex
-	proxyNames   []string
-	proxyIPs     []net.IPAddr
-	proxyExpires time.Time
-	lookupProxy  func(context.Context, string) ([]net.IPAddr, error)
+	proxyMu         sync.Mutex
+	proxyNames      []string
+	proxyIPs        []net.IPAddr
+	proxyExpires    time.Time
+	proxyRefreshing bool
+	lookupProxy     func(context.Context, string) ([]net.IPAddr, error)
 }
 
 type visitor struct {
@@ -213,29 +214,41 @@ func (rl *RateLimiter) isTrustedProxy(ip string) bool {
 
 // Cache service discovery briefly, including failures, to bound DNS work on the
 // request path. A failed refresh removes old addresses instead of extending trust
-// to a pod/container IP that may have been reassigned. All lookups together have
-// a one-second deadline; this lock is separate from the request-budget lock.
+// to a pod/container IP that may have been reassigned. One request refreshes at
+// a time, outside the lock; others keep using the previous snapshot meanwhile.
 func (rl *RateLimiter) isNamedProxy(ip net.IP) bool {
 	if len(rl.proxyNames) == 0 {
 		return false
 	}
 	rl.proxyMu.Lock()
-	defer rl.proxyMu.Unlock()
-	if !time.Now().Before(rl.proxyExpires) {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		defer cancel()
-		rl.proxyIPs = nil
-		for _, name := range rl.proxyNames {
-			if addresses, err := rl.lookupProxy(ctx, name); err == nil {
-				rl.proxyIPs = append(rl.proxyIPs, addresses...)
-			}
-		}
-		rl.proxyExpires = time.Now().Add(5 * time.Second)
+	addresses := rl.proxyIPs
+	refresh := !rl.proxyRefreshing && !time.Now().Before(rl.proxyExpires)
+	if refresh {
+		rl.proxyRefreshing = true
 	}
-	for _, address := range rl.proxyIPs {
+	rl.proxyMu.Unlock()
+	if refresh {
+		addresses = rl.refreshProxies()
+	}
+	for _, address := range addresses {
 		if address.IP.Equal(ip) {
 			return true
 		}
 	}
 	return false
+}
+
+func (rl *RateLimiter) refreshProxies() []net.IPAddr {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	var addresses []net.IPAddr
+	for _, name := range rl.proxyNames {
+		if resolved, err := rl.lookupProxy(ctx, name); err == nil {
+			addresses = append(addresses, resolved...)
+		}
+	}
+	rl.proxyMu.Lock()
+	rl.proxyIPs, rl.proxyExpires, rl.proxyRefreshing = addresses, time.Now().Add(5*time.Second), false
+	rl.proxyMu.Unlock()
+	return addresses
 }

@@ -144,6 +144,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/metrics/token-series": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Tokens over time
+         * @description Input and output tokens per time bucket across the range. Counted from per-call spans, the same source as the model-costs token totals, so the buckets sum to those totals.
+         */
+        get: operations["getTokenSeries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/metrics/top-workflows": {
         parameters: {
             query?: never;
@@ -193,9 +213,29 @@ export interface paths {
         };
         /**
          * Workflow detail
-         * @description One workflow's detail-page payload: its headline metrics over the range plus the tool surface from its most recent run. Span-backed only; there is no workflow-config store, so runtime params (temperature, retries, version, owner, …) are not served. A raw-window feature: ranges longer than 30d (90d, 1y) are rejected with a 400, since per-workflow latency cannot be derived from the daily rollup.
+         * @description One workflow's detail-page payload: its headline metrics over the range plus the tool surface of its most recent run. Span-backed only; there is no workflow-config store, so runtime params (temperature, retries, owner, …) are not served. Ranges longer than 30d (90d, 1y) are served from the daily rollup: runs and error runs are approximate, cost is span-only, latency is unset (avg_latency_ms 0, p95_latency_ms null), and the tool surface comes from a run in the last 30 days.
          */
         get: operations["getWorkflowDetail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/metrics/workflows/{name}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Workflow versions
+         * @description The versions of one workflow that ran in the range, with each version's runs, cost, latency, error rate and token use, most recently seen first. Runs without a version are listed as version "". Ranges longer than 30d read the daily rollup, which has no latency (p95_latency_ms is null).
+         */
+        get: operations["listWorkflowVersions"];
         put?: never;
         post?: never;
         delete?: never;
@@ -236,6 +276,26 @@ export interface paths {
          * @description Buckets that deviated significantly from their own recent history, for cost, error rate, and run volume, workspace-wide and per busy workflow. Detection is daily and robust (median + MAD over a trailing 28-day baseline), served entirely from the daily rollup, so a range of 7d or longer is required (24h is rejected with a 400). Results are ordered most severe first.
          */
         get: operations["getAnomalies"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/metrics/setup-checks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Instrumentation setup checks
+         * @description Ways the workspace's instrumentation is sending telemetry Tracium cannot fully use, found in the range's spans and in the spans the collector rejected at ingest, with how to fix each. Checks that affected no span are omitted. Results are ordered most severe first, then by spans affected. Reads raw spans, so ranges longer than 30d are rejected.
+         */
+        get: operations["getSetupChecks"];
         put?: never;
         post?: never;
         delete?: never;
@@ -313,7 +373,7 @@ export interface paths {
         };
         /**
          * Custom-attribute dimensions
-         * @description The custom-attribute keys present on spans in the window (e.g. `team`, `environment`, `customer`), offered as the allocation axes for /v1/metrics/usage-by-attribute.
+         * @description The custom-attribute keys present on spans in the window (e.g. `team`, `environment`, `customer`), offered as the allocation axes for /v1/metrics/usage-by-attribute. Reads raw spans, so ranges longer than 30d are rejected.
          */
         get: operations["getAttributeKeys"];
         put?: never;
@@ -333,7 +393,7 @@ export interface paths {
         };
         /**
          * Cost allocation by attribute
-         * @description Spend and usage allocated across the values of one custom attribute, the cost-allocation primitive that splits AI spend by whatever dimension the instrumentation tags spans with. The `key` query parameter names the dimension (from /v1/metrics/attribute-keys) and is required. Ordered by cost descending.
+         * @description Spend and usage allocated across the values of one custom attribute, the cost-allocation primitive that splits AI spend by whatever dimension the instrumentation tags spans with. The `key` query parameter names the dimension (from /v1/metrics/attribute-keys) and is required. Ordered by cost descending. Reads raw spans, so ranges longer than 30d are rejected.
          */
         get: operations["getUsageByAttribute"];
         put?: never;
@@ -435,7 +495,7 @@ export interface paths {
         put?: never;
         /**
          * Change the signed-in user's password
-         * @description Verifies the current password and replaces it. Requires a login token. There is no email-based reset in the OSS build; operators reset a forgotten password with the API image's `reset-password` CLI.
+         * @description Verifies the current password and replaces it. Requires a login token. Every session issued before the change ends, including the caller's; the response carries the caller's new token. There is no email-based reset in the OSS build; operators reset a forgotten password with the API image's `reset-password` CLI, which also ends existing sessions.
          */
         post: operations["changePassword"];
         delete?: never;
@@ -503,7 +563,7 @@ export interface paths {
         put?: never;
         /**
          * Add a member
-         * @description Grants another account access to the workspace, named by email. Owner only. The member can then read the workspace's telemetry. Consults the `workspaces.members.add` entitlement for the workspace; the default provider allows it.
+         * @description Grants another account access to the workspace, named by email. Owner only. The account joins as a `member`; ownership cannot be granted. The member can then read the workspace's telemetry. Consults the `workspaces.members.add` entitlement for the workspace; the default provider allows it.
          */
         post: operations["addWorkspaceMember"];
         delete?: never;
@@ -739,11 +799,6 @@ export interface components {
              * @description The account to grant access to.
              */
             email: string;
-            /**
-             * @default member
-             * @enum {string}
-             */
-            role: "owner" | "member";
         };
         WorkspaceMember: {
             user_id: string;
@@ -881,12 +936,16 @@ export interface components {
              * @enum {string}
              */
             kind?: "agent" | "llm" | "tool" | "chain" | "retriever" | "embedding";
+            /** @description The span-level setup checks this span fails, such as a model the price table does not know. Omitted when it fails none. */
+            setup_issues?: components["schemas"]["SetupIssue"][];
         };
         Trace: {
             /** @description Globally unique identifier for this trace. */
             trace_id: string;
             /** @description Human-readable name for the trace. */
             name?: string;
+            /** @description The workflow version the trace ran under: the root span's version, else the earliest versioned span's. Empty when no span has one. */
+            workflow_version?: string;
             /** @description Unix epoch milliseconds when the trace started. */
             start_time_ms?: number;
             /** @description Unix epoch milliseconds when the trace ended. */
@@ -971,6 +1030,14 @@ export interface components {
             /** @description Total runs that started within the bucket. */
             total: number;
         };
+        TokenBucket: {
+            /** @description Bucket start, Unix epoch milliseconds. */
+            bucket_ms: number;
+            /** @description Input (prompt) tokens within the bucket. */
+            input_tokens: number;
+            /** @description Output (completion) tokens within the bucket. */
+            output_tokens: number;
+        };
         LatencyBucket: {
             /** @description Bucket start, Unix epoch milliseconds. */
             bucket_ms: number;
@@ -1022,9 +1089,9 @@ export interface components {
             calls: number;
             /** @description Total cost in USD over the window. */
             cost: number;
-            /** @description Mean end-to-end run duration in milliseconds. */
+            /** @description Mean end-to-end run duration in milliseconds; 0 over ranges longer than 30d. */
             avg_latency_ms: number;
-            /** @description p95 end-to-end run duration in milliseconds, or null when undefined (no runs in the window). */
+            /** @description p95 end-to-end run duration in milliseconds, or null when undefined (no runs in the window, or a range longer than 30d). */
             p95_latency_ms: number | null;
             /** @description Fraction of the workflow's runs that errored (0–1). */
             error_rate: number;
@@ -1040,6 +1107,26 @@ export interface components {
             tools: components["schemas"]["AvailableTool"][];
             /** @description The workflow's most recent trace in the window, for deep-linking. */
             last_trace_id: string;
+        };
+        WorkflowVersion: {
+            /** @description The workflow version; empty for the runs that carry none. */
+            version: string;
+            /** @description Start of the version's first run in the window (the day's start over ranges longer than 30d). */
+            first_seen_ms: number;
+            /** @description Start of the version's latest run in the window (the day's start over ranges longer than 30d). */
+            last_seen_ms: number;
+            /** @description Number of runs (traces) of this version over the window. */
+            calls: number;
+            /** @description Total cost in USD of this version's runs. */
+            cost: number;
+            /** @description Mean cost in USD per run. */
+            cost_per_run: number;
+            /** @description p95 end-to-end run duration in milliseconds; null over ranges longer than 30d. */
+            p95_latency_ms: number | null;
+            /** @description Fraction of this version's runs that errored (0–1). */
+            error_rate: number;
+            /** @description Mean input plus output tokens per run. */
+            tokens_per_run: number;
         };
         Failure: {
             /** @description Workflow name (the trace root span name). */
@@ -1063,6 +1150,12 @@ export interface components {
             page: number;
             page_size: number;
         };
+        PaginatedTokenBucketResponse: {
+            items: components["schemas"]["TokenBucket"][];
+            total: number;
+            page: number;
+            page_size: number;
+        };
         PaginatedLatencyBucketResponse: {
             items: components["schemas"]["LatencyBucket"][];
             total: number;
@@ -1077,6 +1170,12 @@ export interface components {
         };
         PaginatedWorkflowResponse: {
             items: components["schemas"]["Workflow"][];
+            total: number;
+            page: number;
+            page_size: number;
+        };
+        PaginatedWorkflowVersionResponse: {
+            items: components["schemas"]["WorkflowVersion"][];
             total: number;
             page: number;
             page_size: number;
@@ -1123,6 +1222,36 @@ export interface components {
             severity: "info" | "warning" | "critical";
             /** @description One-line human-readable description of the anomaly. */
             summary: string;
+            /** @description A workflow version first seen on the anomaly's day or the day before, or null. Scope "workflow" names its own workflow's version; scope "workspace" names the version of the workflow that carried the most of the metric that day (errored runs for error_rate), and null when that workflow did not change version. A workflow's first versioned day is not a change. */
+            version_change: components["schemas"]["VersionChange"] | null;
+        };
+        VersionChange: {
+            workflow: string;
+            version: string;
+            /** @description The day the version was first seen, Unix epoch milliseconds (UTC midnight). */
+            first_seen_ms: number;
+        };
+        SetupIssue: {
+            /** @description Stable identifier: no_llm_spans, unpriced_model, unmetered, no_model, instant_llm_spans, error_without_detail, missing_root_span, unnamed_workflow, workflow_without_version, version_per_run, or rejected_<drop code> for spans the collector rejected (e.g. rejected_invalid_timestamp). */
+            code: string;
+            /** @enum {string} */
+            severity: "info" | "warning" | "critical";
+            /** @description What is wrong and how to fix it. */
+            message: string;
+        };
+        SetupCheck: components["schemas"]["SetupIssue"] & {
+            /** @description Spans affected in the window. */
+            spans: number;
+            /** @description spans as a fraction (0–1) of the window's stored and rejected spans. */
+            share: number;
+            /** @description One affected trace; empty for rejected spans, which are not stored. */
+            example_trace_id: string;
+        };
+        PaginatedSetupCheckResponse: {
+            items: components["schemas"]["SetupCheck"][];
+            total: number;
+            page: number;
+            page_size: number;
         };
         PaginatedAnomalyResponse: {
             items: components["schemas"]["Anomaly"][];
@@ -1218,14 +1347,18 @@ export interface components {
     };
     responses: never;
     parameters: {
+        /** @description The workflow name (the trace root span name). */
+        WorkflowName: string;
         /** @description Time window for the metric. Defaults to 7d. 24h is bucketed hourly; 7d/30d/90d/1y daily. Ranges longer than 30d (90d, 1y) are served from the daily rollup, so latency percentiles are not available for them. */
         Range: "24h" | "7d" | "30d" | "90d" | "1y";
         /** @description Optional business filter (the operator's end-client). Empty means all clients. */
         UserFilter: string;
         /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
         WorkspaceFilter: string;
-        /** @description Optional: restrict the metric to a single workflow (the trace root name), powering the workflow detail page's charts. Workflow-scoped metrics are a raw-window feature; ranges longer than 30d (90d, 1y) are rejected with a 400, since per-workflow latency cannot be derived from the daily rollup. */
+        /** @description Optional: restrict the metric to a single workflow (the trace root name), powering the workflow detail page's charts. Only the series endpoints accept it; other metrics endpoints reject it with a 400. Over ranges longer than 30d (90d, 1y) the series read the daily rollup: cost is span-only and the latency series is empty, as it is unscoped. */
         WorkflowFilter: string;
+        /** @description Optional: restrict the metric to the runs of one workflow version (see Trace.workflow_version), alone or together with workflow. */
+        VersionFilter: string;
     };
     requestBodies: never;
     headers: never;
@@ -1244,6 +1377,8 @@ export interface operations {
                 model?: string;
                 /** @description Filter to traces belonging to a single workflow (the trace root name), which powers a workflow's recent runs. */
                 workflow?: string;
+                /** @description Filter to traces that ran under this workflow version (see Trace.workflow_version). */
+                version?: string;
                 /** @description Filter to traces that have at least one error span. */
                 has_error?: boolean;
                 /** @description Return traces whose start_time_ms is after this ISO 8601 date-time. */
@@ -1459,8 +1594,10 @@ export interface operations {
                 user_id?: components["parameters"]["UserFilter"];
                 /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
                 workspace_id?: components["parameters"]["WorkspaceFilter"];
-                /** @description Optional: restrict the metric to a single workflow (the trace root name), powering the workflow detail page's charts. Workflow-scoped metrics are a raw-window feature; ranges longer than 30d (90d, 1y) are rejected with a 400, since per-workflow latency cannot be derived from the daily rollup. */
+                /** @description Optional: restrict the metric to a single workflow (the trace root name), powering the workflow detail page's charts. Only the series endpoints accept it; other metrics endpoints reject it with a 400. Over ranges longer than 30d (90d, 1y) the series read the daily rollup: cost is span-only and the latency series is empty, as it is unscoped. */
                 workflow?: components["parameters"]["WorkflowFilter"];
+                /** @description Optional: restrict the metric to the runs of one workflow version (see Trace.workflow_version), alone or together with workflow. */
+                version?: components["parameters"]["VersionFilter"];
             };
             header?: never;
             path?: never;
@@ -1497,8 +1634,10 @@ export interface operations {
                 user_id?: components["parameters"]["UserFilter"];
                 /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
                 workspace_id?: components["parameters"]["WorkspaceFilter"];
-                /** @description Optional: restrict the metric to a single workflow (the trace root name), powering the workflow detail page's charts. Workflow-scoped metrics are a raw-window feature; ranges longer than 30d (90d, 1y) are rejected with a 400, since per-workflow latency cannot be derived from the daily rollup. */
+                /** @description Optional: restrict the metric to a single workflow (the trace root name), powering the workflow detail page's charts. Only the series endpoints accept it; other metrics endpoints reject it with a 400. Over ranges longer than 30d (90d, 1y) the series read the daily rollup: cost is span-only and the latency series is empty, as it is unscoped. */
                 workflow?: components["parameters"]["WorkflowFilter"];
+                /** @description Optional: restrict the metric to the runs of one workflow version (see Trace.workflow_version), alone or together with workflow. */
+                version?: components["parameters"]["VersionFilter"];
             };
             header?: never;
             path?: never;
@@ -1535,8 +1674,10 @@ export interface operations {
                 user_id?: components["parameters"]["UserFilter"];
                 /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
                 workspace_id?: components["parameters"]["WorkspaceFilter"];
-                /** @description Optional: restrict the metric to a single workflow (the trace root name), powering the workflow detail page's charts. Workflow-scoped metrics are a raw-window feature; ranges longer than 30d (90d, 1y) are rejected with a 400, since per-workflow latency cannot be derived from the daily rollup. */
+                /** @description Optional: restrict the metric to a single workflow (the trace root name), powering the workflow detail page's charts. Only the series endpoints accept it; other metrics endpoints reject it with a 400. Over ranges longer than 30d (90d, 1y) the series read the daily rollup: cost is span-only and the latency series is empty, as it is unscoped. */
                 workflow?: components["parameters"]["WorkflowFilter"];
+                /** @description Optional: restrict the metric to the runs of one workflow version (see Trace.workflow_version), alone or together with workflow. */
+                version?: components["parameters"]["VersionFilter"];
             };
             header?: never;
             path?: never;
@@ -1551,6 +1692,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PaginatedErrorBucketResponse"];
+                };
+            };
+            /** @description Invalid range. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getTokenSeries: {
+        parameters: {
+            query?: {
+                /** @description Time window for the metric. Defaults to 7d. 24h is bucketed hourly; 7d/30d/90d/1y daily. Ranges longer than 30d (90d, 1y) are served from the daily rollup, so latency percentiles are not available for them. */
+                range?: components["parameters"]["Range"];
+                /** @description Optional business filter (the operator's end-client). Empty means all clients. */
+                user_id?: components["parameters"]["UserFilter"];
+                /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
+                workspace_id?: components["parameters"]["WorkspaceFilter"];
+                /** @description Optional: restrict the metric to a single workflow (the trace root name), powering the workflow detail page's charts. Only the series endpoints accept it; other metrics endpoints reject it with a 400. Over ranges longer than 30d (90d, 1y) the series read the daily rollup: cost is span-only and the latency series is empty, as it is unscoped. */
+                workflow?: components["parameters"]["WorkflowFilter"];
+                /** @description Optional: restrict the metric to the runs of one workflow version (see Trace.workflow_version), alone or together with workflow. */
+                version?: components["parameters"]["VersionFilter"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Token buckets ordered by bucket_ms ascending. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedTokenBucketResponse"];
                 };
             };
             /** @description Invalid range. */
@@ -1649,7 +1830,7 @@ export interface operations {
             header?: never;
             path: {
                 /** @description The workflow name (the trace root span name). */
-                name: string;
+                name: components["parameters"]["WorkflowName"];
             };
             cookie?: never;
         };
@@ -1664,7 +1845,7 @@ export interface operations {
                     "application/json": components["schemas"]["WorkflowDetail"];
                 };
             };
-            /** @description Invalid range, or a range longer than 30d. */
+            /** @description Invalid range. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -1675,6 +1856,45 @@ export interface operations {
             };
             /** @description No workflow with that name has runs in the window. */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listWorkflowVersions: {
+        parameters: {
+            query?: {
+                /** @description Time window for the metric. Defaults to 7d. 24h is bucketed hourly; 7d/30d/90d/1y daily. Ranges longer than 30d (90d, 1y) are served from the daily rollup, so latency percentiles are not available for them. */
+                range?: components["parameters"]["Range"];
+                /** @description Optional business filter (the operator's end-client). Empty means all clients. */
+                user_id?: components["parameters"]["UserFilter"];
+                /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
+                workspace_id?: components["parameters"]["WorkspaceFilter"];
+            };
+            header?: never;
+            path: {
+                /** @description The workflow name (the trace root span name). */
+                name: components["parameters"]["WorkflowName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Versions ordered by last_seen_ms descending. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedWorkflowVersionResponse"];
+                };
+            };
+            /** @description Invalid range. */
+            400: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1750,6 +1970,40 @@ export interface operations {
                 };
             };
             /** @description Invalid range, metric, or severity. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getSetupChecks: {
+        parameters: {
+            query?: {
+                /** @description Time window for the metric. Defaults to 7d. 24h is bucketed hourly; 7d/30d/90d/1y daily. Ranges longer than 30d (90d, 1y) are served from the daily rollup, so latency percentiles are not available for them. */
+                range?: components["parameters"]["Range"];
+                /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
+                workspace_id?: components["parameters"]["WorkspaceFilter"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Setup checks that found a problem. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedSetupCheckResponse"];
+                };
+            };
+            /** @description Invalid range, or one longer than 30d. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -1893,7 +2147,7 @@ export interface operations {
                     "application/json": components["schemas"]["PaginatedAttributeKeyResponse"];
                 };
             };
-            /** @description Invalid range. */
+            /** @description Invalid range, or one longer than 30d. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -1931,7 +2185,7 @@ export interface operations {
                     "application/json": components["schemas"]["PaginatedAttributeUsageResponse"];
                 };
             };
-            /** @description Invalid range, or the required `key` parameter is missing. */
+            /** @description Invalid range, a range longer than 30d, or the required `key` parameter is missing. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -2097,12 +2351,14 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Password changed. */
-            204: {
+            /** @description Password changed. Use the returned token from now on. */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["Token"];
+                };
             };
             /** @description Missing fields (`MISSING_FIELDS`) or a new password outside 8–72 bytes (`INVALID_PASSWORD_FORMAT`). */
             400: {
@@ -2675,8 +2931,26 @@ export interface operations {
                     "application/json": components["schemas"]["APIKeyVerifyResponse"];
                 };
             };
+            /** @description The request body is not valid JSON. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description The key is missing, malformed, unknown, or revoked. */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The request body exceeds 4 KiB. */
+            413: {
                 headers: {
                     [name: string]: unknown;
                 };

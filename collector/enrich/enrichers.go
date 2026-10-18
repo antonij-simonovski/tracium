@@ -11,13 +11,8 @@ import (
 	"github.com/tracium/collector/pkg/spanmodel"
 )
 
-// DefaultChain assembles the OSS enrichment chain in the canonical order:
+// DefaultChain assembles the enrichment chain in the canonical order:
 // validate → normalize model → resolve user → resolve pricing → filter.
-//
-// The Enterprise edition can call this and wrap or extend the result, e.g.
-//
-//	base := enrich.DefaultChain(cfg)
-//	chain := enrich.NewChain(append(base.Enrichers(), ee.QuotaEnricher{}, ee.PIIRedactor{})...)
 //
 // pricingResolver and userResolver may be nil; the corresponding step is then
 // skipped (useful in local dev). allowedModels may be empty to allow all models.
@@ -34,14 +29,6 @@ func DefaultChain(
 		NewFilterEnricher(allowedModels),
 	)
 }
-
-// Ingest sanity bounds are shared with the metrics path in package ingest, so
-// spans and token-usage metrics enforce identical limits. See that package for
-// the rationale behind each bound.
-
-// ---------------------------------------------------------------------------
-// ValidateEnricher — rejects spans missing required identity/timing fields.
-// ---------------------------------------------------------------------------
 
 // ValidateEnricher fails fast on structurally invalid spans. It must run first.
 type ValidateEnricher struct{}
@@ -94,10 +81,6 @@ func (ValidateEnricher) Enrich(_ context.Context, span *spanmodel.Span) error {
 	return nil
 }
 
-// ---------------------------------------------------------------------------
-// NormalizeModelEnricher — canonicalises the model name and schema version.
-// ---------------------------------------------------------------------------
-
 // NormalizeModelEnricher lower-cases, trims and sanitises the model name into
 // ModelNormalized, which downstream pricing and filtering rely on — and which
 // the daily rollup stores in a LowCardinality column.
@@ -114,10 +97,6 @@ func (NormalizeModelEnricher) Enrich(_ context.Context, span *spanmodel.Span) er
 	}
 	return nil
 }
-
-// ---------------------------------------------------------------------------
-// UserEnricher — resolves the user ID when not already set on the span.
-// ---------------------------------------------------------------------------
 
 // UserEnricher fills span.UserID via the configured Resolver. A nil Resolver
 // leaves any existing UserID untouched (e.g. when tenancy is carried in OTLP
@@ -143,31 +122,18 @@ func (e UserEnricher) Enrich(ctx context.Context, span *spanmodel.Span) error {
 			customerrors.ErrUserLookupFailed,
 			"failed to resolve user",
 			err,
-			true,
 		)
 	}
 	span.UserID = userID
 	return nil
 }
 
-// ---------------------------------------------------------------------------
-// PricingEnricher — computes USD cost from token counts.
-// ---------------------------------------------------------------------------
-
 // PricingEnricher sets span.CostUSD from token usage via the Resolver. A missing
-// price is non-fatal: the cost is recorded as 0 rather than dropping the span,
-// matching the OSS pricing policy.
-//
-// A cost the instrumentation reported itself (gen_ai.usage.cost) is ignored
-// unless TrustReportedCost is set. A valid ingest key authenticates the sender
-// and its workspace, but does not make the sender's self-reported cost true —
-// trusting it unconditionally would let any authenticated sender declare a span
-// worth $1,000,000 and have it stored verbatim, and every cost figure in the
-// product is a sum(cost_usd). Operators whose instrumentation prices calls the
-// table cannot (private or self-hosted models) can opt in.
+// price is non-fatal: the cost is recorded as 0 rather than dropping the span.
+// A cost the instrumentation reported itself is never used: an ingest key
+// authenticates the sender, not its numbers.
 type PricingEnricher struct {
-	Resolver          pricing.Resolver
-	TrustReportedCost bool
+	Resolver pricing.Resolver
 }
 
 // Name implements Enricher.
@@ -175,12 +141,6 @@ func (PricingEnricher) Name() string { return "pricing" }
 
 // Enrich implements Enricher.
 func (e PricingEnricher) Enrich(ctx context.Context, span *spanmodel.Span) error {
-	// Prefer a cost the instrumentation already computed (e.g. gen_ai.usage.cost)
-	// only where the operator has declared that source trustworthy.
-	if e.TrustReportedCost && span.ReportedCostUSD > 0 {
-		span.CostUSD = span.ReportedCostUSD
-		return nil
-	}
 	if e.Resolver == nil || span.ModelNormalized == "" {
 		return nil
 	}
@@ -198,10 +158,6 @@ func (e PricingEnricher) Enrich(ctx context.Context, span *spanmodel.Span) error
 	return nil
 }
 
-// ---------------------------------------------------------------------------
-// FilterEnricher — drops spans whose model is not in the allow-list.
-// ---------------------------------------------------------------------------
-
 // FilterEnricher discards spans from models outside allowedModels. An empty
 // allow-list permits every model.
 type FilterEnricher struct {
@@ -212,7 +168,7 @@ type FilterEnricher struct {
 func NewFilterEnricher(models []string) FilterEnricher {
 	m := make(map[string]bool, len(models))
 	for _, name := range models {
-		m[name] = true
+		m[ingest.SanitizeIdentifier(strings.ToLower(name), ingest.MaxModelNameBytes)] = true
 	}
 	return FilterEnricher{allowedModels: m}
 }

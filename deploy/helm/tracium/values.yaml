@@ -1,62 +1,45 @@
-# Global image settings
 global:
-  # imageTag: Docker image tag applied to all services unless overridden
-  # per-service. Leave empty to track the chart's appVersion, which
-  # `helm package --app-version` stamps on each released chart — so a released
-  # chart requests the images built for that exact release. Set a value only to
-  # pin every service to a specific tag regardless of the chart version.
+  # Empty tracks the chart's appVersion, so a released chart requests the images
+  # built for that release. Per-component image.tag overrides it.
   imageTag: ""
-  # imagePullPolicy: Kubernetes image pull policy. Use Always in CI, IfNotPresent otherwise.
   imagePullPolicy: IfNotPresent
 
-# Collector service — receives OTLP spans from instrumented apps
 collector:
-  # replicaCount: number of collector pods. Scale up to handle higher span
-  # throughput. Scaling out is safe: pods share no state, but each brings its
-  # own durable queue volume (see queue below), so the collector runs as a
-  # StatefulSet rather than a Deployment.
   replicaCount: 2
   image:
-    repository: ghcr.io/tracium/collector
-    # tag: overrides global.imageTag if set. Leave empty to use global.imageTag.
+    repository: ghcr.io/antonij-simonovski/collector
     tag: ""
+  captureContent: true
   resources:
     requests:
-      # cpu: baseline CPU request per pod. The collector is mostly I/O-bound.
       cpu: "250m"
-      # memory: baseline memory request. bufferSize * ~2KB per span = minimum.
       memory: "256Mi"
     limits:
       cpu: "1000m"
       memory: "512Mi"
   service:
-    # grpcPort: OTLP gRPC ingestion port (standard OTel port).
     grpcPort: 4317
-    # httpPort: OTLP HTTP/protobuf ingestion port (standard OTel port).
     httpPort: 4318
-    # healthPort: HTTP health and readiness probe port.
     healthPort: 8080
-  # queue: per-pod persistent volume backing the exporter's durable sending
-  # queue (sending_queue.storage in collector.yaml). Spans the collector has
-  # already ACKed to the client wait here while ClickHouse is unreachable, so
-  # this volume is what makes a restart during an outage lossless.
+  podSecurityContext:
+    fsGroup: 10001
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: [ALL]
+  # Per-pod volume for the durable exporter queue, which holds acknowledged spans
+  # while ClickHouse is unreachable. It is capped at queue_size batches
+  # (200 x 5000 spans x ~2KB = ~2GB); content capture makes spans larger.
   queue:
-    # storageSize: capacity of each pod's queue volume. The queue is capped at
-    # queue_size batches (default 200 x 5000 spans x ~2KB = ~2GB); 5Gi leaves
-    # headroom for content capture, which makes spans considerably larger.
     storageSize: "5Gi"
-    # storageClass: storage class for the queue volumes. Leave empty for the
-    # cluster default. Local/fast storage is fine — the queue drains and
-    # refills; it holds data only while the backend is behind or down.
     storageClass: ""
 
-# API service — serves trace and span data to the dashboard via REST /v1/*
 api:
-  # replicaCount: number of API pods. Stateless — safe to scale horizontally.
   replicaCount: 2
   image:
-    repository: ghcr.io/tracium/api
-    # tag: overrides global.imageTag if set. Leave empty to use global.imageTag.
+    repository: ghcr.io/antonij-simonovski/api
     tag: ""
   resources:
     requests:
@@ -66,27 +49,25 @@ api:
       cpu: "500m"
       memory: "512Mi"
   service:
-    # port: REST API listen port. All routes are prefixed /v1/.
     port: 8090
-  # jwt: signing secret for API auth tokens. REQUIRED — the API refuses to start
-  # without it. HS256 both signs and verifies with this one key, so a value shared
-  # across installs is no security at all; use a unique random value per install.
-  # Create the secret before `helm install`:
+  podSecurityContext:
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: [ALL]
+  # Required: create a unique secret per install before `helm install`:
   #   kubectl create secret generic tracium-api-jwt \
   #     --from-literal=jwt-secret=$(openssl rand -hex 32)
   jwt:
-    # existingSecret: name of the Secret holding the JWT signing key.
     existingSecret: "tracium-api-jwt"
-    # existingSecretKey: key within that Secret.
     existingSecretKey: "jwt-secret"
 
-# Dashboard — React trace viewer UI
 dashboard:
-  # replicaCount: number of dashboard pods. Serves static assets — scale as needed.
   replicaCount: 1
   image:
-    repository: ghcr.io/tracium/dashboard
-    # tag: overrides global.imageTag if set. Leave empty to use global.imageTag.
+    repository: ghcr.io/antonij-simonovski/dashboard
     tag: ""
   resources:
     requests:
@@ -96,23 +77,20 @@ dashboard:
       cpu: "200m"
       memory: "256Mi"
   service:
-    # port: dashboard HTTP server port.
     port: 3000
+  podSecurityContext:
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
 
-# Migration job — creates the ClickHouse schema and applies pending migrations.
-# Runs as a Helm hook (post-install + pre-upgrade) on every release, mirroring
-# the one-shot `migrate` service in docker-compose. Idempotent.
 migrate:
   # Legacy upgrade only: select an existing workspace and stop ingestion first.
   # See deploy/docs/upgrading.md. Empty on a fresh installation.
   legacyWorkspaceId: ""
   legacyIngestionPaused: false
   image:
-    # repository: image bundling run-migrations.sh plus the psql/curl tooling it
-    # needs. Built from deploy/docker/migrate/Dockerfile. The schema SQL
-    # is supplied at runtime via a ConfigMap mounted at /migrations.
-    repository: ghcr.io/tracium/migrate
-    # tag: overrides global.imageTag if set. Leave empty to use global.imageTag.
+    repository: ghcr.io/antonij-simonovski/migrate
     tag: ""
   resources:
     requests:
@@ -121,45 +99,38 @@ migrate:
     limits:
       cpu: "250m"
       memory: "128Mi"
+  podSecurityContext:
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: [ALL]
 
-# retention — how long span data is kept in ClickHouse.
 retention:
-  # days: span TTL in days. Applied to the spans schema by the migration Job.
-  # Set to 0 to keep data forever (no TTL) — e.g. when you need long-horizon or
-  # annual reporting. Note: this is applied at schema-create time; to change
-  # retention on an existing table, run an ALTER (see 001_create_spans.sql), and
-  # size clickhouse.storageSize accordingly (longer retention = more disk).
+  # Span TTL in days; 0 keeps data forever. Applied when the spans table is
+  # created; changing it later needs an ALTER (see 001_create_spans.sql).
   days: 90
 
-# ClickHouse — stores all span and trace data
 clickhouse:
-  # storageClass: Kubernetes StorageClass for the PersistentVolumeClaim.
-  # Use a storage class that supports ReadWriteOnce (most block storage providers).
+  # Empty uses the cluster's default StorageClass.
   storageClass: "standard"
-  # storageSize: Size of the ClickHouse data volume.
-  # Estimate ~1 GB per 1M spans at default retention. Increase for high-volume deployments.
   storageSize: "50Gi"
   resources:
     requests:
-      # cpu: ClickHouse is CPU-intensive during ingestion and query execution.
       cpu: "500m"
-      # memory: ClickHouse caches aggressively. Allocate at least 1Gi for small deployments.
       memory: "1Gi"
     limits:
       cpu: "2"
       memory: "4Gi"
-  # existingSecret: name of the Kubernetes Secret containing the ClickHouse password.
-  # The secret must exist before helm install. Create it with:
+  # Create before installing:
   #   kubectl create secret generic tracium-clickhouse-secret --from-literal=password=<value>
   existingSecret: "tracium-clickhouse-secret"
-  # existingSecretKey: key within the secret that holds the password value.
   existingSecretKey: "password"
 
-# PostgreSQL — stores configuration and metadata (users, API keys, migrations)
 postgres:
-  # storageClass: Kubernetes StorageClass for the PersistentVolumeClaim.
+  # Empty uses the cluster's default StorageClass.
   storageClass: "standard"
-  # storageSize: Size of the Postgres data volume. Config data is small.
   storageSize: "10Gi"
   resources:
     requests:
@@ -168,29 +139,22 @@ postgres:
     limits:
       cpu: "500m"
       memory: "1Gi"
-  # existingSecret: name of the Kubernetes Secret containing the Postgres password.
-  # The secret must exist before helm install. Create it with:
+  # Create before installing:
   #   kubectl create secret generic tracium-postgres-secret --from-literal=password=<value>
   existingSecret: "tracium-postgres-secret"
-  # existingSecretKey: key within the secret that holds the password value.
   existingSecretKey: "password"
 
-# Ingress — exposes collector OTLP ports, API, and dashboard externally
 ingress:
-  # Required when enabled: actual ingress controller peer IPs/CIDRs, or an
-  # explicit dns:headless-service name resolving to controller pod addresses.
-  # The controller must sanitize X-Forwarded-For. Do not trust the whole cluster.
-  trustedProxies: []
-  # enabled: set to true to create an Ingress resource.
-  # Databases (ClickHouse, Postgres) are never exposed via ingress.
   enabled: false
-  # host: hostname for the ingress rule. Must resolve to your ingress controller.
+  # Required when enabled: ingress controller peer IPs/CIDRs, or a
+  # dns:headless-service name resolving to controller pod addresses. The
+  # controller must sanitize X-Forwarded-For. Do not trust the whole cluster.
+  trustedProxies: []
   host: "tracium.example.com"
-  # className: IngressClass name. Typically "nginx" or "traefik".
   className: "nginx"
-  # tls: TLS termination settings.
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
   tls:
-    # enabled: set to true to configure HTTPS. Requires a TLS secret.
     enabled: false
-    # secretName: name of the Kubernetes TLS secret (cert + key).
     secretName: "tracium-tls"

@@ -1,28 +1,19 @@
-// Live activity — a flat, clickable list of recent trace events (no card). The
-// caller owns the incoming items (the demo page simulates them; the live page
-// polls recent traces); this component only owns the Live/Pause toggle, which
-// freezes the displayed list so a row can be read without it scrolling away.
-
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { IconDot } from '../../../common';
+import type { TraceId } from '../../../common/ids';
+import hover from '../../../common/styles/hover.module.css';
 import type { ActivityItem } from '../interfaces';
-import type { ActivityId } from '../ids';
 import { SectionRule } from './SectionRule';
 
 interface ActivityFeedProps {
   items: ActivityItem[];
-  onSelectTrace: (id: ActivityId) => void;
+  onSelectTrace: (id: TraceId) => void;
 }
 
 export function ActivityFeed({ items, onSelectTrace }: ActivityFeedProps) {
-  const [paused, setPaused] = useState(false);
-  const [frozen, setFrozen] = useState(items);
-
-  useEffect(() => {
-    if (!paused) setFrozen(items);
-  }, [items, paused]);
-
-  const display = paused ? frozen : items;
+  const [frozen, setFrozen] = useState<ActivityItem[] | null>(null);
+  const paused = frozen !== null;
+  const display = frozen ?? items;
 
   return (
     <div>
@@ -32,7 +23,7 @@ export function ActivityFeed({ items, onSelectTrace }: ActivityFeedProps) {
         subtitle="Real-time trace events"
         right={
           <button
-            onClick={() => setPaused((p) => !p)}
+            onClick={() => setFrozen((f) => (f ? null : items))}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -64,6 +55,7 @@ export function ActivityFeed({ items, onSelectTrace }: ActivityFeedProps) {
           <button
             key={it.id}
             onClick={() => onSelectTrace(it.id)}
+            className={hover.row}
             style={{
               display: 'grid',
               gridTemplateColumns: 'auto 1fr auto auto',
@@ -75,11 +67,8 @@ export function ActivityFeed({ items, onSelectTrace }: ActivityFeedProps) {
               textAlign: 'left',
               borderBottom:
                 i < display.length - 1 ? '1px solid color-mix(in srgb, var(--border) 55%, transparent)' : 'none',
-              background: 'transparent',
               transition: 'background .12s',
             }}
-            onMouseEnter={(e) => (e.currentTarget.style.background = 'color-mix(in srgb, var(--surface-alt) 60%, transparent)')}
-            onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
           >
             <IconDot size={7} color={it.status === 'failed' ? 'var(--error)' : 'var(--accent)'} />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>

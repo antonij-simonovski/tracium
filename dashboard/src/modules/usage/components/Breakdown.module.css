@@ -2,8 +2,6 @@
   overflow-x: auto;
 }
 
-/* ── Tab pill ─────────────────────────────────────────────────────────────── */
-
 .tabs {
   display: flex;
   gap: 18px;
@@ -38,8 +36,6 @@
   border: 1px solid var(--border);
   border-radius: 4px;
 }
-
-/* ── Header row ───────────────────────────────────────────────────────────── */
 
 .headRow {
   display: grid;
@@ -81,8 +77,6 @@
 .headCell.sortable {
   cursor: pointer;
 }
-
-/* ── Data row ─────────────────────────────────────────────────────────────── */
 
 .row {
   display: grid;
@@ -157,8 +151,6 @@
   font-family: var(--font-mono);
 }
 
-/* ── Metric cell ──────────────────────────────────────────────────────────── */
-
 .metricCell {
   display: flex;
   flex-direction: column;
@@ -194,15 +186,17 @@
   font-variant-numeric: tabular-nums;
 }
 
-.deltaTag.up {
+.deltaTag.good {
   color: var(--accent);
 }
 
-.deltaTag.down {
+.deltaTag.bad {
   color: var(--error);
 }
 
-/* ── Share bar ────────────────────────────────────────────────────────────── */
+.deltaTag.flat {
+  color: var(--muted);
+}
 
 .shareCell {
   display: flex;

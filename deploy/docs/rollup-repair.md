@@ -30,7 +30,7 @@ SELECT cost FROM tracium.metrics_daily WHERE user_id = 'affected-user';
 
 The `repair-rollup` command rebuilds specific `bucket_date` days from the raw
 spans, using the same aggregation each materialized view performs. It ships in
-the API image (`ghcr.io/tracium/api`) and rebuilds **both** rollups
+the API image (`ghcr.io/antonij-simonovski/api`) and rebuilds **both** rollups
 (`tracium.metrics_daily` and `tracium.metrics_daily_cost`) in one run.
 
 It connects over ClickHouse's native protocol via `CLICKHOUSE_DSN` (the same

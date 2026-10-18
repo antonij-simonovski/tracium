@@ -2,7 +2,6 @@ package traciumprocessor
 
 import (
 	"context"
-	"errors"
 
 	"github.com/tracium/collector/enrich"
 	"github.com/tracium/collector/internal/deadletter"
@@ -20,8 +19,7 @@ import (
 
 // traciumProcessor maps OTLP trace spans to the Tracium span model, runs the
 // enrichment chain, and writes the enriched values back as span attributes.
-// Spans the chain drops (invalid or filtered) are removed from the batch — and,
-// per Rule 1, counted and dead-lettered on the way out rather than vanishing.
+// Spans the chain drops are removed from the batch, counted and dead-lettered.
 type traciumProcessor struct {
 	logger         *zap.Logger
 	chain          *enrich.Chain
@@ -35,16 +33,11 @@ type traciumProcessor struct {
 	dropped metric.Int64Counter
 }
 
-// processTraces is the processorhelper ProcessTracesFunc. Returning an error
-// signals a retryable failure to the collector's queue/retry machinery.
+// processTraces is the processorhelper ProcessTracesFunc. It never fails the
+// batch: every span is either kept or dropped and dead-lettered.
 func (p *traciumProcessor) processTraces(ctx context.Context, td ptrace.Traces) (ptrace.Traces, error) {
-	var retryErr error
-
-	// Resolve the ingest key's workspace once for the whole request. Ingest
-	// requires a per-workspace API key: the traciumauth authenticator on the
-	// receiver verifies it and attaches the workspace here. When no verified key
-	// authenticated the request, scope.authenticated is false and every span in
-	// the request is rejected below — the pipeline never accepts keyless spans.
+	// The traciumauth receiver authenticator normally rejects keyless requests
+	// with 401; dropping them here is the backstop if it is not configured.
 	scope := ingestScope(ctx)
 
 	rss := td.ResourceSpans()
@@ -53,42 +46,21 @@ func (p *traciumProcessor) processTraces(ctx context.Context, td ptrace.Traces) 
 		resourceAttrs := rs.Resource().Attributes()
 		sss := rs.ScopeSpans()
 		for j := 0; j < sss.Len(); j++ {
-			spans := sss.At(j).Spans()
-			spans.RemoveIf(func(otelSpan ptrace.Span) bool {
-				// Snapshot the attributes once and reuse the map for model
-				// extraction, tool detection, and content flattening — building it
-				// per concern would copy every attribute (incl. content) twice on
-				// the ingest hot path.
+			sss.At(j).Spans().RemoveIf(func(otelSpan ptrace.Span) bool {
 				attrs := attrMap(otelSpan.Attributes())
 				model := toSpanModel(otelSpan, resourceAttrs, attrs)
-				// Fail closed: a request with no verified ingest key never reaches
-				// the exporter. The receiver authenticator normally rejects it with
-				// 401 first; this drop is the backstop if that authenticator is
-				// absent, so keyless spans are counted and dead-lettered, not stored.
+				model.WorkspaceID = scope.workspace
 				if !scope.authenticated {
 					p.recordDrop(ctx, model, customerrors.InvalidSpan(
 						customerrors.ErrUnauthenticated, "ingest requires a verified API key"))
 					return true
 				}
-				// The ingest key decides the workspace: stamp its workspace onto
-				// the span, overriding any value the sender supplied.
-				scope.apply(model)
-				res, err := applyChain(ctx, p.chain, model)
-				if res == enrich.ResultDrop {
-					// Permanently rejected: count it and dead-letter it before
-					// removing it from the batch.
+				if err := p.chain.Apply(ctx, model); err != nil {
 					p.recordDrop(ctx, model, err)
 					return true
 				}
-				if err != nil {
-					// Retryable transient failure — keep the span and fail the
-					// batch so the collector retries the whole batch.
-					retryErr = err
-					return false
-				}
 				writeBack(otelSpan, model)
-				// Compute available_tools from the full attribute set before any
-				// content is stripped (tool-call signals live in the completion).
+				// Before stripping: tool-call signals live in the completion.
 				stampAvailableTools(otelSpan, attrs)
 				if !p.captureContent {
 					stripContent(otelSpan)
@@ -96,10 +68,6 @@ func (p *traciumProcessor) processTraces(ctx context.Context, td ptrace.Traces) 
 				return false
 			})
 		}
-	}
-
-	if retryErr != nil {
-		return td, retryErr
 	}
 	return td, nil
 }
@@ -136,76 +104,23 @@ func ingestScope(ctx context.Context) authScope {
 	return authScope{authenticated: true, workspace: workspace}
 }
 
-// apply stamps the key's workspace onto the span, making the key — not the
-// sender-supplied attribute — authoritative for where the data lands. Callers
-// only reach this for an authenticated scope.
-func (s authScope) apply(span *spanmodel.Span) {
-	if s.authenticated {
-		span.WorkspaceID = s.workspace
-	}
-}
-
-// applyChain runs the enrichment chain like enrich.Chain.Apply, but preserves
-// the error behind a drop instead of collapsing it to (ResultDrop, nil).
-// Rule 1 requires the span's error code to travel with it to the dead-letter
-// store, and Apply's signature discards it. The classification below mirrors
-// Apply exactly — keep the two in sync until Apply itself returns the cause.
-func applyChain(ctx context.Context, c *enrich.Chain, span *spanmodel.Span) (enrich.Result, error) {
-	for _, e := range c.Enrichers() {
-		err := e.Enrich(ctx, span)
-		if err == nil {
-			continue
-		}
-		switch {
-		case customerrors.IsSpanError(err):
-			// Permanent, span-level problem — drop it.
-			return enrich.ResultDrop, err
-		case customerrors.IsTransient(err) && !customerrors.IsRetryable(err):
-			// Temporary but not worth retrying — drop it.
-			return enrich.ResultDrop, err
-		default:
-			// Retryable transient (or unknown) — surface for the retry queue.
-			return enrich.ResultKeep, err
-		}
-	}
-	return enrich.ResultKeep, nil
-}
-
-// recordDrop makes a discarded span observable and recoverable: it counts the
-// drop by error code (so operators can alert on it) and hands the span to the
-// dead-letter store. Per Rule 1 no span leaves the pipeline without both.
+// recordDrop counts a dropped span by error code and hands it to the
+// dead-letter store, so no span leaves the pipeline unrecorded.
 func (p *traciumProcessor) recordDrop(ctx context.Context, span *spanmodel.Span, cause error) {
-	code := dropCode(cause)
-	var reason string
-	if cause != nil {
-		reason = cause.Error()
+	code := customerrors.Code(cause)
+	if code == "" {
+		code = "unknown"
 	}
 
 	if p.dropped != nil {
 		p.dropped.Add(ctx, 1, metric.WithAttributes(attribute.String("code", code)))
 	}
-	if p.deadLetter == nil {
-		return
-	}
-	if err := p.deadLetter.Put(ctx, deadletter.Record{Code: code, Reason: reason, Span: span}); err != nil {
+	if err := p.deadLetter.Put(ctx, deadletter.Record{Code: code, Reason: cause.Error(), Span: span}); err != nil {
 		// The span is already lost; an unusable sink is an operator problem, not
 		// a reason to fail (and endlessly retry) the whole batch.
 		p.logger.Error("dead-letter store rejected a span",
 			zap.String("code", code), zap.Error(err))
 	}
-}
-
-// dropCode names why a span was dropped, reading the code off whichever typed
-// error caused it: a SpanError (bad data) or a non-retryable TransientError.
-func dropCode(err error) string {
-	if code := customerrors.SpanErrorCode_(err); code != "" {
-		return string(code)
-	}
-	var te *customerrors.TransientError
-	if errors.As(err, &te) {
-		return string(te.Code)
-	}
-	return "unknown"
 }
 
 // Attribute keys: gen_ai.* follow OTel semantic conventions; tracium.* are the
@@ -221,6 +136,7 @@ const (
 	attrModelNormalized = "tracium.model_normalized"
 	attrSchemaVersion   = "tracium.schema_version"
 	attrAvailableTools  = "tracium.available_tools"
+	attrUnmetered       = "tracium.usage.unmetered"
 )
 
 // toSpanModel extracts the fields the enrichment chain needs from an OTLP span.
@@ -239,19 +155,8 @@ func toSpanModel(s ptrace.Span, resourceAttrs pcommon.Map, attrs map[string]stri
 		}
 	}
 
-	// Workspace, likewise, may arrive on the span or on the resource.
-	workspaceID := attrs[attrWorkspaceID]
-	if workspaceID == "" {
-		if v, ok := resourceAttrs.Get(attrWorkspaceID); ok {
-			workspaceID = v.AsString()
-		}
-	}
-
 	startMs := s.StartTimestamp().AsTime().UnixMilli()
 	endMs := s.EndTimestamp().AsTime().UnixMilli()
-
-	// Token counts and any upstream-reported cost, resolved across the semconv
-	// and OpenLLMetry attribute names so legacy Traceloop spans price correctly.
 	usage := genai.Usage(attrs)
 
 	return &spanmodel.Span{
@@ -267,12 +172,10 @@ func toSpanModel(s ptrace.Span, resourceAttrs pcommon.Map, attrs map[string]stri
 		OutputTokens:     usage.OutputTokens,
 		CacheReadTokens:  usage.CacheReadTokens,
 		CacheWriteTokens: usage.CacheWriteTokens,
-		ReportedCostUSD:  usage.ReportedCostUSD,
-		// Read from the raw attributes, not the flattened attrs map: the map
-		// holds the JSON-encoded array (see finishReason).
+		Unmetered:        usage.Unmetered,
+		// The attrs map holds the JSON-encoded array, so read the raw value.
 		FinishReason: finishReason(s.Attributes()),
 		UserID:       userID,
-		WorkspaceID:  workspaceID,
 	}
 }
 
@@ -287,6 +190,9 @@ func writeBack(s ptrace.Span, m *spanmodel.Span) {
 	}
 	if m.WorkspaceID != "" {
 		attrs.PutStr(attrWorkspaceID, m.WorkspaceID)
+	}
+	if m.Unmetered {
+		attrs.PutBool(attrUnmetered, true)
 	}
 }
 

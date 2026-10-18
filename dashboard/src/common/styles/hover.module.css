@@ -1,0 +1,33 @@
+.row {
+  background: transparent;
+}
+
+.row:hover {
+  background: color-mix(in srgb, var(--surface-alt) 60%, transparent);
+}
+
+.text {
+  color: var(--muted);
+}
+
+.text:hover {
+  color: var(--foreground);
+}
+
+.danger {
+  color: var(--muted);
+}
+
+.danger:hover {
+  color: var(--error);
+}
+
+.outlined {
+  border-color: var(--border);
+  color: var(--muted);
+}
+
+.outlined:hover {
+  border-color: var(--border-strong);
+  color: var(--foreground);
+}

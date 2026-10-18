@@ -66,6 +66,15 @@ export function useAnomalies(range: string) {
   });
 }
 
+// Always the last 24h, whatever range the page shows: checks describe the current setup.
+export function useSetupChecks() {
+  const { metricsAPI, workspaceId } = useAPIClient();
+  return useQuery({
+    queryKey: ['overview', 'setup-checks', workspaceId],
+    queryFn: () => metricsAPI.getSetupChecks('24h'),
+  });
+}
+
 // useRecentActivity powers the live feed off the most recent traces, polling
 // every few seconds.
 export function useRecentActivity() {

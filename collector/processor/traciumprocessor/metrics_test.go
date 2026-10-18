@@ -2,9 +2,11 @@ package traciumprocessor
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/tracium/collector/internal/genai"
 	"github.com/tracium/collector/internal/ingest"
 	"github.com/tracium/collector/internal/pricing"
 	"github.com/tracium/collector/internal/user"
@@ -33,11 +35,11 @@ func metricsCtx() context.Context { return ctxWithAuth(fakeAuth{workspace: "ws-1
 // addUsagePoint appends one gen_ai.client.token.usage histogram point.
 func addUsagePoint(metrics pmetric.MetricSlice, tokenType, model string, tokens float64) pmetric.HistogramDataPoint {
 	m := metrics.AppendEmpty()
-	m.SetName(metricTokenUsage)
+	m.SetName(genai.TokenUsageMetric)
 	dp := m.SetEmptyHistogram().DataPoints().AppendEmpty()
 	dp.SetSum(tokens)
-	dp.Attributes().PutStr(attrTokenType, tokenType)
-	dp.Attributes().PutStr(attrMetricModelResponse, model)
+	dp.Attributes().PutStr(genai.AttrTokenType, tokenType)
+	dp.Attributes().PutStr(attrModelResponse, model)
 	return dp
 }
 
@@ -130,13 +132,13 @@ func TestProcessMetrics_UnknownModelCostsZero(t *testing.T) {
 // temporality — the shape a plain OTel SDK counter exports.
 func addUsageSum(metrics pmetric.MetricSlice, temp pmetric.AggregationTemporality, tokens int64) pmetric.Metric {
 	m := metrics.AppendEmpty()
-	m.SetName(metricTokenUsage)
+	m.SetName(genai.TokenUsageMetric)
 	sum := m.SetEmptySum()
 	sum.SetAggregationTemporality(temp)
 	dp := sum.DataPoints().AppendEmpty()
 	dp.SetIntValue(tokens)
-	dp.Attributes().PutStr(attrTokenType, "input")
-	dp.Attributes().PutStr(attrMetricModelResponse, "gpt-4o")
+	dp.Attributes().PutStr(genai.AttrTokenType, "input")
+	dp.Attributes().PutStr(attrModelResponse, "gpt-4o")
 	return m
 }
 
@@ -200,6 +202,52 @@ func TestProcessMetrics_DropsCumulativeHistogram(t *testing.T) {
 
 	if metrics.Len() != 0 {
 		t.Error("cumulative token-usage histogram survived")
+	}
+}
+
+func TestProcessMetrics_DropsExponentialHistogram(t *testing.T) {
+	core, logs := observer.New(zap.WarnLevel)
+	p := newMetricsProcessor()
+	p.logger = zap.New(core)
+
+	md := pmetric.NewMetrics()
+	metrics := md.ResourceMetrics().AppendEmpty().ScopeMetrics().AppendEmpty().Metrics()
+	m := metrics.AppendEmpty()
+	m.SetName(genai.TokenUsageMetric)
+	m.SetEmptyExponentialHistogram().DataPoints().AppendEmpty().SetSum(1000)
+
+	if _, err := p.processMetrics(metricsCtx(), md); err != nil {
+		t.Fatalf("processMetrics: %v", err)
+	}
+
+	if metrics.Len() != 0 {
+		t.Error("exponential-histogram token-usage metric survived")
+	}
+	if logs.Len() != 1 {
+		t.Fatalf("got %d warnings, want exactly 1", logs.Len())
+	}
+}
+
+type failingUserResolver struct{}
+
+func (failingUserResolver) Resolve(context.Context, string) (string, error) {
+	return "", errors.New("lookup down")
+}
+
+func TestProcessMetrics_DropsPointOnUserLookupFailure(t *testing.T) {
+	p := newMetricsProcessor()
+	p.user = failingUserResolver{}
+
+	md := pmetric.NewMetrics()
+	metrics := md.ResourceMetrics().AppendEmpty().ScopeMetrics().AppendEmpty().Metrics()
+	dp := addUsagePoint(metrics, "input", "gpt-4o", 1000)
+	dp.Attributes().PutStr(attrUserID, "acme")
+
+	if _, err := p.processMetrics(metricsCtx(), md); err != nil {
+		t.Fatalf("processMetrics: %v", err)
+	}
+	if got := metrics.At(0).Histogram().DataPoints().Len(); got != 0 {
+		t.Fatalf("point with failed user lookup survived: %d points left", got)
 	}
 }
 

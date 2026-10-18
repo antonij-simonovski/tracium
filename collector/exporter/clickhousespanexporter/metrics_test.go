@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tracium/collector/internal/genai"
+
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 )
@@ -15,25 +17,25 @@ func TestUsageRows_BuildsSyntheticSpans(t *testing.T) {
 	bucket := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
 
 	m := pmetric.NewMetric()
-	m.SetName(metricTokenUsage)
+	m.SetName(genai.TokenUsageMetric)
 	h := m.SetEmptyHistogram()
 
 	in := h.DataPoints().AppendEmpty()
 	in.SetSum(1000)
 	in.SetTimestamp(pcommon.NewTimestampFromTime(bucket))
-	in.Attributes().PutStr(attrMetricTokenType, "input")
-	in.Attributes().PutStr(attrMetricModel, "gpt-4o")
-	in.Attributes().PutStr(attrMetricNormalized, "gpt-4o")
-	in.Attributes().PutStr(attrMetricUserID, "acme-corp")
-	in.Attributes().PutDouble(attrMetricCostUSD, 0.005)
+	in.Attributes().PutStr(genai.AttrTokenType, "input")
+	in.Attributes().PutStr(attrModelResponse, "gpt-4o")
+	in.Attributes().PutStr(attrModelNormalized, "gpt-4o")
+	in.Attributes().PutStr(attrUserID, "acme-corp")
+	in.Attributes().PutDouble(attrCostUSD, 0.005)
 
 	out := h.DataPoints().AppendEmpty()
 	out.SetSum(500)
 	out.SetTimestamp(pcommon.NewTimestampFromTime(bucket))
-	out.Attributes().PutStr(attrMetricTokenType, "output")
-	out.Attributes().PutStr(attrMetricModel, "gpt-4o")
-	out.Attributes().PutStr(attrMetricNormalized, "gpt-4o")
-	out.Attributes().PutDouble(attrMetricCostUSD, 0.0075)
+	out.Attributes().PutStr(genai.AttrTokenType, "output")
+	out.Attributes().PutStr(attrModelResponse, "gpt-4o")
+	out.Attributes().PutStr(attrModelNormalized, "gpt-4o")
+	out.Attributes().PutDouble(attrCostUSD, 0.0075)
 
 	rows := usageRows(m)
 	if len(rows) != 2 {
@@ -69,11 +71,11 @@ func TestUsageRows_BuildsSyntheticSpans(t *testing.T) {
 // Sum-typed token-usage points are handled alongside the histogram shape.
 func TestUsageRows_HandlesSumType(t *testing.T) {
 	m := pmetric.NewMetric()
-	m.SetName(metricTokenUsage)
+	m.SetName(genai.TokenUsageMetric)
 	dp := m.SetEmptySum().DataPoints().AppendEmpty()
 	dp.SetIntValue(250)
-	dp.Attributes().PutStr(attrMetricTokenType, "input")
-	dp.Attributes().PutStr(attrMetricNormalized, "gpt-4o-mini")
+	dp.Attributes().PutStr(genai.AttrTokenType, "input")
+	dp.Attributes().PutStr(attrModelNormalized, "gpt-4o-mini")
 
 	rows := usageRows(m)
 	if len(rows) != 1 || rows[0].InputTokens != 250 {

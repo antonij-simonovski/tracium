@@ -34,7 +34,7 @@ strictly additive: set TRACIUM_ENABLE_METRICS=0 — or just run against a
 collector with no metrics pipeline — and everything falls back to span-only,
 exactly as before.
 
-Run the stack first:   docker compose up -d collector clickhouse postgres api
+Run the stack first:   docker compose up -d
 Create an ingest key in the dashboard (or POST /v1/workspaces/{id}/api-keys), then:
                        export OPENAI_API_KEY=sk-...
                        export TRACIUM_API_KEY=trc_...   # authenticates ingest + picks the workspace
@@ -84,6 +84,7 @@ METRICS_ENDPOINT = os.getenv(
 )
 
 USER_ID = os.getenv("TRACIUM_USER_ID", "acme-corp")
+WORKFLOW_VERSION = os.getenv("TRACIUM_WORKFLOW_VERSION", "v1")
 
 # Ingest requires a per-workspace API key. It both authenticates the sender and
 # decides which workspace these spans land in — so there is no workspace
@@ -141,7 +142,12 @@ def configure_tracing() -> bool:
         # the collector would write metric rows with an empty user_id; the
         # processor reads tracium.user.id from the resource as a fallback.
         # No workspace attribute: the ingest key decides the workspace.
-        resource_attributes={"tracium.user.id": USER_ID},
+        # tracium.workflow.version on the resource puts every span, and so every
+        # run, under one version for the per-version metrics.
+        resource_attributes={
+            "tracium.user.id": USER_ID,
+            "tracium.workflow.version": WORKFLOW_VERSION,
+        },
         disable_batch=False,
     )
     return metrics_exporter is not None

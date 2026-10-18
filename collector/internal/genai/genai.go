@@ -70,14 +70,6 @@ func Content(attrs map[string]string) (input, output string) {
 	return inputText(attrs), outputText(attrs)
 }
 
-// ToolsJSON computes the available-tools list (JSON-encoded) from the upstream
-// tool-definition attributes, marking each tool used if it appears in the
-// completion's tool calls. Returns "" when no tools were offered. This is the
-// source for the collector-computed tracium.available_tools attribute.
-func ToolsJSON(attrs map[string]string) string {
-	return toolsJSON_(attrs)
-}
-
 func inputText(attrs map[string]string) string {
 	var b strings.Builder
 	if sys := attrs[attrSystemInstructions]; sys != "" {
@@ -169,12 +161,12 @@ func renderMessages(jsonStr string) string {
 	return b.String()
 }
 
-// toolsJSON_ builds the available_tools array from the tool definitions offered
-// on the span, marking each tool used if it appears in the completion's tool
-// calls. Prefers the semconv gen_ai.tool.definitions array and falls back to
-// OpenLLMetry's indexed llm.request.functions.{i}.*. Returns "" when no tools
+// ToolsJSON builds the JSON available_tools array from the tool definitions
+// offered on the span, marking each tool used if it appears in the completion's
+// tool calls. Prefers the semconv gen_ai.tool.definitions array and falls back
+// to OpenLLMetry's indexed llm.request.functions.{i}.*. Returns "" when no tools
 // were offered.
-func toolsJSON_(attrs map[string]string) string {
+func ToolsJSON(attrs map[string]string) string {
 	list := toolDefinitions(attrs[attrToolDefinitions])
 	if len(list) == 0 {
 		list = indexedToolDefinitions(attrs)

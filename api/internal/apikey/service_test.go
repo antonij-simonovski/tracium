@@ -62,9 +62,6 @@ func (m *memStore) FindActiveByHash(_ context.Context, hash string) (*model.APIK
 	return &k, nil
 }
 
-func (m *memStore) Ping(context.Context) error { return nil }
-func (m *memStore) Close()                     {}
-
 func TestCreateVerifyRoundTrip(t *testing.T) {
 	svc := NewService(newMemStore())
 	ctx := context.Background()

@@ -1,8 +1,14 @@
 import { useState } from 'react';
 import {
   EmptyState,
+  KpiStrip,
   LastUpdated,
+  Panel,
+  PanelFrame,
   RunsTable,
+  Section,
+  SectionHead,
+  deltaParts,
   fmtMs,
   fmtNum,
   fmtPct,
@@ -12,20 +18,11 @@ import {
   useMaxWidth,
   BREAKPOINTS,
 } from '../../../common';
-import { Section } from '../../overview/components';
+import type { KpiItem } from '../../../common';
 import type { KpiSet } from '../../overview/interfaces';
 import { toRunRow } from '../../trace-explorer';
-import {
-  SectionHead,
-  KpiStrip,
-  DailyChart,
-  DailyChartLegend,
-  ModelsList,
-  Panel,
-  PanelFrame,
-  Breakdown,
-} from '../components';
-import type { KpiItem, SortKey } from '../components';
+import { DailyChart, DailyChartLegend, ModelsList, Breakdown } from '../components';
+import type { SortKey } from '../components';
 import {
   useClientKpis,
   useClientCostSeries,
@@ -35,7 +32,6 @@ import {
   useClientTraces,
 } from '../hooks/useClientDetail';
 import {
-  deltaParts,
   toDailySeries,
   toModelSummaries,
   toWorkflowSummaries,
@@ -171,7 +167,7 @@ export function UserDetailLivePage({ userId, range, setView, setSelected }: Prop
               <div className={styles.panels}>
                 <PanelFrame
                   left={
-                    <Panel eyebrow="Spend" title="Daily spend" right={<DailyChartLegend />}>
+                    <Panel eyebrow="Spend" title={range === '24h' ? 'Hourly spend' : 'Daily spend'} right={<DailyChartLegend />}>
                       <Section
                         isLoading={cost.isLoading || errors.isLoading}
                         isError={cost.isError || errors.isError}

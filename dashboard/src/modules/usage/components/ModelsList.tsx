@@ -1,7 +1,7 @@
 // ModelsList — minimal "where it goes" list: one row per model with a share bar.
 
 import type { CSSProperties } from 'react';
-import { costFormatter, tokenFormatter, fmtNum } from '../../../common';
+import { fmtCost, fmtTokens, fmtNum } from '../../../common';
 import type { ModelSummary } from '../interfaces';
 import styles from './ModelsList.module.css';
 
@@ -24,7 +24,7 @@ export function ModelsList({ models }: { models: ModelSummary[] }) {
                 <span className={styles.modelName}>{m.name}</span>
               </div>
               <div className={styles.figures}>
-                <span className={styles.cost}>{costFormatter.format(m.cost)}</span>
+                <span className={styles.cost}>{fmtCost(m.cost)}</span>
                 <span className={styles.pct}>{pct.toFixed(0)}%</span>
               </div>
             </div>
@@ -33,7 +33,7 @@ export function ModelsList({ models }: { models: ModelSummary[] }) {
             </div>
             <div className={styles.meta}>
               <span>{fmtNum(m.runs)} runs</span>
-              <span>{tokenFormatter.format(m.inputTokens + m.outputTokens)} tokens</span>
+              <span>{fmtTokens(m.inputTokens + m.outputTokens)} tokens</span>
             </div>
           </div>
         );

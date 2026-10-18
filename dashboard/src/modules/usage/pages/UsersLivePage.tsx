@@ -1,40 +1,12 @@
-// ---------------------------------------------------------------------------
-// UsersLivePage — the signed-in Users view, fed by GET /v1/metrics/
-// usage-users (range-bounded; cost scales with the query window, not the
-// total user count). It owns the data fetch and hands telemetry-derived rows
-// to the pure UsersPage. Loading / error / empty are handled here.
-//
-// Only telemetry-derived fields are available from the metrics endpoint
-// (user id, runs, cost, trend). Region / success rate / last-seen are not
-// telemetry, so the live table shows the telemetry columns only.
-// ---------------------------------------------------------------------------
-
-import type { ReactNode } from 'react';
-import { EmptyState, Spinner, periodLabel } from '../../../common';
+import { Centered, EmptyState, Spinner, periodLabel } from '../../../common';
 import { useUserUsage } from '../hooks/useUsage';
+import { UNATTRIBUTED } from '../utils';
 import { UsersPage, type User } from './UsersPage';
 
 interface UsersLivePageProps {
   range: string;
   setView: (v: string) => void;
   setSelected: (updater: (prev: Record<string, string>) => Record<string, string>) => void;
-}
-
-function Centered({ children }: { children: ReactNode }) {
-  return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        minHeight: 320,
-        color: 'var(--muted)',
-        fontSize: 14,
-      }}
-    >
-      {children}
-    </div>
-  );
 }
 
 export function UsersLivePage({ range, setView, setSelected }: UsersLivePageProps) {
@@ -62,7 +34,7 @@ export function UsersLivePage({ range, setView, setSelected }: UsersLivePageProp
   }
 
   const users: User[] = items.map((t) => ({
-    id: t.user_id || '—',
+    id: t.user_id || UNATTRIBUTED,
     name: t.user_id || 'default',
     cost: t.cost,
     runs: t.runs,

@@ -29,7 +29,10 @@ data:
           static_file_path: /etc/tracium/pricing.json
         user:
           source: passthrough
-        capture_content: true
+        capture_content: {{ .Values.collector.captureContent }}
+        # Count rejected spans per workspace for the dashboard's setup checks.
+        dead_letter:
+          clickhouse_dsn: ${env:CLICKHOUSE_DSN}
 
       # No standalone `batch` processor: it would sit BEFORE the durable queue
       # and ACK spans to the client before they are persisted, so a crash or a
@@ -113,7 +116,6 @@ data:
       # jwt verifies tokens against the Postgres accounts (the default). Set to
       # "none" only for local dev — it grants every request the admin role.
       mode: "jwt"
-      token_header: "Authorization"
       # Register/login attempts per client IP per minute (default 10; negative
       # disables). Override per-pod with AUTH_RATE_LIMIT_PER_MINUTE.
       rate_limit_per_minute: 10
@@ -135,10 +137,6 @@ data:
         - {{ . | quote }}
         {{- end }}
 
-    telemetry:
-      log_level: "info"
-      log_format: "json"
-
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -147,10 +145,6 @@ metadata:
   labels:
     {{- include "tracium.labels" . | nindent 4 }}
 data:
-  # Model pricing table read by the collector's static pricing resolver
-  # (static_file_path: /etc/tracium/pricing.json below). The collector image does
-  # NOT bake pricing in, so the file must be supplied to the pod — here, embedded
-  # from files/pricing/pricing.json (vendored from tracium-spec). Refresh with
-  # spec/pricing/refresh-pricing.sh, then re-copy into files/pricing/.
+  # Copied from spec/pricing/pricing.json by `make sync-generated`.
   pricing.json: |
 {{ .Files.Get "files/pricing/pricing.json" | indent 4 }}

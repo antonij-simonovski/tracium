@@ -3,50 +3,17 @@ package workspace
 import (
 	"context"
 	"errors"
-	"fmt"
-	"net/url"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tracium/api/internal/model"
+	"github.com/tracium/api/testing/pgtest"
 )
 
-// newTestStore uses a throwaway schema so it can share TEST_POSTGRES_DSN with other packages.
 func newTestStore(t *testing.T) *PostgresStore {
-	t.Helper()
-	dsn := os.Getenv("TEST_POSTGRES_DSN")
-	if dsn == "" {
-		t.Skip("TEST_POSTGRES_DSN not set")
-	}
-	ctx := context.Background()
-	admin, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(admin.Close)
-	schema := fmt.Sprintf("invite_test_%d", time.Now().UnixNano())
-	if _, err := admin.Exec(ctx, `CREATE SCHEMA `+schema); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _, _ = admin.Exec(context.Background(), `DROP SCHEMA `+schema+` CASCADE`) })
-
-	u, err := url.Parse(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	q := u.Query()
-	q.Set("search_path", schema)
-	u.RawQuery = q.Encode()
-	s, err := NewStore(ctx, u.String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(s.Close)
-	return s
+	return NewStore(pgtest.NewPool(t))
 }
 
 func addUser(t *testing.T, s *PostgresStore, email string) string {
@@ -70,7 +37,7 @@ func TestInviteLifecycle(t *testing.T) {
 	owner := addUser(t, s, "owner@example.com")
 	invitee := addUser(t, s, "bob@example.com")
 	other := addUser(t, s, "eve@example.com")
-	if err := s.Create(ctx, model.Workspace{ID: "ws-1", UserID: owner, Name: "Prod", Slug: "prod", Env: "production", Role: "Owner", Members: 1}); err != nil {
+	if err := s.Create(ctx, model.Workspace{ID: "ws-1", UserID: owner, Name: "Prod", Slug: "prod", Env: "production", Role: RoleOwner, Members: 1}); err != nil {
 		t.Fatal(err)
 	}
 	week := time.Now().Add(InviteTTL)
@@ -156,7 +123,7 @@ func TestInviteRevokeExpireAndCascade(t *testing.T) {
 	ctx := context.Background()
 	owner := addUser(t, s, "owner@example.com")
 	bob := addUser(t, s, "bob@example.com")
-	if err := s.Create(ctx, model.Workspace{ID: "ws-1", UserID: owner, Name: "Prod", Slug: "prod", Env: "production", Role: "Owner", Members: 1}); err != nil {
+	if err := s.Create(ctx, model.Workspace{ID: "ws-1", UserID: owner, Name: "Prod", Slug: "prod", Env: "production", Role: RoleOwner, Members: 1}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -207,7 +174,7 @@ func TestCreateInviteSeatCheck(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 	owner := addUser(t, s, "owner@example.com")
-	if err := s.Create(ctx, model.Workspace{ID: "ws-1", UserID: owner, Name: "Prod", Slug: "prod", Env: "production", Role: "Owner", Members: 1}); err != nil {
+	if err := s.Create(ctx, model.Workspace{ID: "ws-1", UserID: owner, Name: "Prod", Slug: "prod", Env: "production", Role: RoleOwner, Members: 1}); err != nil {
 		t.Fatal(err)
 	}
 	week := time.Now().Add(InviteTTL)
@@ -240,7 +207,7 @@ func TestGrantMember(t *testing.T) {
 	owner := addUser(t, s, "owner@example.com")
 	bob := addUser(t, s, "bob@example.com")
 	carol := addUser(t, s, "carol@example.com")
-	if err := s.Create(ctx, model.Workspace{ID: "ws-1", UserID: owner, Name: "Prod", Slug: "prod", Env: "production", Role: "Owner", Members: 1}); err != nil {
+	if err := s.Create(ctx, model.Workspace{ID: "ws-1", UserID: owner, Name: "Prod", Slug: "prod", Env: "production", Role: RoleOwner, Members: 1}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.CreateInvite(ctx, newInvite("ws-1", "bob@example.com", owner, time.Now().Add(InviteTTL)), "h1", nil); err != nil {
@@ -250,22 +217,22 @@ func TestGrantMember(t *testing.T) {
 	record := func(_ context.Context, invited bool) error { seen = append(seen, invited); return nil }
 
 	// An invited user's seat is already held; the add closes their invite.
-	if err := s.GrantMember(ctx, "ws-1", bob, RoleMember, record); err != nil {
+	if err := s.GrantMember(ctx, "ws-1", bob, record); err != nil {
 		t.Fatal(err)
 	}
 	if invites, _ := s.ListInvites(ctx, "ws-1"); len(invites) != 0 {
 		t.Fatalf("bob's invite still open: %+v", invites)
 	}
 	// Re-adding a member takes no seat and skips the check.
-	if err := s.GrantMember(ctx, "ws-1", bob, RoleOwner, func(context.Context, bool) error { return errors.New("checked") }); err != nil {
+	if err := s.GrantMember(ctx, "ws-1", bob, func(context.Context, bool) error { return errors.New("checked") }); err != nil {
 		t.Fatalf("re-add: %v", err)
 	}
 	// A refused add stores nothing.
 	full := errors.New("full")
-	if err := s.GrantMember(ctx, "ws-1", carol, RoleMember, func(context.Context, bool) error { return full }); !errors.Is(err, full) {
+	if err := s.GrantMember(ctx, "ws-1", carol, func(context.Context, bool) error { return full }); !errors.Is(err, full) {
 		t.Fatalf("refused add: err = %v", err)
 	}
-	if err := s.GrantMember(ctx, "ws-1", carol, RoleMember, record); err != nil {
+	if err := s.GrantMember(ctx, "ws-1", carol, record); err != nil {
 		t.Fatal(err)
 	}
 	if len(seen) != 2 || !seen[0] || seen[1] {
@@ -285,7 +252,7 @@ func TestConcurrentAcceptsRespectSeats(t *testing.T) {
 	owner := addUser(t, s, "owner@example.com")
 	bob := addUser(t, s, "bob@example.com")
 	carol := addUser(t, s, "carol@example.com")
-	if err := s.Create(ctx, model.Workspace{ID: "ws-1", UserID: owner, Name: "Prod", Slug: "prod", Env: "production", Role: "Owner", Members: 1}); err != nil {
+	if err := s.Create(ctx, model.Workspace{ID: "ws-1", UserID: owner, Name: "Prod", Slug: "prod", Env: "production", Role: RoleOwner, Members: 1}); err != nil {
 		t.Fatal(err)
 	}
 	week := time.Now().Add(InviteTTL)

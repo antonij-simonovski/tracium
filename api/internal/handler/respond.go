@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/tracium/api/internal/model"
@@ -18,6 +19,17 @@ func respondJSON(w http.ResponseWriter, status int, v any) {
 // respondError writes a standard ErrorResponse JSON body with the given status.
 func respondError(w http.ResponseWriter, status int, code, message string) {
 	respondJSON(w, status, model.ErrorResponse{Code: code, Message: message})
+}
+
+// respondDecodeError answers a request body that failed to decode: 413 when it
+// exceeded its http.MaxBytesReader cap, 400 otherwise.
+func respondDecodeError(w http.ResponseWriter, err error) {
+	var maxErr *http.MaxBytesError
+	if errors.As(err, &maxErr) {
+		respondError(w, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", "request body is too large")
+		return
+	}
+	respondError(w, http.StatusBadRequest, "BAD_REQUEST", "request body must be valid JSON")
 }
 
 // respondPage writes a 200 with the standard paginated list envelope.

@@ -31,7 +31,7 @@ than faking a status — because the whole point is to verify end-to-end error
 propagation through the collector. The first two calls are real, cheap
 gpt-4o-mini requests; only the third is intentionally broken.
 
-Run the stack first:   docker compose up -d collector clickhouse postgres api
+Run the stack first:   docker compose up -d
 Create an ingest key in the dashboard (or POST /v1/workspaces/{id}/api-keys), then:
                        export OPENAI_API_KEY=sk-...
                        export TRACIUM_API_KEY=trc_...   # authenticates ingest + picks the workspace

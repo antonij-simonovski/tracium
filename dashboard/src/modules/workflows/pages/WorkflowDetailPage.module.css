@@ -1,0 +1,27 @@
+.charts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+.divided {
+  border-left: 1px solid var(--border);
+}
+
+.split {
+  display: grid;
+  grid-template-columns: 1fr 360px;
+  gap: 32px;
+  align-items: start;
+}
+
+@media (max-width: 1180px) {
+  .charts,
+  .split {
+    grid-template-columns: 1fr;
+  }
+
+  .divided {
+    border-left: none;
+    border-top: 1px solid var(--border);
+  }
+}

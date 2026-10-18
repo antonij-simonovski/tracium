@@ -18,6 +18,9 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/component: dashboard
     spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.dashboard.podSecurityContext | nindent 8 }}
       containers:
         - name: dashboard
           image: "{{ .Values.dashboard.image.repository }}:{{ include "tracium.imageTag" (dict "component" .Values.dashboard "global" .Values.global "chart" .Chart) }}"
@@ -43,5 +46,7 @@ spec:
             initialDelaySeconds: 10
             periodSeconds: 30
             failureThreshold: 5
+          securityContext:
+            {{- toYaml .Values.dashboard.securityContext | nindent 12 }}
           resources:
             {{- toYaml .Values.dashboard.resources | nindent 12 }}

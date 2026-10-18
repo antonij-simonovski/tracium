@@ -1,9 +1,0 @@
-=== RUN   TestTraceDetailsRequireWorkspaceScope
---- PASS: TestTraceDetailsRequireWorkspaceScope (0.00s)
-=== RUN   TestUseRollup
---- PASS: TestUseRollup (0.00s)
-=== RUN   TestSelfHostedReviewNoQueryDeadline
-    self_hosted_review_test.go:41: CONFIRMED: request context reaches the database driver with no deadline; no network or database execution occurred
---- PASS: TestSelfHostedReviewNoQueryDeadline (0.00s)
-PASS
-ok  	github.com/tracium/api/internal/query	0.406s

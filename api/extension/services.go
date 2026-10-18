@@ -122,7 +122,7 @@ type CoreEntitlements struct{}
 // supplies its own provider via app.Options.
 func (CoreEntitlements) Check(_ context.Context, _ Subject, feature string) (Decision, error) {
 	switch feature {
-	case "traces.read", "metrics.read", "telemetry.read", "workspaces.create", "workspaces.invite", "workspaces.members.add":
+	case "telemetry.read", "workspaces.create", "workspaces.invite", "workspaces.members.add":
 		return Decision{Allowed: true}, nil
 	default:
 		return Decision{}, nil
@@ -152,16 +152,16 @@ func (s Services) Gate(feature string) func(http.Handler) http.Handler {
 			}
 			p, ok := PrincipalFromContext(r.Context())
 			if !ok || p.UserID == "" {
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				middleware.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "user identity could not be resolved")
 				return
 			}
 			decision, err := s.Entitlements.Check(r.Context(), Subject{UserID: p.UserID}, feature)
 			if err != nil {
-				http.Error(w, "service unavailable", http.StatusServiceUnavailable)
+				middleware.WriteError(w, http.StatusServiceUnavailable, "UNAVAILABLE", "could not check entitlements")
 				return
 			}
 			if !decision.Allowed {
-				http.Error(w, "feature unavailable", http.StatusForbidden)
+				middleware.WriteError(w, http.StatusForbidden, "FEATURE_UNAVAILABLE", "this feature is not available")
 				return
 			}
 			next.ServeHTTP(w, r)
@@ -177,21 +177,21 @@ func (s Services) RequireFeature(feature string) func(http.Handler) http.Handler
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			p, ok := PrincipalFromContext(r.Context())
 			if !ok || p.UserID == "" {
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				middleware.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "user identity could not be resolved")
 				return
 			}
 			id := r.URL.Query().Get("workspace_id")
 			if id == "" {
-				http.Error(w, "workspace_id is required", http.StatusBadRequest)
+				middleware.WriteError(w, http.StatusBadRequest, "MISSING_FIELDS", "workspace_id is required")
 				return
 			}
 			if s.Workspaces == nil || s.Entitlements == nil {
-				http.Error(w, "service unavailable", http.StatusServiceUnavailable)
+				middleware.WriteError(w, http.StatusServiceUnavailable, "UNAVAILABLE", "could not check entitlements")
 				return
 			}
 			ids, err := s.Workspaces.AllowedIDs(r.Context(), p.UserID)
 			if err != nil {
-				http.Error(w, "service unavailable", http.StatusServiceUnavailable)
+				middleware.WriteError(w, http.StatusServiceUnavailable, "UNAVAILABLE", "could not check entitlements")
 				return
 			}
 			allowed := false
@@ -202,16 +202,16 @@ func (s Services) RequireFeature(feature string) func(http.Handler) http.Handler
 				}
 			}
 			if !allowed {
-				http.Error(w, "forbidden", http.StatusForbidden)
+				middleware.WriteError(w, http.StatusForbidden, "FORBIDDEN", "you do not have access to that workspace")
 				return
 			}
 			decision, err := s.Entitlements.Check(r.Context(), Subject{UserID: p.UserID, WorkspaceID: id}, feature)
 			if err != nil {
-				http.Error(w, "service unavailable", http.StatusServiceUnavailable)
+				middleware.WriteError(w, http.StatusServiceUnavailable, "UNAVAILABLE", "could not check entitlements")
 				return
 			}
 			if !decision.Allowed {
-				http.Error(w, "feature unavailable", http.StatusForbidden)
+				middleware.WriteError(w, http.StatusForbidden, "FEATURE_UNAVAILABLE", "this feature is not available")
 				return
 			}
 			next.ServeHTTP(w, r)

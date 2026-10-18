@@ -51,7 +51,7 @@ func (h *APIKeyHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// An empty body is allowed — a name is optional and the service defaults it.
 	// Only a body that is present but malformed is an error.
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
-		respondError(w, http.StatusBadRequest, "BAD_REQUEST", "request body must be valid JSON")
+		respondDecodeError(w, err)
 		return
 	}
 
@@ -114,7 +114,7 @@ func (h *APIKeyHandler) Verify(w http.ResponseWriter, r *http.Request) {
 		Key string `json:"key"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		respondError(w, http.StatusBadRequest, "BAD_REQUEST", "request body must be valid JSON")
+		respondDecodeError(w, err)
 		return
 	}
 	if body.Key == "" {

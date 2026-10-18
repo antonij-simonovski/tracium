@@ -68,7 +68,6 @@ export function CostBarChart({ series, height = 220, markers = [] }: CostBarChar
               onMouseLeave={() => setHover(null)}
               style={{ cursor: 'pointer' }}
             >
-              {/* invisible hit area */}
               <rect
                 x={pad.left + i * gap}
                 y={pad.top}
@@ -105,7 +104,7 @@ export function CostBarChart({ series, height = 220, markers = [] }: CostBarChar
             if (m.index < 0 || m.index >= series.length) return null;
             const x = pad.left + m.index * gap + gap / 2;
             return (
-              <g key={`mk-${m.index}`} style={{ pointerEvents: 'none' }}>
+              <g key={`mk-${m.index}-${m.label ?? ''}`} style={{ pointerEvents: 'none' }}>
                 <line
                   x1={x}
                   x2={x}
@@ -166,15 +165,14 @@ export function CostBarChart({ series, height = 220, markers = [] }: CostBarChar
       </svg>
 
       {width > 0 &&
-        markers
-          .filter((m) => m.label && m.index >= 0 && m.index < series.length)
+        withoutOverlap(markers.filter((m) => m.label && m.index >= 0 && m.index < series.length), (m) => pad.left + m.index * gap + gap / 2)
           .map((m) => {
             const x = pad.left + m.index * gap + gap / 2;
             // Keep the flag inside the plot; anchor point is its center.
             const left = Math.min(Math.max(x, pad.left + 4), width - 4);
             return (
               <button
-                key={`fl-${m.index}`}
+                key={`fl-${m.index}-${m.label}`}
                 onClick={m.onClick}
                 title={m.label}
                 style={{
@@ -206,4 +204,19 @@ export function CostBarChart({ series, height = 220, markers = [] }: CostBarChar
           })}
     </div>
   );
+}
+
+// Keeps the most recent flags and drops any that would sit on top of one already
+// placed; their dashed rules still draw.
+function withoutOverlap(markers: ChartMarker[], xOf: (m: ChartMarker) => number): ChartMarker[] {
+  const kept: { x: number; half: number }[] = [];
+  return [...markers]
+    .sort((a, b) => b.index - a.index)
+    .filter((m) => {
+      const x = xOf(m);
+      const half = 18 + (m.label?.length ?? 0) * 3.6;
+      if (kept.some((k) => Math.abs(k.x - x) < k.half + half + 6)) return false;
+      kept.push({ x, half });
+      return true;
+    });
 }

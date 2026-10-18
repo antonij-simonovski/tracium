@@ -5,26 +5,10 @@
 
 import { useState } from 'react';
 import type { CSSProperties } from 'react';
-import { costFormatter, fmtNum } from '../../../common';
+import { fmtCost, fmtNum } from '../../../common';
 import type { DailySeriesPoint } from '../interfaces';
+import { niceCeil, tickIndices } from '../utils';
 import styles from './DailyChart.module.css';
-
-// niceCeil rounds a value up to a 1/2/5 × 10ⁿ step, so an axis top is a clean
-// number across scales (cents to dollars, or tens to thousands of runs).
-function niceCeil(v: number): number {
-  if (v <= 0) return 1;
-  const mag = Math.pow(10, Math.floor(Math.log10(v)));
-  const n = v / mag;
-  const step = n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10;
-  return step * mag;
-}
-
-// Up to five evenly spaced tick indices for the x-axis.
-function tickIndices(n: number): number[] {
-  if (n <= 1) return [0];
-  const raw = [0, 0.25, 0.5, 0.75, 1].map((t) => Math.round((n - 1) * t));
-  return Array.from(new Set(raw));
-}
 
 // DailyChartLegend — the Cost / Runs key, rendered in the panel header so it
 // clarifies the two dimensions without a hover.
@@ -57,7 +41,6 @@ export function DailyChart({ series }: { series: DailySeriesPoint[] }) {
 
   return (
     <div className={styles.chart}>
-      {/* Grid lines */}
       <div className={styles.grid}>
         {[0, 0.25, 0.5, 0.75, 1].map((t) => (
           <div
@@ -68,14 +51,12 @@ export function DailyChart({ series }: { series: DailySeriesPoint[] }) {
         ))}
       </div>
 
-      {/* Y-axis labels (cost) */}
       <div className={styles.yAxis}>
-        <div className={styles.yTop}>{costFormatter.format(niceMax)}</div>
-        <div className={styles.yMid}>{costFormatter.format(niceMax / 2)}</div>
+        <div className={styles.yTop}>{fmtCost(niceMax)}</div>
+        <div className={styles.yMid}>{fmtCost(niceMax / 2)}</div>
         <div className={styles.yZero}>$0</div>
       </div>
 
-      {/* Plot: cost bars + runs-line overlay */}
       <div className={styles.plot}>
         <div className={styles.bars}>
           {series.map((d, i) => {
@@ -94,7 +75,7 @@ export function DailyChart({ series }: { series: DailySeriesPoint[] }) {
                     style={{ '--tip-bottom': `calc(${h}% + 14px)` } as CSSProperties}
                   >
                     <div className={styles.tipLabel}>{d.label}</div>
-                    <div className={styles.tipCost}>{costFormatter.format(d.cost)}</div>
+                    <div className={styles.tipCost}>{fmtCost(d.cost)}</div>
                     <div className={styles.tipRuns}>{fmtNum(d.runs)} runs</div>
                   </div>
                 )}
@@ -113,7 +94,6 @@ export function DailyChart({ series }: { series: DailySeriesPoint[] }) {
         )}
       </div>
 
-      {/* X-axis labels */}
       <div className={styles.xAxis}>
         {tickIndices(series.length).map((idx) => (
           <span

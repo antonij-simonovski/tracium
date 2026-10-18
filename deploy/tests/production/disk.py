@@ -3,7 +3,7 @@ import json,os,secrets,subprocess,time,urllib.request,urllib.error
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[3]
 DIR=Path(os.environ['CHECK_DIR']);REPORT=Path(os.environ['CHECK_REPORT_DIR']);PROJECT=os.environ['CHECK_PROJECT']
-C=['docker','compose','--project-name',PROJECT,'--env-file',str(DIR/'env'),'-f',str(ROOT/'docker-compose.yml'),'-f',str(ROOT/'deploy/tests/production/compose.yaml')]
+C=['docker','compose','--project-name',PROJECT,'--env-file',str(DIR/'env'),'-f',str(ROOT/'docker-compose.yml'),'-f',str(ROOT/'compose.build.yaml'),'-f',str(ROOT/'deploy/tests/production/compose.yaml')]
 if (DIR/'images.yaml').exists():C+=['-f',str(DIR/'images.yaml')]
 name=PROJECT+'-full-queue'
 

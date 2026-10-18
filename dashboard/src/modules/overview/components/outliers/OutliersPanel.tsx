@@ -1,28 +1,13 @@
-// Outliers panel — a triage worklist, not a distribution plot. The task here is
-// to read each flagged bucket, decide (inspect the workflow, or dismiss the flag),
-// and move on, so the surface is a ranked list that stays scannable no matter how
-// many outliers there are: everything needed to judge a row is on the row, most
-// severe first, with the "why flagged" math one click away in place.
-//
-// Two views share the same rows:
-//   • List — one row per flagged bucket (design 1).
-//   • Grouped — flags for the same target on the same day collapse into one
-//     incident card (design 2); a single bad day for an workflow usually trips cost,
-//     errors and volume together, and that reads as one event.
-//
-// Selection is controlled by the page so a chart flag and this panel stay in sync
-// (clicking a marker on a chart expands the matching row / incident here).
-
 import React, { useEffect, useRef, useState } from 'react';
-import { EmptyState, useResize, bucketLabel } from '../../../../common';
+import { EmptyState, useResize, bucketLabel, SEVERITY_META } from '../../../../common';
 import type { Anomaly } from '../../interfaces';
 import {
-  SEVERITY_META,
   METRIC_META,
   anomalyValue,
   anomalyKey,
   zLabel,
   ratioLabel,
+  versionChangeLabel,
   bySeverity,
   groupIncidents,
   type Incident,
@@ -31,10 +16,8 @@ import {
 interface OutliersPanelProps {
   anomalies: Anomaly[]; // already filtered to non-dismissed
   range: string;
-  baselineLabel?: string; // e.g. "28-day"
   dismissedCount?: number;
-  // The expanded row/incident. null means everything is collapsed (the default);
-  // a chart flag click sets it to expand + scroll the matching row into view.
+  // Controlled by the page so a chart flag can expand the matching row.
   selectedKey: string | null;
   onSelectKey: (key: string | null) => void;
   onDismiss: (a: Anomaly) => void;
@@ -53,11 +36,11 @@ const LIST_MAX_H = 460;
 // ones don't collapse onto the floor; the exact z stays in the row.
 const Z_TICKS = [3, 4.5, 6];
 const Z_CEIL = 12;
+const BASELINE_LABEL = '28-day';
 
 export function OutliersPanel({
   anomalies,
   range,
-  baselineLabel = '28-day',
   dismissedCount = 0,
   selectedKey,
   onSelectKey,
@@ -90,7 +73,6 @@ export function OutliersPanel({
       <Header
         count={sorted.length}
         incidentCount={incidents.length}
-        baselineLabel={baselineLabel}
         view={view}
         onView={setView}
         narrow={narrow}
@@ -99,7 +81,7 @@ export function OutliersPanel({
       {sorted.length === 0 ? (
         <EmptyState
           message="No outliers in this window"
-          description={`Nothing strayed far enough from its ${baselineLabel} baseline to flag. Cost, error-rate and run-volume are all within their usual range.`}
+          description={`Nothing strayed far enough from its ${BASELINE_LABEL} baseline to flag. Cost, error-rate and run-volume are all within their usual range.`}
         />
       ) : view === 'list' ? (
         <div style={scrollArea}>
@@ -151,21 +133,15 @@ export function OutliersPanel({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Header — title, live count, and the List / Grouped toggle + legend.
-// ---------------------------------------------------------------------------
-
 function Header({
   count,
   incidentCount,
-  baselineLabel,
   view,
   onView,
   narrow,
 }: {
   count: number;
   incidentCount: number;
-  baselineLabel: string;
   view: ViewMode;
   onView: (v: ViewMode) => void;
   narrow: boolean;
@@ -185,7 +161,7 @@ function Header({
         <span style={{ fontSize: 14, color: 'var(--muted)' }}>
           {grouped
             ? `Flags for the same target on the same day, grouped. Most severe first.`
-            : `Each row is a flagged day, most severe first. Distance from the ${baselineLabel} baseline is shown per row.`}
+            : `Each row is a flagged day, most severe first. Distance from the ${BASELINE_LABEL} baseline is shown per row.`}
         </span>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
@@ -240,11 +216,6 @@ function ViewToggle({ view, onView }: { view: ViewMode; onView: (v: ViewMode) =>
   );
 }
 
-// ---------------------------------------------------------------------------
-// List row — one flagged bucket. Collapsed: severity, what/where/when, observed
-// vs baseline, magnitude bar, z. Expanded: the flag math + actions.
-// ---------------------------------------------------------------------------
-
 function OutlierRow({
   anomaly: a,
   range,
@@ -265,7 +236,6 @@ function OutlierRow({
   const rowRef = useScrollIntoView<HTMLDivElement>(expanded);
   const meta = SEVERITY_META[a.severity];
   const m = METRIC_META[a.metric];
-  const dirWord = a.direction === 'spike' ? 'spike' : 'drop';
   const target = a.scope === 'workflow' ? a.workflow : 'Workspace-wide';
   const ratio = ratioLabel(a.observed, a.expected);
 
@@ -283,6 +253,7 @@ function OutlierRow({
     >
       <button
         onClick={onToggle}
+        aria-expanded={expanded}
         style={{
           width: '100%',
           display: 'flex',
@@ -298,17 +269,16 @@ function OutlierRow({
       >
         <SeverityDot severity={a.severity} size={a.severity === 'critical' ? 11 : 9} />
 
-        {/* what / where / when */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 150, flex: narrow ? '1 1 100%' : '0 0 auto' }}>
           <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--foreground)' }}>
-            {m.kind} {dirWord}
+            {m.kind} {a.direction}
           </span>
           <span style={{ fontFamily: MONO, fontSize: 13, color: 'var(--muted)' }}>
             {target} · {bucketLabel(a.bucket_ms, range)}
           </span>
+          <VersionChangeNote anomaly={a} range={range} />
         </div>
 
-        {/* observed vs baseline */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 120, flex: narrow ? '1 1 auto' : '0 0 auto', textAlign: narrow ? 'left' : 'right', marginLeft: narrow ? 0 : 'auto' }}>
           <span style={{ fontSize: 16, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: 'var(--foreground)' }}>
             {anomalyValue(a.metric, a.observed)}
@@ -319,7 +289,6 @@ function OutlierRow({
           </span>
         </div>
 
-        {/* magnitude + z */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: narrow ? '1 1 100%' : '0 0 auto', minWidth: narrow ? 0 : 150 }}>
           <MagnitudeBar score={a.score} color={meta.color} />
           <span style={{ fontFamily: MONO, fontSize: 13, fontWeight: 600, color: meta.color, fontVariantNumeric: 'tabular-nums', width: 44, textAlign: 'right' }}>
@@ -344,10 +313,6 @@ function OutlierRow({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Incident card (grouped view) — every flag for one target on one day.
-// ---------------------------------------------------------------------------
-
 function IncidentCard({
   incident,
   range,
@@ -370,6 +335,7 @@ function IncidentCard({
   const target = incident.scope === 'workflow' ? incident.workflow : 'Workspace-wide';
   const n = incident.anomalies.length;
   const workflowAnom = incident.anomalies.find((a) => a.scope === 'workflow');
+  const versionAnom = incident.anomalies.find((a) => a.version_change);
 
   return (
     <div
@@ -385,6 +351,7 @@ function IncidentCard({
     >
       <button
         onClick={onToggle}
+        aria-expanded={expanded}
         style={{
           width: '100%',
           display: 'flex',
@@ -401,9 +368,9 @@ function IncidentCard({
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: '1 1 auto', minWidth: 160 }}>
           <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--foreground)' }}>{target}</span>
           <span style={{ fontFamily: MONO, fontSize: 13, color: 'var(--muted)' }}>{bucketLabel(incident.bucket_ms, range)}</span>
+          {versionAnom && <VersionChangeNote anomaly={versionAnom} range={range} />}
         </div>
 
-        {/* per-metric summary chips */}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', flex: narrow ? '1 1 100%' : '0 1 auto' }}>
           {incident.anomalies.map((a) => (
             <MetricChip key={anomalyKey(a)} anomaly={a} />
@@ -422,14 +389,13 @@ function IncidentCard({
             <div key={anomalyKey(a)} style={{ display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-start', paddingTop: 14, borderTop: `1px solid ${meta.border}` }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: '0 0 auto' }}>
                 <span style={{ fontSize: 13, fontWeight: 600, color: SEVERITY_META[a.severity].color }}>
-                  {METRIC_META[a.metric].kind} {a.direction === 'spike' ? 'spike' : 'drop'}
+                  {METRIC_META[a.metric].kind} {a.direction}
                 </span>
                 <WhyFlagged anomaly={a} />
               </div>
               <span style={{ fontSize: 14, color: 'var(--muted)', lineHeight: 1.5, flex: '1 1 200px', minWidth: 180 }}>{a.summary}</span>
             </div>
           ))}
-          {/* one action bar for the whole incident */}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', paddingTop: 2 }}>
             {workflowAnom && onInspect && (
               <button onClick={() => onInspect(workflowAnom)} style={primaryBtn}>
@@ -445,10 +411,6 @@ function IncidentCard({
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Shared pieces
-// ---------------------------------------------------------------------------
 
 const MONO = 'ui-monospace, SFMono-Regular, Menlo, monospace';
 
@@ -477,6 +439,18 @@ function SeverityDot({ severity, size = 8 }: { severity: Anomaly['severity']; si
         boxShadow: severity === 'critical' ? `0 0 8px ${meta.border}` : 'none',
       }}
     />
+  );
+}
+
+function VersionChangeNote({ anomaly: a, range }: { anomaly: Anomaly; range: string }) {
+  if (!a.version_change) return null;
+  return (
+    <span
+      title={`First seen ${bucketLabel(a.version_change.first_seen_ms, range)}`}
+      style={{ fontFamily: MONO, fontSize: 12, color: 'var(--accent)' }}
+    >
+      {versionChangeLabel(a)}
+    </span>
   );
 }
 

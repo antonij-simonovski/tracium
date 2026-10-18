@@ -86,37 +86,20 @@ postgres:
 YAML
 helm_args=(--kubeconfig "$dir/kubeconfig" --kube-context "kind-$cluster" --namespace tracium-validation)
 set +e
-"$helm" install tracium deploy/helm/tracium "${helm_args[@]}" -f "$dir/values.yaml" --wait --timeout 90s > "$report/helm-install.txt" 2>&1
+"$helm" install tracium deploy/helm/tracium "${helm_args[@]}" -f "$dir/values.yaml" --timeout 300s > "$report/helm-install.txt" 2>&1
 install_code=$?
+if [ "$install_code" = 0 ]; then
+  for workload in statefulset/tracium-clickhouse statefulset/tracium-postgres deployment/tracium-api statefulset/tracium-collector deployment/tracium-dashboard; do
+    "${kube[@]}" rollout status "$workload" --timeout=180s || install_code=$?
+  done > "$report/kubernetes-rollout.txt" 2>&1
+fi
 set -e
 "${kube[@]}" get pods,pvc -o wide > "$report/kubernetes-install-state.txt"
 "${kube[@]}" get events --sort-by=.lastTimestamp > "$report/kubernetes-install-events.txt"
+"${kube[@]}" logs job/tracium-migrate > "$report/kubernetes-migration.txt" 2>&1 || true
 printf '{"check":"helm_install","passed":%s,"exit_code":%s,"note":"One-node kind 1.34.0; local images, one replica and reduced resource/storage requests; documented secrets only"}\n' \
   "$([ "$install_code" = 0 ] && echo true || echo false)" "$install_code" > "$report/kubernetes.json"
 
-# Continue diagnosis with operator-only workarounds in this disposable cluster.
-# These do not change the repository chart and do not count as a stock-chart pass.
-"${kube[@]}" create secret generic tracium-db \
-  --from-literal="clickhouse-dsn=clickhouse://default:$ch_pass@tracium-clickhouse:9000/tracium" \
-  --from-literal="postgres-dsn=postgres://tracium:$pg_pass@tracium-postgres:5432/tracium?sslmode=disable"
-cat > "$dir/probes.json" <<'JSON'
-{"spec":{"template":{"spec":{"containers":[{"name":"clickhouse","readinessProbe":{"exec":{"command":["sh","-c","clickhouse-client --password \"$CLICKHOUSE_PASSWORD\" --query 'SELECT 1'"]}},"livenessProbe":{"exec":{"command":["sh","-c","clickhouse-client --password \"$CLICKHOUSE_PASSWORD\" --query 'SELECT 1'"]}}}]}}}}
-JSON
-"${kube[@]}" patch statefulset tracium-clickhouse --type strategic --patch-file "$dir/probes.json"
-# A failed --wait install never reached the post-install hook. An upgrade runs
-# the pre-upgrade migration hook once the missing secret is supplied.
-set +e
-"$helm" upgrade tracium deploy/helm/tracium "${helm_args[@]}" -f "$dir/values.yaml" --timeout 120s > "$report/helm-upgrade.txt" 2>&1
-upgrade_code=$?
-set -e
-# Helm restores the original unauthenticated probes; apply the diagnostic patch again.
-"${kube[@]}" patch statefulset tracium-clickhouse --type strategic --patch-file "$dir/probes.json"
-"${kube[@]}" rollout status statefulset/tracium-clickhouse --timeout=120s > "$report/kubernetes-rollout.txt" 2>&1 || true
-"${kube[@]}" rollout status deployment/tracium-api --timeout=120s >> "$report/kubernetes-rollout.txt" 2>&1 || true
-"${kube[@]}" rollout status statefulset/tracium-collector --timeout=120s >> "$report/kubernetes-rollout.txt" 2>&1 || true
-"${kube[@]}" get pods,pvc -o wide > "$report/kubernetes-workaround-state.txt"
-"${kube[@]}" logs job/tracium-migrate > "$report/kubernetes-migration.txt" 2>&1 || true
-printf '%s\n' "$upgrade_code" > "$report/kubernetes-upgrade-exit.txt"
 # Store a probe row, replace the DB pod, and verify the PVC still carries it.
 set +e
 "${kube[@]}" exec tracium-clickhouse-0 -- sh -c 'clickhouse-client --password "$CLICKHOUSE_PASSWORD" --query "INSERT INTO tracium.spans (trace_id,span_id) VALUES ('"'kube-persistence','span'"')"' > "$report/kubernetes-persistence.txt" 2>&1

@@ -93,3 +93,30 @@ func TestWorkspaceDeleteOtherUsersWorkspace(t *testing.T) {
 		t.Errorf("owner's workspace was removed: %+v", store.Workspaces)
 	}
 }
+
+func TestWorkspaceCreateReturnsLowercaseOwnerRole(t *testing.T) {
+	h := NewWorkspaceHandler(&mocks.MockWorkspaceStore{}, stubUserLookup{}, nil)
+
+	rr := serve(h.Create, http.MethodPost, `{"name":"Prod","slug":"prod","env":"production"}`, "user-a", nil)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201 (%s)", rr.Code, rr.Body.String())
+	}
+	var ws model.Workspace
+	if err := json.Unmarshal(rr.Body.Bytes(), &ws); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if ws.Role != "owner" {
+		t.Errorf("role = %q, want owner", ws.Role)
+	}
+}
+
+func TestWorkspaceCreateRejectsUnknownEnv(t *testing.T) {
+	h := NewWorkspaceHandler(&mocks.MockWorkspaceStore{}, stubUserLookup{}, nil)
+
+	rr := serve(h.Create, http.MethodPost, `{"name":"Prod","slug":"prod","env":"qa"}`, "user-a", nil)
+
+	if rr.Code != http.StatusBadRequest || errorCode(t, rr) != "INVALID_ENV" {
+		t.Fatalf("status = %d, body = %s; want 400 INVALID_ENV", rr.Code, rr.Body.String())
+	}
+}

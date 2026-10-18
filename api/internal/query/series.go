@@ -7,11 +7,6 @@ import (
 	"github.com/tracium/api/internal/model"
 )
 
-// This file holds the shared scaffolding for the per-bucket metrics series and
-// the per-row trend sparklines. Both the raw-span queries (metrics.go) and the
-// daily-rollup queries (rollup.go) use it, so the gap-fill / axis-alignment
-// mechanics live here once; each caller supplies only its own SQL.
-
 // bucketSeries runs a per-bucket aggregate query and materialises a gap-free,
 // axis-aligned series over the window grid (bucketAxis): every slot is present;
 // scanned buckets carry their value, absent buckets the zero value of V. scan
@@ -94,16 +89,20 @@ func fillTrends[T any, V any](
 	return rs.Err()
 }
 
-// fillWorkflowTrends fills each workflow's per-bucket call-count sparkline from query.
-// Both the raw and rollup top-workflows paths supply their own SQL and call this.
-func (r *ClickHouseRepository) fillWorkflowTrends(ctx context.Context, f MetricsFilter, workflows []model.WorkflowCost, query string, args []any) error {
-	return fillTrends(ctx, r.db, f, query, args, workflows,
-		func(a *model.WorkflowCost) string { return a.Name },
-		func(a *model.WorkflowCost, n int) { a.Trend = make([]int64, n) },
-		func(a *model.WorkflowCost, slot int, v int64) { a.Trend[slot] = v },
+// fillWorkflowTrends fills each workflow row's per-bucket call-count sparkline
+// from query; trend returns a row's name and its Trend field.
+func fillWorkflowTrends[T any](ctx context.Context, db *sql.DB, f MetricsFilter, workflows []T, trend func(*T) (string, *[]int64), query string, args []any) error {
+	return fillTrends(ctx, db, f, query, args, workflows,
+		func(a *T) string { name, _ := trend(a); return name },
+		func(a *T, n int) { _, t := trend(a); *t = make([]int64, n) },
+		func(a *T, slot int, v int64) { _, t := trend(a); (*t)[slot] = v },
 		scanNamedInt,
 	)
 }
+
+func workflowCostTrend(a *model.WorkflowCost) (string, *[]int64) { return a.Name, &a.Trend }
+
+func workflowTrend(a *model.Workflow) (string, *[]int64) { return a.Name, &a.Trend }
 
 // zeroFillTrend expands a bucket_ms→count map (e.g. from a sumMap aggregate)
 // onto the window's gap-free axis (bucketAxis): every slot is present and quiet
@@ -120,18 +119,6 @@ func zeroFillTrend(f MetricsFilter, counts map[int64]int64) []int64 {
 	return trend
 }
 
-// fillWorkflowRowTrends fills each Workflow row's per-bucket call-count sparkline from
-// query. It mirrors fillWorkflowTrends for the richer model.Workflow (Workflows page);
-// the rollup ListWorkflows path supplies its own SQL and calls this.
-func (r *ClickHouseRepository) fillWorkflowRowTrends(ctx context.Context, f MetricsFilter, workflows []model.Workflow, query string, args []any) error {
-	return fillTrends(ctx, r.db, f, query, args, workflows,
-		func(a *model.Workflow) string { return a.Name },
-		func(a *model.Workflow, n int) { a.Trend = make([]int64, n) },
-		func(a *model.Workflow, slot int, v int64) { a.Trend[slot] = v },
-		scanNamedInt,
-	)
-}
-
 // fillUserTrends fills each user's per-bucket cost sparkline from query.
 // Both the raw and rollup user-usage paths supply their own SQL and call this.
 func (r *ClickHouseRepository) fillUserTrends(ctx context.Context, f MetricsFilter, users []model.UserUsage, query string, args []any) error {
@@ -142,8 +129,6 @@ func (r *ClickHouseRepository) fillUserTrends(ctx context.Context, f MetricsFilt
 		scanNamedFloat,
 	)
 }
-
-// Row scanners/builders shared by the series helpers.
 
 func scanCostBucket(rows *sql.Rows) (int64, float64, error) {
 	var bm int64
@@ -162,6 +147,17 @@ func scanErrorBucket(rows *sql.Rows) (int64, model.ErrorPoint, error) {
 
 func errorPoint(bm int64, p model.ErrorPoint) model.ErrorPoint {
 	p.BucketMs = bm // set the axis bucket so zero-filled (absent) slots are stamped too
+	return p
+}
+
+func scanTokenBucket(rows *sql.Rows) (int64, model.TokenPoint, error) {
+	var p model.TokenPoint
+	err := rows.Scan(&p.BucketMs, &p.InputTokens, &p.OutputTokens)
+	return p.BucketMs, p, err
+}
+
+func tokenPoint(bm int64, p model.TokenPoint) model.TokenPoint {
+	p.BucketMs = bm
 	return p
 }
 

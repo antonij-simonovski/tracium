@@ -50,8 +50,8 @@ func TestReadyDependencyDown(t *testing.T) {
 	if body.Checks["postgres"] != "ok" {
 		t.Errorf("postgres check = %q, want ok", body.Checks["postgres"])
 	}
-	if body.Checks["clickhouse"] == "ok" {
-		t.Errorf("clickhouse check should report the failure, got %q", body.Checks["clickhouse"])
+	if body.Checks["clickhouse"] != "unavailable" {
+		t.Errorf("clickhouse check = %q, want unavailable", body.Checks["clickhouse"])
 	}
 }
 

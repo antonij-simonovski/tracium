@@ -12,11 +12,9 @@ import (
 	"github.com/tracium/api/internal/auth"
 	"github.com/tracium/api/internal/config"
 	"github.com/tracium/api/internal/handler"
-	"github.com/tracium/api/internal/middleware"
 	"github.com/tracium/api/internal/query"
 	"github.com/tracium/api/internal/workspace"
 	"github.com/tracium/api/migrations"
-	"log"
 	"net/http"
 	"os"
 	"regexp"
@@ -27,7 +25,6 @@ type Config = config.Config
 type ServerConfig = config.ServerConfig
 type StorageConfig = config.StorageConfig
 type AuthConfig = config.AuthConfig
-type TelemetryConfig = config.TelemetryConfig
 
 // Extension routes always inherit authentication. Webhooks have a separate,
 // explicitly public namespace and must verify their own provider signatures.
@@ -61,8 +58,9 @@ func LoadConfig() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	cfg.Default()
-	cfg.ApplyEnv()
+	if err := cfg.ApplyEnv(); err != nil {
+		return Config{}, err
+	}
 	return *cfg, cfg.Validate()
 }
 
@@ -80,54 +78,36 @@ func New(ctx context.Context, cfg Config, opts Options) (*Application, error) {
 	if opts.Entitlements == nil {
 		opts.Entitlements = extension.CoreEntitlements{}
 	}
-	// Apply core first, then each extension's independently tracked migrations.
 	pool, err := pgxpool.New(ctx, cfg.Storage.PostgresDSN)
 	if err != nil {
 		return nil, err
 	}
-	defer pool.Close()
 	for _, set := range append([]migrations.Set{migrations.Core}, opts.Migrations...) {
 		if err := migrations.Apply(ctx, pool, set); err != nil {
+			pool.Close()
 			return nil, err
 		}
 	}
 	repo, err := query.NewClickHouseRepository(cfg.Storage.ClickHouseDSN, time.Duration(cfg.Storage.QueryTimeout)*time.Second)
 	if err != nil {
+		pool.Close()
 		return nil, err
 	}
-	users, err := auth.NewUserStore(ctx, cfg.Storage.PostgresDSN)
-	if err != nil {
-		repo.Close()
-		return nil, err
-	}
-	workspaces, err := workspace.NewStore(ctx, cfg.Storage.PostgresDSN)
-	if err != nil {
-		users.Close()
-		repo.Close()
-		return nil, err
-	}
-	apiKeys, err := apikey.NewStore(ctx, cfg.Storage.PostgresDSN)
-	if err != nil {
-		workspaces.Close()
-		users.Close()
-		repo.Close()
-		return nil, err
-	}
+	users := auth.NewUserStore(pool)
+	workspaces := workspace.NewStore(pool)
+	apiKeys := apikey.NewStore(pool)
 	apiKeyService := apikey.NewService(apiKeys)
 	service := auth.NewService(users, auth.NewTokenIssuer(cfg.Auth.JWTSecret), opts.Accounts)
-	var authenticator middleware.Authenticator = service.Authenticator()
-	if cfg.Auth.Mode == config.AuthModeNone {
-		log.Println("WARNING: auth.mode=none — never use this outside local development")
-		authenticator = &middleware.NoopAuthenticator{}
-	}
-	health := []handler.DependencyCheck{{Name: "clickhouse", Check: repo.Ping}, {Name: "postgres", Check: users.Ping}}
-	return &Application{cfg: cfg, sessions: service, Handler: newRouter(cfg, repo, workspaces, workspaces, users, authenticator, service, apiKeyService, health, opts), close: func() { apiKeys.Close(); workspaces.Close(); users.Close(); repo.Close() }}, nil
+	health := []handler.DependencyCheck{{Name: "clickhouse", Check: repo.Ping}, {Name: "postgres", Check: pool.Ping}}
+	return &Application{cfg: cfg, sessions: service, Handler: newRouter(cfg, repo, workspaces, workspaces, users, service, service, apiKeyService, health, opts), close: func() { pool.Close(); repo.Close() }}, nil
 }
+
+var extensionName = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 
 func validateOptions(opts Options) error {
 	names := map[string]bool{}
 	for _, ext := range opts.Extensions {
-		if !regexp.MustCompile(`^[a-z][a-z0-9-]*$`).MatchString(ext.Name) || names[ext.Name] {
+		if !extensionName.MatchString(ext.Name) || names[ext.Name] {
 			return fmt.Errorf("invalid or duplicate extension name %q", ext.Name)
 		}
 		names[ext.Name] = true

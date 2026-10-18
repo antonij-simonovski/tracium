@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { KpiSet } from '../../overview/interfaces';
-import { deltaParts, toDailySeries, toWorkflowSummaries, sumCost, spendTile, runsTile, tokensTile } from '.';
+import { toDailySeries, toTokenSeries, toWorkflowSummaries, sumCost, spendTile, runsTile, tokensTile } from '.';
 
 const kpis: KpiSet = {
   cost: { value: 12.5, delta: 0.25, delta_type: 'bad' },
@@ -9,27 +9,40 @@ const kpis: KpiSet = {
   error_rate: { value: 0.1, delta: 0, delta_type: 'neutral' },
 };
 
-describe('deltaParts', () => {
-  it('hides the chip when there is no baseline', () => {
-    expect(deltaParts(kpis.runs)).toEqual({ delta: '', deltaTone: 'neutral' });
-  });
-
-  it('signs the percentage and keeps the tone', () => {
-    expect(deltaParts(kpis.cost)).toEqual({ delta: '+25%', deltaTone: 'bad' });
-    expect(deltaParts({ value: 1, delta: -0.004, delta_type: 'good' })).toEqual({ delta: '-0.4%', deltaTone: 'good' });
-  });
-});
-
 describe('toDailySeries', () => {
-  it('pairs cost and run buckets by position', () => {
-    const day = new Date(2026, 8, 24).getTime();
-    const series = toDailySeries([{ bucket_ms: day, value: 2 }], [{ bucket_ms: day, total: 7, errors: 1 }], '7d');
-    expect(series).toEqual([{ day: 1, label: '9/24', cost: 2, runs: 7 }]);
+  it('pairs cost and run buckets by timestamp', () => {
+    const day = Date.UTC(2026, 8, 24);
+    const next = Date.UTC(2026, 8, 25);
+    const series = toDailySeries(
+      [{ bucket_ms: day, value: 2 }, { bucket_ms: next, value: 3 }],
+      [{ bucket_ms: next, total: 7, errors: 1 }],
+      '7d',
+    );
+    expect(series).toEqual([
+      { label: '9/24', cost: 2, runs: 0 },
+      { label: '9/25', cost: 3, runs: 7 },
+    ]);
   });
 
   it('labels hourly buckets on 24h', () => {
     const hour = new Date(2026, 8, 24, 9).getTime();
     expect(toDailySeries([{ bucket_ms: hour, value: 0 }], [], '24h')[0]).toMatchObject({ label: '09:00', runs: 0 });
+  });
+});
+
+describe('toTokenSeries', () => {
+  it('pairs token and run buckets by timestamp', () => {
+    const day = Date.UTC(2026, 8, 24);
+    const next = Date.UTC(2026, 8, 25);
+    const series = toTokenSeries(
+      [{ bucket_ms: day, input_tokens: 1200, output_tokens: 300 }, { bucket_ms: next, input_tokens: 10, output_tokens: 2 }],
+      [{ bucket_ms: next, total: 5, errors: 0 }],
+      '7d',
+    );
+    expect(series).toEqual([
+      { label: '9/24', input: 1200, output: 300, runs: 0 },
+      { label: '9/25', input: 10, output: 2, runs: 5 },
+    ]);
   });
 });
 

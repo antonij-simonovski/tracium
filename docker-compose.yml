@@ -1,24 +1,12 @@
-# Root compose — builds the whole Tracium stack from source in this repo.
-# No pre-published images needed. `cp .env.example .env`, set JWT_SECRET, then up.
-# Schema migrations run automatically: the `migrate` one-shot is a
-# service_completed_successfully dependency of every app service, so `docker
-# compose up` re-runs it (and applies any new migrations) before the collector
-# or API start. It is idempotent and state-gated, so re-running it is a no-op
-# once the schema is current — never gate it behind a "run once" flag.
+# Runs the release images pinned to TRACIUM_VERSION; add `-f compose.build.yaml` to build from this checkout.
+# `migrate` is idempotent and re-runs on every `up` before the app services start.
 
 services:
-
-  # ── Databases ────────────────────────────────────────────────────────────────
-
   clickhouse:
     image: clickhouse/clickhouse-server:24.6
     environment:
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?set CLICKHOUSE_PASSWORD in .env}
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
-    ports:
-      - "127.0.0.1:8123:8123"   # HTTP — for dev tools and health checks
-      # 9000 (native TCP) is intentionally not exposed on the host;
-      # internal services reach it via the Docker network.
     volumes:
       - clickhouse_data:/var/lib/clickhouse
     healthcheck:
@@ -34,8 +22,6 @@ services:
       POSTGRES_USER: tracium
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: tracium
-    ports:
-      - "127.0.0.1:5432:5432"   # exposed so the API can run natively against it during local dev
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -44,11 +30,8 @@ services:
       timeout: 3s
       retries: 10
 
-  # ── Migrations ───────────────────────────────────────────────────────────────
-
   migrate:
-    build:
-      context: ./deploy/docker/migrate
+    image: ghcr.io/antonij-simonovski/migrate:${TRACIUM_VERSION:-1.1.0}
     environment:
       CLICKHOUSE_HTTP: http://clickhouse:8123
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?set CLICKHOUSE_PASSWORD in .env}
@@ -58,8 +41,6 @@ services:
       # Required only when upgrading telemetry written before workspace scoping.
       LEGACY_WORKSPACE_ID: ${LEGACY_WORKSPACE_ID:-}
       LEGACY_INGESTION_PAUSED: ${LEGACY_INGESTION_PAUSED:-false}
-    volumes:
-      - ./collector/schema:/migrations:ro
     depends_on:
       clickhouse:
         condition: service_healthy
@@ -67,68 +48,58 @@ services:
         condition: service_healthy
     restart: on-failure
 
-  # ── Application services ─────────────────────────────────────────────────────
+  # Queue volumes created by older root images are root-owned; the collector runs as 10001.
+  collector-queue-owner:
+    image: alpine:3.24
+    user: root
+    command: ["chown", "-R", "10001:10001", "/var/lib/tracium/queue"]
+    volumes:
+      - collector_queue:/var/lib/tracium/queue
+    restart: "no"
 
   collector:
-    # Generic OpenTelemetry Collector distribution assembled by OCB
-    # (see collector/builder/oss.builder.yaml). All Tracium-specific
-    # behaviour lives in the `tracium` processor + `clickhousespan` exporter.
-    build:
-      context: ./collector
-      dockerfile: Dockerfile
+    image: ghcr.io/antonij-simonovski/collector:${TRACIUM_VERSION:-1.1.0}
     ports:
       - "127.0.0.1:4317:4317"   # OTLP gRPC
       - "127.0.0.1:4318:4318"   # OTLP HTTP
-      - "127.0.0.1:8080:8080"   # Health (health_check extension)
+      - "127.0.0.1:13133:8080"  # Health (health_check extension)
     environment:
       CLICKHOUSE_DSN: clickhouse://default:${CLICKHOUSE_PASSWORD:?set CLICKHOUSE_PASSWORD in .env}@clickhouse:9000/tracium
       PRICING_STATIC_PATH: /etc/tracium/pricing.json
-      # Ingest auth is mandatory: the collector verifies every OTLP request's
-      # API key against the API's verify endpoint. Must be reachable from the
-      # collector container (the api service listens on :8090).
+      CAPTURE_CONTENT: ${CAPTURE_CONTENT:-true}
       INGEST_VERIFY_URL: http://api:8090/v1/ingest/keys/verify
     volumes:
       - ./spec/pricing/pricing.json:/etc/tracium/pricing.json:ro
-      # Durable exporter queue (sending_queue.storage in collector.yaml).
-      # Must be a named volume: spans already ACKed to the client wait here
-      # during a ClickHouse outage, and a container-local path is wiped on
-      # restart — which is exactly the data loss the queue exists to prevent.
+      # Must persist: holds spans already acknowledged to clients during a ClickHouse outage.
       - collector_queue:/var/lib/tracium/queue
     depends_on:
       migrate:
         condition: service_completed_successfully
-      # Ingest auth verifies keys against the API, so it must be up first.
+      collector-queue-owner:
+        condition: service_completed_successfully
       api:
         condition: service_started
     restart: unless-stopped
 
   api:
-    build:
-      context: ./api
-      dockerfile: Dockerfile
+    image: ghcr.io/antonij-simonovski/api:${TRACIUM_VERSION:-1.1.0}
     ports:
       - "127.0.0.1:8090:8090"   # REST API
     environment:
       CLICKHOUSE_DSN: clickhouse://default:${CLICKHOUSE_PASSWORD:?set CLICKHOUSE_PASSWORD in .env}@clickhouse:9000/tracium
       POSTGRES_DSN: postgres://tracium:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/tracium?sslmode=disable
-      # No default on purpose: a secret shared by every install is public, and
-      # HS256 verifies with the same key it signs with — anyone holding it can
-      # mint admin tokens. Compose fails with the message below until it is set.
+      # No default: a secret shared by every install would let anyone mint tokens.
       JWT_SECRET: "${JWT_SECRET:?required — add JWT_SECRET to .env, generate one with 'openssl rand -hex 32'}"
       LISTEN_ADDR: ":8090"
       # Resolve only the dashboard containers, not the whole Docker subnet.
       AUTH_TRUSTED_PROXIES: dns:dashboard
-      LOG_LEVEL: info
-      LOG_FORMAT: json
     depends_on:
       migrate:
         condition: service_completed_successfully
     restart: unless-stopped
 
   dashboard:
-    build:
-      context: ./dashboard
-      dockerfile: Dockerfile
+    image: ghcr.io/antonij-simonovski/dashboard:${TRACIUM_VERSION:-1.1.0}
     ports:
       - "127.0.0.1:3000:3000"   # Dashboard UI
     depends_on:

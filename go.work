@@ -1,12 +1,12 @@
-go 1.25.0
+go 1.26.0
 
 // Local multi-module workspace so cross-module builds/tests resolve without
 // version pins or replace directives. The OCB collector build manages its own
 // module graph — run it with GOWORK=off (see Makefile).
 use (
+	./api
 	./collector
-	./collector/processor/traciumprocessor
 	./collector/exporter/clickhousespanexporter
 	./collector/extension/traciumauthextension
-	./api
+	./collector/processor/traciumprocessor
 )

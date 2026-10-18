@@ -1,9 +1,4 @@
-// Failures section — an inline horizon strip of error counts per day (when a
-// daily series is available) with a summary line beneath it (total failed,
-// worst workflow). No card; the SectionRule provides the header and a
-// shortcut into the workflows view.
-
-import { HorizonStrip, IconArrowRight } from '../../../common';
+import { HorizonStrip, IconArrowRight, fmtNum } from '../../../common';
 import type { ErrorPoint, ChartMarker } from '../../../common/interfaces';
 import { SectionRule } from './SectionRule';
 
@@ -13,7 +8,6 @@ interface FailuresBlockProps {
   worstWorkflow: string;
   onViewWorkflows: () => void;
   range?: string;
-  // Optional in-place error/volume anomaly highlights (design 1c).
   errorMarkers?: ChartMarker[];
 }
 
@@ -62,7 +56,7 @@ export function FailuresBlock({ series, totalFailed, worstWorkflow, onViewWorkfl
       />
       {series && series.length > 0 && <HorizonStrip data={series} markers={errorMarkers} />}
       <div style={{ display: 'flex', gap: 36, alignItems: 'center', marginTop: series && series.length > 0 ? 20 : 0, fontSize: 13.5 }}>
-        <SummaryStat label="Total failed" value={String(totalFailed)} valueColor="var(--error)" />
+        <SummaryStat label="Total failed" value={fmtNum(totalFailed)} valueColor="var(--error)" />
         <Divider />
         <SummaryStat label="Worst workflow" value={worstWorkflow} />
       </div>

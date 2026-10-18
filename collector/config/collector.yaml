@@ -23,17 +23,18 @@ receivers:
         auth: { authenticator: traciumauth }
 
 processors:
-  # Tracium LLM-span enrichment. OSS sources only; the Enterprise build accepts
-  # additional pricing/user sources here.
+  # Tracium LLM-span enrichment.
   tracium:
     pricing:
       source: static
       static_file_path: ${env:PRICING_STATIC_PATH:-/etc/tracium/pricing.json}
     user:
       source: passthrough
-    # Persist raw prompt/completion text to storage. Off by default since this
-    # content may be sensitive; enabled here so input/output land on spans.
-    capture_content: true
+    # Persists raw prompt/completion text; set CAPTURE_CONTENT=false to drop it.
+    capture_content: ${env:CAPTURE_CONTENT:-true}
+    # Count rejected spans per workspace for the dashboard's setup checks.
+    dead_letter:
+      clickhouse_dsn: ${env:CLICKHOUSE_DSN}
     # allowed_models: [gpt-4o, claude-3-5-sonnet]   # empty = allow all
 
   # NOTE: there is deliberately no standalone `batch` processor here. A batch

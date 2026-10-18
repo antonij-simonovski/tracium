@@ -2,26 +2,20 @@
 
 The single source of truth for all data contracts in the Tracium platform.
 
-**No application code lives here.** This repository contains only JSON Schemas,
-YAML attribute definitions, an OpenAPI specification, a pricing table, and
-codegen scripts. Every shared type used across `api`, `collector`,
-and `dashboard` originates here.
-
----
+This directory holds no application code: only JSON Schemas, YAML attribute
+definitions, an OpenAPI specification, a pricing table, and codegen scripts.
+Every shared type used across `api`, `collector`, and `dashboard` originates
+here.
 
 ## Purpose
 
 When you need to answer "what is the canonical shape of a Span?", the answer is
-`schemas/span.json` in this repository, not a struct in `api`, not an
-interface in `dashboard`.
+`schemas/span.json`, not a struct in `api` or an interface in `dashboard`.
 
-Any change to a shared data contract must be made here first, then propagated to
-other repositories via the codegen scripts. **Never manually edit generated files
-in other repos.**
+Change a shared data contract here first, then regenerate the derived types with
+the codegen scripts. Never hand-edit generated files.
 
----
-
-## Repository Structure
+## Layout
 
 ```
 spec/
@@ -33,17 +27,14 @@ spec/
     error.json            ← JSON Schema for the ErrorResponse envelope
   pricing/
     pricing.json          ← model pricing table, consumed by collector
+    refresh-pricing.sh    ← regenerates pricing.json from LiteLLM
   attributes/
     genai.yaml            ← gen_ai.* OTel SIG attributes Tracium reads
     tracium.yaml          ← tracium.* attributes written by the collector
   codegen/
     gen-ts-types.sh       ← generates TypeScript types in dashboard
-    gen-go-models.sh      ← generates Go model types in api
-  CHANGELOG.md            ← all schema and API changes, version-tagged
   README.md               ← this file
 ```
-
----
 
 ## Compatibility Policy
 
@@ -59,7 +50,7 @@ These changes can be merged without a `schema_version` bump:
 ### What IS a breaking change
 
 These changes require incrementing `schema_version` in `span.json` or
-`trace.json`, a `CHANGELOG.md` entry, and announcement before merge:
+`trace.json`, a [`CHANGELOG.md`](../CHANGELOG.md) entry, and announcement before merge:
 
 - Renaming any field
 - Removing any field
@@ -79,8 +70,6 @@ deprecation period:
 2. Add a `Deprecation` entry to `openapi.yaml` on the affected operation if
    it is an API-level change.
 3. After 30 days, remove the deprecated field and increment `schema_version`.
-
----
 
 ## How to Make a Change
 
@@ -102,25 +91,19 @@ If your change is breaking, increment the `schema_version` minimum in the
 relevant JSON Schema file. Update any example values and comments referencing
 the version number.
 
-### Step 4: Run the codegen scripts
+### Step 4: Run the codegen script
 
 ```bash
-# Generate TypeScript types for dashboard
 ./codegen/gen-ts-types.sh
-
-# Generate Go model types for api
-./codegen/gen-go-models.sh
 ```
 
 Commit the generated output changes alongside your schema changes.
 
-### Step 5: Update CHANGELOG.md
+### Step 5: Update the root CHANGELOG.md
 
 Add a one-line bullet under `## [Unreleased]`, in `### Added`, `### Changed`,
 `### Fixed` or `### Removed`. Keep it an outline: name the change, and mark it
 "breaking" when it is. Details belong in the PR, not the changelog.
-
----
 
 ## Codegen
 
@@ -135,23 +118,8 @@ Prerequisites: Node.js and `npx` available on your `$PATH`.
 This runs `openapi-typescript` against `api/openapi.yaml` and writes the output
 to `dashboard/src/types/openapi.d.ts`.
 
-### Go model types (api)
-
-Prerequisites: `oapi-codegen` installed.
-
-```bash
-go install github.com/deepmap/oapi-codegen/cmd/oapi-codegen@latest
-```
-
-Then:
-
-```bash
-./codegen/gen-go-models.sh
-```
-
-This writes `api/internal/model/openapi_types.go`.
-
----
+The Go models in `api/internal/model` are hand-written; keep them in step with
+the spec by hand.
 
 ## Pricing
 
@@ -200,6 +168,6 @@ Do not hand-edit the file. Regenerate it:
 
 1. Run `./pricing/refresh-pricing.sh` (optionally pass a LiteLLM git ref to pin).
    It records the pinned commit in `source`.
-2. Add a `### Changed` entry to `CHANGELOG.md`.
+2. Add a `### Changed` entry to [`CHANGELOG.md`](../CHANGELOG.md).
 3. Commit. The collector reads this file at startup and picks up changes on
    next restart.

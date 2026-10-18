@@ -5,7 +5,6 @@
 
 # Go
 /collector/_build/
-/collector/_build-ee/
 *.test
 *.out
 
@@ -34,3 +33,6 @@ CLAUDE.md
 
 # Reusable dashboard build artifacts
 dashboard/dist-library/
+
+# Local test reports
+deploy/reports/

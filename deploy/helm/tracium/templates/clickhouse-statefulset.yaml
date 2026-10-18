@@ -19,6 +19,7 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/component: clickhouse
     spec:
+      automountServiceAccountToken: false
       containers:
         - name: clickhouse
           image: clickhouse/clickhouse-server:24.6
@@ -38,26 +39,17 @@ spec:
                   key: {{ .Values.clickhouse.existingSecretKey }}
             - name: CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT
               value: "1"
-          # The default user requires CLICKHOUSE_PASSWORD (set above), so the
-          # probes MUST authenticate — a bare `clickhouse-client --query` fails
-          # auth and the pod would never become ready. Run via sh -c so
-          # $CLICKHOUSE_PASSWORD is expanded from the env at probe time (never
-          # baked into the manifest).
           readinessProbe:
-            exec:
-              command:
-                - sh
-                - -c
-                - clickhouse-client --user default --password "$CLICKHOUSE_PASSWORD" --query "SELECT 1"
+            httpGet:
+              path: /ping
+              port: http
             initialDelaySeconds: 15
             periodSeconds: 10
             failureThreshold: 5
           livenessProbe:
-            exec:
-              command:
-                - sh
-                - -c
-                - clickhouse-client --user default --password "$CLICKHOUSE_PASSWORD" --query "SELECT 1"
+            httpGet:
+              path: /ping
+              port: http
             initialDelaySeconds: 30
             periodSeconds: 30
             failureThreshold: 5
@@ -71,7 +63,9 @@ spec:
         name: data
       spec:
         accessModes: ["ReadWriteOnce"]
-        storageClassName: {{ .Values.clickhouse.storageClass }}
+        {{- with .Values.clickhouse.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
         resources:
           requests:
             storage: {{ .Values.clickhouse.storageSize | default "50Gi" }}

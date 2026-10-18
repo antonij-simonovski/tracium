@@ -211,8 +211,8 @@ func DefaultPrices() map[string]ModelPrice {
 			CacheReadPerToken: 0.0000003, CacheCreationPerToken: 0.00000375,
 		}},
 		"claude-haiku-4-5": {Rates: Rates{
-			InputPerToken: 0.0000008, OutputPerToken: 0.000004,
-			CacheReadPerToken: 0.00000008, CacheCreationPerToken: 0.000001,
+			InputPerToken: 0.000001, OutputPerToken: 0.000005,
+			CacheReadPerToken: 0.0000001, CacheCreationPerToken: 0.00000125,
 		}},
 		"claude-3-opus": {Rates: Rates{
 			InputPerToken: 0.000015, OutputPerToken: 0.000075,

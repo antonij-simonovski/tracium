@@ -1,9 +1,13 @@
 package clickhousespanexporter
 
 import (
+	"context"
 	"testing"
 
+	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/component/componenttest"
 	"go.opentelemetry.io/collector/confmap"
+	"go.opentelemetry.io/collector/exporter"
 )
 
 // TestConfigAcceptsSendingQueue proves the sending_queue / retry_on_failure
@@ -103,5 +107,27 @@ func TestConfigRejectsUnknownField(t *testing.T) {
 	cfg := NewFactory().CreateDefaultConfig().(*Config)
 	if err := conf.Unmarshal(cfg); err == nil {
 		t.Fatal("unknown top-level field was silently accepted")
+	}
+}
+
+func TestClickHouseIsDialedInStartNotInFactory(t *testing.T) {
+	ctx := context.Background()
+	cfg := NewFactory().CreateDefaultConfig().(*Config)
+	cfg.DSN = "clickhouse://127.0.0.1:1/tracium?dial_timeout=200ms"
+	set := exporter.Settings{
+		ID:                component.NewID(typeStr),
+		TelemetrySettings: componenttest.NewNopTelemetrySettings(),
+		BuildInfo:         component.NewDefaultBuildInfo(),
+	}
+
+	exp, err := NewFactory().CreateTraces(ctx, set, cfg)
+	if err != nil {
+		t.Fatalf("factory failed with ClickHouse unreachable: %v", err)
+	}
+	if err := exp.Start(ctx, componenttest.NewNopHost()); err == nil {
+		t.Fatal("Start succeeded with ClickHouse unreachable")
+	}
+	if err := exp.Shutdown(ctx); err != nil {
+		t.Fatalf("Shutdown after failed Start: %v", err)
 	}
 }

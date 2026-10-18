@@ -1,3 +1,5 @@
+import { apiBaseUrl, APIError } from '../../common/api/client';
+
 export interface LoginRequest {
   email: string;
   password: string;
@@ -26,10 +28,18 @@ export class AuthError extends Error {
   }
 }
 
+const GENERIC_ERROR = 'Something went wrong. Please try again.';
+
+// Picks the message for a failed request by HTTP status, falling back to the
+// given text or, without one, the error's own message.
+export function requestErrorMessage(err: unknown, byStatus: Record<number, string>, fallback?: string): string {
+  const status = err instanceof AuthError || err instanceof APIError ? err.status : 0;
+  return byStatus[status] ?? fallback ?? (err instanceof Error ? err.message : GENERIC_ERROR);
+}
+
 /** Calls an endpoint that needs no session, throwing AuthError on failure. */
 export async function publicRequest(path: string, init: RequestInit, failureLabel: string): Promise<Response> {
-  const base = import.meta.env.VITE_API_URL || window.location.origin;
-  const response = await fetch(`${base}${path}`, init);
+  const response = await fetch(`${apiBaseUrl()}${path}`, init);
 
   if (!response.ok) {
     let message = `${failureLabel} (${response.status})`;

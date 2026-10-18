@@ -1,14 +1,22 @@
-import React, { useMemo, useState } from 'react';
+import React, { memo, useCallback, useMemo, useState } from 'react';
 import {
+  IconUser,
   IconX,
+  MetaRow,
+  SetupIssueNote,
+  StatTile,
   StatusPill,
   fmtCost,
   fmtNum,
   fmtMs,
+  plural,
   useMaxWidth,
   BREAKPOINTS,
+  SEVERITY_META,
+  useCopy,
 } from '../../../common';
-import type { SpanDetail, AvailableTool, TraceDetail } from '../interfaces';
+import type { AvailableTool } from '../../../common/interfaces';
+import type { SpanDetail, TraceDetail } from '../interfaces';
 import type { TabId } from '../ids';
 import { prettifyMaybeJson } from '../utils';
 
@@ -17,73 +25,6 @@ export interface TraceViewProps {
   setView: (v: string) => void;
   onOpenUser?: (user: string) => void;
 }
-
-// ---------------------------------------------------------------------------
-// MiniStat
-// ---------------------------------------------------------------------------
-
-interface MiniStatProps {
-  label: string;
-  value: string | number;
-  sub?: string;
-  tone?: 'bad' | 'warn';
-  isFirst?: boolean;
-}
-
-function MiniStat({ label, value, sub, tone, isFirst }: MiniStatProps) {
-  const color = tone === 'bad' ? 'var(--error)' : tone === 'warn' ? 'var(--warning)' : 'var(--foreground)';
-  return (
-    <div style={{ padding: '16px 20px 18px', borderLeft: isFirst ? 'none' : '1px solid var(--border)' }}>
-      <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 8, fontWeight: 500 }}>{label}</div>
-      <div style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.02em', color, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{value}</div>
-      {sub && <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 6 }}>{sub}</div>}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// MetaRow
-// ---------------------------------------------------------------------------
-
-interface MetaRowProps {
-  label: string;
-  value: string | number | boolean | undefined;
-  mono?: boolean;
-  onClick?: () => void;
-}
-
-/** Renders nothing when the value is absent, so the live view can drop fields it lacks. */
-function MetaRow({ label, value, mono, onClick }: MetaRowProps) {
-  if (value == null || value === '') return null;
-  const valueStyle: React.CSSProperties = {
-    fontSize: 13.5, color: onClick ? 'var(--accent)' : 'var(--foreground)', fontWeight: 500,
-    fontFamily: mono ? 'var(--font-mono)' : 'inherit',
-    textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden',
-    textOverflow: 'ellipsis', maxWidth: '70%',
-  };
-  return (
-    <div style={{
-      display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
-      gap: 12, padding: '8px 0',
-      borderBottom: '1px solid color-mix(in srgb, var(--border) 55%, transparent)',
-    }}>
-      <span style={{ fontSize: 13, color: 'var(--muted)' }}>{label}</span>
-      {onClick ? (
-        <button
-          onClick={onClick}
-          title={String(value)}
-          style={{ ...valueStyle, padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
-        >{String(value)}</button>
-      ) : (
-        <span style={valueStyle} title={String(value)}>{String(value)}</span>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// CodeBlock
-// ---------------------------------------------------------------------------
 
 function CodeBlock({ children, maxHeight = 220 }: { children: string; maxHeight?: number }) {
   return (
@@ -100,9 +41,10 @@ function CodeBlock({ children, maxHeight = 220 }: { children: string; maxHeight?
   );
 }
 
-// ---------------------------------------------------------------------------
-// EmptyBlock — dashed placeholder for absent input/output
-// ---------------------------------------------------------------------------
+function JsonBlock({ text, maxHeight }: { text: string; maxHeight?: number }) {
+  const pretty = useMemo(() => prettifyMaybeJson(text), [text]);
+  return <CodeBlock maxHeight={maxHeight}>{pretty}</CodeBlock>;
+}
 
 function EmptyBlock({ children }: { children: string }) {
   return (
@@ -111,10 +53,6 @@ function EmptyBlock({ children }: { children: string }) {
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// SectionLabel
-// ---------------------------------------------------------------------------
 
 function SectionLabel({ children, tone, style }: { children: string; tone?: 'error'; style?: React.CSSProperties }) {
   return (
@@ -125,13 +63,12 @@ function SectionLabel({ children, tone, style }: { children: string; tone?: 'err
   );
 }
 
-// ---------------------------------------------------------------------------
-// SpanTypeTag
-// ---------------------------------------------------------------------------
+const SPAN_GRID = 'minmax(220px, 1.5fr) 70px 64px 72px 2fr';
+const TICKS = 5;
+const TRACK_BACKGROUND =
+  `linear-gradient(to left, color-mix(in srgb, var(--foreground) 4%, transparent) 1px, transparent 1px) 0 0 / ${100 / TICKS}% 100%, ` +
+  'color-mix(in srgb, var(--border) 55%, transparent)';
 
-// Tag/dot colour per span role. Shared by SpanTypeTag, spanColor and the legend
-// so a role reads the same everywhere. agent/internal stay muted in the
-// timeline bar (see spanColor); the rest carry a distinct hue.
 const TYPE_COLORS: Record<SpanDetail['type'], string> = {
   agent: 'var(--foreground)',
   llm: 'var(--accent)',
@@ -143,7 +80,7 @@ const TYPE_COLORS: Record<SpanDetail['type'], string> = {
 };
 
 function SpanTypeTag({ type }: { type: SpanDetail['type'] }) {
-  const c = TYPE_COLORS[type] ?? TYPE_COLORS.internal;
+  const c = TYPE_COLORS[type];
   return (
     <span style={{
       fontSize: 11.5, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.08em',
@@ -154,16 +91,11 @@ function SpanTypeTag({ type }: { type: SpanDetail['type'] }) {
   );
 }
 
-/**
- * A span is a "parent" when it has direct children; its cost is then shown
- * rolled up over its whole subtree. The API supplies both `subtreeCost` and
- * `childCount`, so the client never re-sums the tree. `subtreeCost` falls back
- * to the span's own cost for data that predates the field.
- */
 function isParentSpan(span: SpanDetail): boolean {
   return (span.childCount ?? 0) > 0;
 }
 
+// Parents show their subtree totals; spans without a subtree figure show their own.
 function displayCost(span: SpanDetail): number {
   return span.subtreeCost ?? span.cost;
 }
@@ -172,20 +104,12 @@ function displayTokens(span: SpanDetail): number {
   return span.subtreeTokens ?? span.tokens;
 }
 
-/**
- * Timeline bar colour for a span. Failed spans are always red. agent and
- * internal spans stay muted so the structural scaffolding recedes and the
- * billable/active roles (llm, tool, chain, retriever, embedding) stand out.
- */
+// Structural agent/internal spans stay muted so the billable roles stand out.
 function spanColor(span: SpanDetail): string {
   if (span.status === 'failed') return 'var(--error)';
   if (span.type === 'agent' || span.type === 'internal') return 'var(--muted)';
-  return TYPE_COLORS[span.type] ?? 'var(--muted)';
+  return TYPE_COLORS[span.type];
 }
-
-// ---------------------------------------------------------------------------
-// AvailableToolsList
-// ---------------------------------------------------------------------------
 
 function AvailableToolsList({ tools }: { tools: AvailableTool[] }) {
   const [showAll, setShowAll] = useState(false);
@@ -245,18 +169,8 @@ function AvailableToolsList({ tools }: { tools: AvailableTool[] }) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// SpanInspector
-// ---------------------------------------------------------------------------
-
-function SpanInspector({ span, error }: { span: SpanDetail | undefined; error: TraceDetail['error'] }) {
+function SpanInspector({ span }: { span: SpanDetail | undefined }) {
   if (!span) return null;
-  // Prefer the span's own error; fall back to the trace-level error only for
-  // data that predates per-span errors, so selecting one failed span never
-  // shows another span's message.
-  const spanError = span.error ?? error;
-  const showError = span.status === 'failed' && spanError;
-  // For a parent, lead with the subtree total and footnote its own cost.
   const isParent = isParentSpan(span);
   const cost = displayCost(span);
 
@@ -286,39 +200,48 @@ function SpanInspector({ span, error }: { span: SpanDetail | undefined; error: T
           </div>
           {isParent ? (
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>
-              {span.cost > 0 ? `${fmtCost(span.cost)} self · ` : ''}{span.childCount} child span{span.childCount! > 1 ? 's' : ''}
+              {span.cost > 0 ? `${fmtCost(span.cost)} self · ` : ''}{plural(span.childCount ?? 0, 'child span')}
             </div>
-          ) : span.tokens > 0 && (
+          ) : span.tokens > 0 && span.inputTokens != null && (
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>
-              {fmtNum(span.inputTokens ?? span.tokens)} in{span.outputTokens ? ` · ${fmtNum(span.outputTokens)} out` : ''}
+              {fmtNum(span.inputTokens)} in{span.outputTokens ? ` · ${fmtNum(span.outputTokens)} out` : ''}
             </div>
           )}
         </div>
       </div>
 
-      {showError && (
+      {span.setupIssues && span.setupIssues.length > 0 && (
         <div>
-          <SectionLabel tone="error">{spanError.code ? `Error · HTTP ${spanError.code}` : 'Error'}</SectionLabel>
-          <div style={{ fontSize: 13.5, color: 'var(--foreground)', marginBottom: 10, lineHeight: 1.5 }}>
-            <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--error)' }}>{spanError.type}</span>
-            {spanError.message && <span style={{ color: 'var(--muted)' }}> · </span>}
-            {spanError.message}
+          <SectionLabel>Setup issues</SectionLabel>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {[...span.setupIssues].sort((a, b) => SEVERITY_META[b.severity].rank - SEVERITY_META[a.severity].rank).map((issue) => <SetupIssueNote key={issue.code} issue={issue} />)}
           </div>
-          {spanError.stack && <CodeBlock maxHeight={140}>{spanError.stack}</CodeBlock>}
+        </div>
+      )}
+
+      {span.error && (
+        <div>
+          <SectionLabel tone="error">{span.error.code ? `Error · HTTP ${span.error.code}` : 'Error'}</SectionLabel>
+          <div style={{ fontSize: 13.5, color: 'var(--foreground)', marginBottom: 10, lineHeight: 1.5 }}>
+            <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--error)' }}>{span.error.type}</span>
+            {span.error.message && <span style={{ color: 'var(--muted)' }}> · </span>}
+            {span.error.message}
+          </div>
+          {span.error.stack && <CodeBlock maxHeight={140}>{span.error.stack}</CodeBlock>}
         </div>
       )}
 
       {span.input && (
         <div>
           <SectionLabel>Input</SectionLabel>
-          <CodeBlock>{prettifyMaybeJson(span.input)}</CodeBlock>
+          <JsonBlock text={span.input} />
         </div>
       )}
 
       {span.output && (
         <div>
           <SectionLabel>Output</SectionLabel>
-          <CodeBlock>{prettifyMaybeJson(span.output)}</CodeBlock>
+          <JsonBlock text={span.output} />
         </div>
       )}
 
@@ -340,10 +263,6 @@ function SpanInspector({ span, error }: { span: SpanDetail | undefined; error: T
   );
 }
 
-// ---------------------------------------------------------------------------
-// HeaderButton
-// ---------------------------------------------------------------------------
-
 function HeaderButton({ children, primary, onClick }: { children: React.ReactNode; primary?: boolean; onClick?: () => void }) {
   return (
     <button onClick={onClick} style={{
@@ -357,41 +276,43 @@ function HeaderButton({ children, primary, onClick }: { children: React.ReactNod
   );
 }
 
-// ---------------------------------------------------------------------------
-// TraceView — the shared presentational trace detail page
-// ---------------------------------------------------------------------------
+function ClientChip({ id, onOpen }: { id: string; onOpen?: (id: string) => void }) {
+  const style: React.CSSProperties = {
+    display: 'inline-flex', alignItems: 'center', gap: 6, maxWidth: '100%',
+    padding: '3px 10px 3px 8px', borderRadius: 999,
+    border: '1px solid var(--border)', background: 'var(--surface)',
+    fontSize: 13, fontFamily: 'inherit', color: 'var(--muted)',
+  };
+  const content = (
+    <>
+      <IconUser size={13} />
+      <span>Client</span>
+      <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--foreground)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{id}</span>
+    </>
+  );
+  return onOpen
+    ? <button type="button" title="Open client" onClick={() => onOpen(id)} style={{ ...style, cursor: 'pointer' }}>{content}</button>
+    : <span style={style}>{content}</span>;
+}
 
 export function TraceView({ trace: t, setView, onOpenUser }: TraceViewProps) {
-  // Guard against zero-duration traces (single instantaneous span) so the
-  // timeline's percentage math never divides by zero and emits NaN positions.
+  // A zero-duration trace would divide by zero in the timeline math.
   const totalDuration = t.duration || 1;
   const firstFailed = t.spans.find(s => s.status === 'failed');
   const [activeSpanId, setActiveSpanId] = useState<string>(firstFailed?.id ?? t.spans[0]?.id ?? '');
   const [tab, setTab] = useState<TabId>('timeline');
-  const [shared, setShared] = useState<'idle' | 'copied' | 'failed'>('idle');
-  // Parent span ids whose subtrees are hidden. Empty by default → fully expanded.
+  const [shared, copyLink] = useCopy();
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
 
-  const handleShare = () => {
-    // clipboard is unavailable in non-secure contexts; only claim success once
-    // the write actually resolves so the button never lies about copying.
-    Promise.resolve(navigator.clipboard?.writeText(window.location.href) ?? Promise.reject())
-      .then(() => setShared('copied'))
-      .catch(() => setShared('failed'));
-    setTimeout(() => setShared('idle'), 2000);
-  };
-
-  const toggleCollapse = (id: string) =>
+  const toggleCollapse = useCallback((id: string) =>
     setCollapsed(prev => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
-    });
+    }), []);
 
-  // Select a span and make sure it is visible: spans are in tree pre-order, so
-  // a span's ancestors are the nearest preceding spans at each shallower depth.
-  // Expanding them (dropping their ids from `collapsed`) un-hides the target row
-  // so the timeline selection matches what the inspector shows.
+  // Spans are in tree pre-order, so a span's ancestors are the nearest preceding
+  // spans at each shallower depth; expanding them reveals the target row.
   const revealSpan = (id: string) => {
     const idx = t.spans.findIndex(s => s.id === id);
     if (idx >= 0) {
@@ -415,31 +336,26 @@ export function TraceView({ trace: t, setView, onOpenUser }: TraceViewProps) {
     setTab('timeline');
   };
 
-  // The spans array is in tree pre-order, so a span's descendants are the
-  // contiguous run of deeper-depth spans that follow it. A span is "hidden"
-  // when it falls under a collapsed parent. Hidden rows stay mounted and
-  // animate to zero height (see the row wrapper below), so collapsing reads as
-  // a smooth slide rather than an abrupt jump.
-  const hiddenIds = useMemo(() => {
-    const hidden = new Set<string>();
+  // A span's descendants are the contiguous deeper spans that follow it.
+  const visibleSpans = useMemo(() => {
+    const visible: SpanDetail[] = [];
     let hideBelow: number | null = null;
     for (const span of t.spans) {
       if (hideBelow !== null) {
-        if (span.depth > hideBelow) { hidden.add(span.id); continue; }
+        if (span.depth > hideBelow) continue;
         hideBelow = null;
       }
+      visible.push(span);
       if (collapsed.has(span.id) && isParentSpan(span)) hideBelow = span.depth;
     }
-    return hidden;
+    return visible;
   }, [t.spans, collapsed]);
 
   const activeSpan = t.spans.find(s => s.id === activeSpanId);
   const failedCount = t.spans.filter(s => s.status === 'failed').length;
 
-  const ticks = 5;
-  const tickValues = Array.from({ length: ticks + 1 }, (_, i) => (totalDuration / ticks) * i);
+  const tickValues = Array.from({ length: TICKS + 1 }, (_, i) => (totalDuration / TICKS) * i);
 
-  // Header subtitle: status pill + whatever runtime facts the data carries.
   const subtitle = [
     t.version && { text: t.version },
     t.model && { text: t.model, mono: true },
@@ -454,17 +370,14 @@ export function TraceView({ trace: t, setView, onOpenUser }: TraceViewProps) {
     { id: 'raw', label: 'Raw JSON' },
   ];
 
-  // Below the tablet breakpoint the span inspector drops below the timeline
-  // instead of sitting in a fixed 420px rail.
   const stackInspector = useMaxWidth(BREAKPOINTS.tablet);
 
   return (
     <div style={{ padding: 'clamp(20px, 4vw, 32px) clamp(16px, 4vw, 40px) 64px', maxWidth: 1480, margin: '0 auto' }}>
-      {/* Header */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 24, flexWrap: 'wrap', marginBottom: 24 }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, fontSize: 13, flexWrap: 'wrap' }}>
-            <span onClick={() => setView('workflows')} style={{ color: 'var(--muted)', cursor: 'pointer' }}>Workflows</span>
+            <button type="button" onClick={() => setView('workflows')} style={{ all: 'unset', color: 'var(--muted)', cursor: 'pointer' }}>Workflows</button>
             <span style={{ color: 'var(--muted)', opacity: 0.4 }}>/</span>
             <span style={{ color: 'var(--muted)' }}>{t.workflow}</span>
             <span style={{ color: 'var(--muted)', opacity: 0.4 }}>/</span>
@@ -480,35 +393,20 @@ export function TraceView({ trace: t, setView, onOpenUser }: TraceViewProps) {
             ))}
           </div>
           <h1 style={{ fontSize: 26, fontWeight: 600, letterSpacing: '-0.02em', margin: '0 0 6px', color: 'var(--foreground)' }}>{t.workflow}</h1>
-          {t.user && (
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 13.5, color: 'var(--muted)', marginBottom: 4 }}>
-              <span>Client</span>
-              {onOpenUser ? (
-                <button
-                  onClick={() => onOpenUser(t.user!)}
-                  title="Open client"
-                  style={{
-                    padding: 0, border: 'none', background: 'none', cursor: 'pointer',
-                    fontSize: 'inherit', fontFamily: 'var(--font-mono)', color: 'var(--accent)',
-                  }}
-                >{t.user}</button>
-              ) : (
-                <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--foreground)' }}>{t.user}</span>
+          {(t.startedAt || t.user) && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px 14px', flexWrap: 'wrap', fontSize: 13.5, color: 'var(--muted)' }}>
+              {t.startedAt && (
+                <span>{t.startedAt}{t.endedAt && <> <span style={{ opacity: 0.4 }}>→</span> {t.endedAt}</>}</span>
               )}
-            </div>
-          )}
-          {t.startedAt && (
-            <div style={{ fontSize: 13.5, color: 'var(--muted)' }}>
-              {t.startedAt}{t.endedAt && <> <span style={{ opacity: 0.4 }}>→</span> {t.endedAt}</>}
+              {t.user && <ClientChip id={t.user} onOpen={onOpenUser} />}
             </div>
           )}
         </div>
         <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-          <HeaderButton onClick={handleShare}>{shared === 'copied' ? 'Link copied' : shared === 'failed' ? 'Copy failed' : 'Share'}</HeaderButton>
+          <HeaderButton onClick={() => copyLink(window.location.href)}>{shared === 'copied' ? 'Link copied' : shared === 'failed' ? 'Copy failed' : 'Share'}</HeaderButton>
         </div>
       </div>
 
-      {/* Error banner */}
       {t.error && (
         <div style={{
           padding: '14px 0',
@@ -543,20 +441,18 @@ export function TraceView({ trace: t, setView, onOpenUser }: TraceViewProps) {
         </div>
       )}
 
-      {/* Stats strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)', margin: '4px 0 36px' }}>
-        <MiniStat isFirst label="Duration"      value={fmtMs(t.duration)} />
-        <MiniStat label="Total cost"    value={fmtCost(t.totalCost)} />
-        <MiniStat label="Input tokens"  value={fmtNum(t.inputTokens)} sub={t.cachedTokens != null ? `${fmtNum(t.cachedTokens)} cached` : undefined} />
-        <MiniStat label="Output tokens" value={fmtNum(t.outputTokens)} />
-        <MiniStat label="Spans"         value={t.spans.length} sub={`${failedCount} failed`} tone={failedCount > 0 ? 'bad' : undefined} />
-        <MiniStat label="Model"         value={t.model ? t.model.replace('claude-', '') : '—'} sub={t.provider} />
+        <StatTile isFirst label="Duration" value={fmtMs(t.duration)} />
+        <StatTile label="Total cost" value={fmtCost(t.totalCost)} />
+        <StatTile label="Input tokens" value={fmtNum(t.inputTokens)} sub={t.cachedTokens != null ? `${fmtNum(t.cachedTokens)} cached` : undefined} />
+        <StatTile label="Output tokens" value={fmtNum(t.outputTokens)} />
+        <StatTile label="Spans" value={t.spans.length} sub={`${failedCount} failed`} tone={failedCount > 0 ? 'bad' : undefined} />
+        <StatTile label="Model" value={t.model || '—'} sub={t.provider} />
       </div>
 
-      {/* Tabs */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, borderBottom: '1px solid var(--border)', marginBottom: 24 }}>
+      <div role="tablist" style={{ display: 'flex', alignItems: 'center', gap: 4, borderBottom: '1px solid var(--border)', marginBottom: 24 }}>
         {tabs.map(tb => (
-          <button key={tb.id} onClick={() => setTab(tb.id)} style={{
+          <button key={tb.id} role="tab" aria-selected={tab === tb.id} onClick={() => setTab(tb.id)} style={{
             padding: '10px 14px', fontSize: 14, fontWeight: 500,
             color: tab === tb.id ? 'var(--foreground)' : 'var(--muted)',
             background: 'transparent', border: 'none',
@@ -566,13 +462,12 @@ export function TraceView({ trace: t, setView, onOpenUser }: TraceViewProps) {
         ))}
       </div>
 
-      {/* Tab: timeline */}
       {tab === 'timeline' && (
         <div style={{ display: 'grid', gridTemplateColumns: stackInspector ? '1fr' : '1fr 420px', gap: 32, alignItems: 'start' }}>
           <div style={{ minWidth: 0, overflowX: 'auto' }}>
             <div style={{
               display: 'grid',
-              gridTemplateColumns: 'minmax(220px, 1.5fr) 70px 64px 72px 2fr',
+              gridTemplateColumns: SPAN_GRID,
               minWidth: 560,
               gap: 14, padding: '10px 4px',
               fontSize: 12, color: 'var(--muted)', fontWeight: 500,
@@ -594,36 +489,18 @@ export function TraceView({ trace: t, setView, onOpenUser }: TraceViewProps) {
               </div>
             </div>
 
-            {t.spans.map((span, i) => {
-              const hidden = hiddenIds.has(span.id);
-              return (
-                <div
-                  key={span.id}
-                  aria-hidden={hidden || undefined}
-                  style={{
-                    display: 'grid',
-                    gridTemplateRows: hidden ? '0fr' : '1fr',
-                    opacity: hidden ? 0 : 1,
-                    pointerEvents: hidden ? 'none' : 'auto',
-                    transition: 'grid-template-rows 0.32s ease, opacity 0.26s ease',
-                  }}
-                >
-                  <div style={{ overflow: 'hidden', minHeight: 0 }}>
-                    <SpanRow
-                      span={span}
-                      isLast={i === t.spans.length - 1}
-                      isActive={activeSpanId === span.id}
-                      isCollapsed={collapsed.has(span.id)}
-                      isHidden={hidden}
-                      totalDuration={totalDuration}
-                      tickValues={tickValues}
-                      onSelect={() => setActiveSpanId(span.id)}
-                      onToggleCollapse={() => toggleCollapse(span.id)}
-                    />
-                  </div>
-                </div>
-              );
-            })}
+            {visibleSpans.map((span, i) => (
+              <SpanRow
+                key={span.id}
+                span={span}
+                isLast={i === visibleSpans.length - 1}
+                isActive={activeSpanId === span.id}
+                isCollapsed={collapsed.has(span.id)}
+                totalDuration={totalDuration}
+                onSelect={setActiveSpanId}
+                onToggleCollapse={toggleCollapse}
+              />
+            ))}
 
             <div style={{
               display: 'flex', alignItems: 'center', gap: 18,
@@ -643,36 +520,32 @@ export function TraceView({ trace: t, setView, onOpenUser }: TraceViewProps) {
             </div>
           </div>
 
-          {/* Inspector panel */}
           <div style={{
             position: 'sticky', top: 90,
             paddingLeft: 24, borderLeft: '1px solid var(--border)',
             maxHeight: 'calc(100vh - 120px)', overflowY: 'auto',
           }}>
-            <SpanInspector span={activeSpan} error={t.error} />
+            <SpanInspector span={activeSpan} />
           </div>
         </div>
       )}
 
-      {/* Tab: input */}
       {tab === 'input' && (
         <div style={{ maxWidth: 820 }}>
           <SectionLabel style={{ marginBottom: 10 }}>Workflow input</SectionLabel>
-          {t.input ? <CodeBlock maxHeight={500}>{prettifyMaybeJson(t.input)}</CodeBlock> : <EmptyBlock>No input recorded for this trace.</EmptyBlock>}
+          {t.input ? <JsonBlock text={t.input} maxHeight={500} /> : <EmptyBlock>No input recorded for this trace.</EmptyBlock>}
         </div>
       )}
 
-      {/* Tab: output */}
       {tab === 'output' && (
         <div style={{ maxWidth: 820 }}>
           <SectionLabel style={{ marginBottom: 10 }}>Workflow output</SectionLabel>
           {t.output
-            ? <CodeBlock maxHeight={500}>{prettifyMaybeJson(t.output)}</CodeBlock>
+            ? <JsonBlock text={t.output} maxHeight={500} />
             : <EmptyBlock>{t.status === 'failed' ? 'No output. The trace failed before completion.' : 'No output recorded for this trace.'}</EmptyBlock>}
         </div>
       )}
 
-      {/* Tab: metadata */}
       {tab === 'metadata' && (
         <div style={{ display: 'grid', gridTemplateColumns: stackInspector ? '1fr' : '1fr 1fr', gap: 40, maxWidth: 1040 }}>
           <div>
@@ -711,7 +584,6 @@ export function TraceView({ trace: t, setView, onOpenUser }: TraceViewProps) {
         </div>
       )}
 
-      {/* Tab: raw */}
       {tab === 'raw' && (
         <div style={{ maxWidth: 1040 }}>
           <SectionLabel style={{ marginBottom: 10 }}>Raw trace document</SectionLabel>
@@ -722,124 +594,112 @@ export function TraceView({ trace: t, setView, onOpenUser }: TraceViewProps) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// SpanRow — one timeline row (label, metrics, gantt bar)
-// ---------------------------------------------------------------------------
-
 interface SpanRowProps {
   span: SpanDetail;
   isLast: boolean;
   isActive: boolean;
   isCollapsed: boolean;
-  isHidden: boolean;
   totalDuration: number;
-  tickValues: number[];
-  onSelect: () => void;
-  onToggleCollapse: () => void;
+  onSelect: (id: string) => void;
+  onToggleCollapse: (id: string) => void;
 }
 
-function SpanRow({ span, isLast, isActive, isCollapsed, isHidden, totalDuration, tickValues, onSelect, onToggleCollapse }: SpanRowProps) {
+const SpanRow = memo(function SpanRow({ span, isLast, isActive, isCollapsed, totalDuration, onSelect, onToggleCollapse }: SpanRowProps) {
+  const worstIssue = span.setupIssues?.length ? span.setupIssues.reduce((a, b) => (SEVERITY_META[b.severity].rank > SEVERITY_META[a.severity].rank ? b : a)) : undefined;
   const color = spanColor(span);
   const leftPct = (span.start / totalDuration) * 100;
   const widthPct = Math.max(0.4, (span.duration / totalDuration) * 100);
-  // Parents show their subtree total; leaves show their own cost.
   const isParent = isParentSpan(span);
   const rowCost = displayCost(span);
   const rowTokens = displayTokens(span);
+  const subtreeTitle = isParent ? `Subtree total over ${plural(span.childCount ?? 0, 'child span')}` : undefined;
   return (
-    <button
-      onClick={onSelect}
-      tabIndex={isHidden ? -1 : undefined}
-      style={{
-        display: 'grid',
-        gridTemplateColumns: 'minmax(220px, 1.5fr) 70px 64px 72px 2fr',
-        minWidth: 560,
-        gap: 14, width: '100%', padding: '11px 4px',
-        textAlign: 'left', border: 'none',
-        borderBottom: isLast ? 'none' : '1px solid color-mix(in srgb, var(--border) 50%, transparent)',
-        alignItems: 'center',
-        background: isActive
-          ? 'color-mix(in srgb, var(--accent-soft) 100%, transparent)'
-          : span.status === 'failed'
-          ? 'color-mix(in srgb, var(--error) 5%, transparent)'
-          : 'transparent',
-        borderLeft: '2px solid ' + (isActive ? 'var(--accent)' : 'transparent'),
-        cursor: 'pointer', fontFamily: 'inherit',
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingLeft: span.depth * 16, minWidth: 0 }}>
-        {isParent ? (
-          <span
-            role="button"
-            aria-label={isCollapsed ? 'Expand child spans' : 'Collapse child spans'}
-            aria-expanded={!isCollapsed}
-            title={isCollapsed ? `Show ${span.childCount} hidden child span${span.childCount! > 1 ? 's' : ''}` : 'Hide child spans'}
-            onClick={(e) => { e.stopPropagation(); onToggleCollapse(); }}
-            style={{
-              display: 'grid', placeItems: 'center', width: 16, height: 16, flexShrink: 0,
-              borderRadius: 4, color: 'var(--muted)', cursor: 'pointer',
-            }}
-          >
-            <span style={{
-              fontSize: 10, lineHeight: 1,
-              transform: isCollapsed ? 'rotate(-90deg)' : 'none',
-              transition: 'transform 0.12s ease',
-            }}>▼</span>
-          </span>
-        ) : (
+    <div style={{ position: 'relative' }}>
+      <button
+        onClick={() => onSelect(span.id)}
+        aria-pressed={isActive}
+        style={{
+          display: 'grid',
+          gridTemplateColumns: SPAN_GRID,
+          minWidth: 560,
+          gap: 14, width: '100%', padding: '11px 4px',
+          textAlign: 'left', border: 'none',
+          borderBottom: isLast ? 'none' : '1px solid color-mix(in srgb, var(--border) 50%, transparent)',
+          alignItems: 'center',
+          background: isActive
+            ? 'var(--accent-soft)'
+            : span.status === 'failed'
+            ? 'color-mix(in srgb, var(--error) 5%, transparent)'
+            : 'transparent',
+          borderLeft: '2px solid ' + (isActive ? 'var(--accent)' : 'transparent'),
+          cursor: 'pointer', fontFamily: 'inherit',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingLeft: span.depth * 16, minWidth: 0 }}>
           <span style={{ width: 16, flexShrink: 0, textAlign: 'center', color: 'var(--muted)', fontSize: 13, opacity: 0.5 }}>
-            {span.depth > 0 ? '└' : ''}
+            {!isParent && span.depth > 0 ? '└' : ''}
           </span>
-        )}
-        <span style={{ display: 'inline-block', width: 7, height: 7, background: color, borderRadius: 2, flexShrink: 0 }} />
-        <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--foreground)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{span.name}</span>
-        <SpanTypeTag type={span.type} />
-      </div>
-      <span style={{ fontSize: 13.5, textAlign: 'right', color: 'var(--foreground)', fontVariantNumeric: 'tabular-nums' }}>{fmtMs(span.duration)}</span>
-      <span
-        title={isParent ? `Subtree total over ${span.childCount} child span${span.childCount! > 1 ? 's' : ''}` : undefined}
-        style={{ fontSize: 13.5, textAlign: 'right', color: rowTokens > 0 ? 'var(--foreground)' : 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}
-      >
-        {rowTokens > 0 ? fmtNum(rowTokens) : '—'}
-      </span>
-      <span
-        title={isParent ? `Subtree total over ${span.childCount} child span${span.childCount! > 1 ? 's' : ''}` : undefined}
-        style={{ fontSize: 13.5, textAlign: 'right', color: rowCost > 0 ? 'var(--foreground)' : 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}
-      >
-        {rowCost > 0 ? fmtCost(rowCost) : '—'}
-      </span>
-      <div style={{
-        position: 'relative', height: 22,
-        background: 'color-mix(in srgb, var(--border) 55%, transparent)',
-        borderRadius: 4, overflow: 'hidden',
-      }}>
-        {tickValues.slice(1, -1).map((v, ti) => (
-          <span key={ti} style={{
-            position: 'absolute', top: 0, bottom: 0,
-            left: (v / totalDuration) * 100 + '%',
-            width: 1, background: 'color-mix(in srgb, var(--foreground) 4%, transparent)',
-          }} />
-        ))}
-        <div style={{
-          position: 'absolute', top: 0, bottom: 0,
-          left: leftPct + '%', width: widthPct + '%',
-          background: color, opacity: 0.9, borderRadius: 3,
-          display: 'flex', alignItems: 'center', paddingLeft: 6,
-        }}>
-          {widthPct > 14 && (
-            <span style={{ fontSize: 11.5, color: 'var(--accent-contrast)', fontWeight: 500, whiteSpace: 'nowrap' }}>
-              {fmtMs(span.duration)}
-            </span>
+          <span style={{ display: 'inline-block', width: 7, height: 7, background: color, borderRadius: 2, flexShrink: 0 }} />
+          <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--foreground)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{span.name}</span>
+          <SpanTypeTag type={span.type} />
+          {worstIssue && (
+            <span
+              title={plural(span.setupIssues!.length, 'setup issue')}
+              style={{ width: 7, height: 7, borderRadius: '50%', background: SEVERITY_META[worstIssue.severity].color, flexShrink: 0 }}
+            />
           )}
         </div>
-      </div>
-    </button>
+        <span style={{ fontSize: 13.5, textAlign: 'right', color: 'var(--foreground)', fontVariantNumeric: 'tabular-nums' }}>{fmtMs(span.duration)}</span>
+        <span
+          title={subtreeTitle}
+          style={{ fontSize: 13.5, textAlign: 'right', color: rowTokens > 0 ? 'var(--foreground)' : 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}
+        >
+          {rowTokens > 0 ? fmtNum(rowTokens) : '—'}
+        </span>
+        <span
+          title={subtreeTitle}
+          style={{ fontSize: 13.5, textAlign: 'right', color: rowCost > 0 ? 'var(--foreground)' : 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}
+        >
+          {rowCost > 0 ? fmtCost(rowCost) : '—'}
+        </span>
+        <div style={{ position: 'relative', height: 22, background: TRACK_BACKGROUND, borderRadius: 4, overflow: 'hidden' }}>
+          <div style={{
+            position: 'absolute', top: 0, bottom: 0,
+            left: leftPct + '%', width: widthPct + '%',
+            background: color, opacity: 0.9, borderRadius: 3,
+            display: 'flex', alignItems: 'center', paddingLeft: 6,
+          }}>
+            {widthPct > 14 && (
+              <span style={{ fontSize: 11.5, color: 'var(--accent-contrast)', fontWeight: 500, whiteSpace: 'nowrap' }}>
+                {fmtMs(span.duration)}
+              </span>
+            )}
+          </div>
+        </div>
+      </button>
+      {isParent && (
+        <button
+          type="button"
+          aria-expanded={!isCollapsed}
+          aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${span.name}`}
+          title={isCollapsed ? `Show ${plural(span.childCount ?? 0, 'hidden child span')}` : 'Hide child spans'}
+          onClick={() => onToggleCollapse(span.id)}
+          style={{
+            position: 'absolute', top: '50%', left: 6 + span.depth * 16, transform: 'translateY(-50%)',
+            display: 'grid', placeItems: 'center', width: 16, height: 16, padding: 0,
+            border: 'none', borderRadius: 4, background: 'transparent', color: 'var(--muted)', cursor: 'pointer',
+          }}
+        >
+          <span style={{
+            fontSize: 10, lineHeight: 1,
+            transform: isCollapsed ? 'rotate(-90deg)' : 'none',
+            transition: 'transform 0.12s ease',
+          }}>▼</span>
+        </button>
+      )}
+    </div>
   );
-}
-
-// ---------------------------------------------------------------------------
-// LegendDot
-// ---------------------------------------------------------------------------
+});
 
 function LegendDot({ color, label }: { color: string; label: string }) {
   return (

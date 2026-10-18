@@ -15,9 +15,7 @@ exactly two:
 - `exporters.clickhousespan`: writes the `tracium.spans` schema.
 
 All domain logic lives behind the `enrich.Enricher` seam in the framework-free
-[`enrich/`](enrich/) package. That seam is the whole open-core split: OSS and
-Enterprise are the same collector assembled from two OCB manifests that differ by
-one processor module. The full component model is in
+[`enrich/`](enrich/) package. The full component model is in
 [`ARCHITECTURE.md`](ARCHITECTURE.md); the invariants you must not regress
 (schema layout, ingest bounds, queue durability) are documented inline in
 `schema/001_create_spans.sql` and `config/collector.yaml`.
@@ -33,7 +31,7 @@ GOWORK=off builder --config builder/oss.builder.yaml  # → ./_build/tracium-col
 ./_build/tracium-collector --config config/collector.yaml
 ```
 
-Or `docker compose up collector` from the repo root; the Dockerfile runs OCB
+Or `docker build collector` from the repo root; the Dockerfile runs OCB
 during the image build. Building always needs network access (OCB pulls the
 collector framework); the `enrich/` core does not.
 

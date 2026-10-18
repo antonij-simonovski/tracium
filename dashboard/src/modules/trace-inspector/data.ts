@@ -1,8 +1,9 @@
 import type { TraceDetail } from './interfaces';
-import type { TraceDetailId, SpanDetailId, SessionId } from './ids';
+import type { SpanId, TraceId } from '../../common/ids';
+import type { SessionId } from './ids';
 
 export const TRACE_DETAIL: TraceDetail = {
-  id:           "t_a9f2_eb7c" as TraceDetailId,
+  id:           "t_a9f2_eb7c" as TraceId,
   workflow:        "rewrite-message",
   version:      "v2.4.1",
   status:       "failed",
@@ -37,7 +38,7 @@ export const TRACE_DETAIL: TraceDetail = {
   },
   spans: [
     {
-      id: "s1" as SpanDetailId, name: "rewrite-message", type: "agent", start: 0, duration: 4823, depth: 0,
+      id: "s1" as SpanId, name: "rewrite-message", type: "agent", start: 0, duration: 4823, depth: 0,
       cost: 0, tokens: 0, inputTokens: 0, outputTokens: 0, subtreeCost: 0.0012, childCount: 6, status: "failed",
       attributes: { "workflow.version": "v2.4.1", "user.id": "user_38291", "tags": "retry,high-latency" },
       input: "Rewrite draft for audience internal-slack, max 60 words.",
@@ -50,28 +51,28 @@ export const TRACE_DETAIL: TraceDetail = {
       },
     },
     {
-      id: "s2" as SpanDetailId, name: "load-context", type: "tool", start: 12, duration: 284, depth: 1,
+      id: "s2" as SpanId, name: "load-context", type: "tool", start: 12, duration: 284, depth: 1,
       cost: 0, tokens: 0, status: "ok",
       attributes: { "tool.name": "load-context", "db.system": "postgres", "rows": "14" },
       input: `{ "thread_id": "th_9822" }`,
       output: `{ "rows": 14, "bytes": 8822 }`,
     },
     {
-      id: "s3" as SpanDetailId, name: "fetch-thread-history", type: "tool", start: 298, duration: 412, depth: 1,
+      id: "s3" as SpanId, name: "fetch-thread-history", type: "tool", start: 298, duration: 412, depth: 1,
       cost: 0, tokens: 0, status: "ok",
       attributes: { "tool.name": "slack.history", "http.status": "200", "items": "42" },
       input: `{ "thread_id": "th_9822", "limit": 50 }`,
       output: `{ "messages": 42, "truncated": false }`,
     },
     {
-      id: "s4" as SpanDetailId, name: "build-prompt", type: "internal", start: 714, duration: 18, depth: 1,
+      id: "s4" as SpanId, name: "build-prompt", type: "internal", start: 714, duration: 18, depth: 1,
       cost: 0, tokens: 0, status: "ok",
       attributes: { "prompt.template": "rewrite.v3", "context.tokens": "2890" },
       input: "template=rewrite.v3",
       output: "prompt_tokens=3420",
     },
     {
-      id: "s5" as SpanDetailId, name: "llm.complete", type: "llm", start: 732, duration: 2104, depth: 1,
+      id: "s5" as SpanId, name: "llm.complete", type: "llm", start: 732, duration: 2104, depth: 1,
       cost: 0.0008, tokens: 2410, inputTokens: 2282, outputTokens: 128, status: "ok",
       attributes: {
         "llm.model": "claude-haiku-4-5", "llm.provider": "anthropic",
@@ -87,18 +88,18 @@ export const TRACE_DETAIL: TraceDetail = {
         { name: "users.lookup",      used: false, description: "Resolves a Slack user ID to a profile (name, role, timezone) for personalisation." },
         { name: "memory.recall",     used: false, description: "Searches long-term workflow memory for prior interactions with this user." },
         { name: "rate_limit.check",  used: false, description: "Returns the user's remaining rewrite quota and reset time." },
-        { name: "pii.redact",        used: false, description: "Strips emails, phone numbers, and SSNs from a string before logging." },
+        { name: "links.expand",      used: false, description: "Resolves shortened URLs in the source message to their full targets." },
       ],
     },
     {
-      id: "s6" as SpanDetailId, name: "validate-output", type: "internal", start: 2836, duration: 42, depth: 1,
+      id: "s6" as SpanId, name: "validate-output", type: "internal", start: 2836, duration: 42, depth: 1,
       cost: 0, tokens: 0, status: "ok",
       attributes: { "check": "word-count", "max_words": "60", "actual_words": "18" },
       input: "text=Team — the current timeline...",
       output: "valid=true",
     },
     {
-      id: "s7" as SpanDetailId, name: "llm.complete (retry)", type: "llm", start: 2878, duration: 1920, depth: 1,
+      id: "s7" as SpanId, name: "llm.complete (retry)", type: "llm", start: 2878, duration: 1920, depth: 1,
       cost: 0.0004, tokens: 1138, inputTokens: 1138, outputTokens: 0, status: "failed",
       attributes: {
         "llm.model": "claude-haiku-4-5", "llm.provider": "anthropic",

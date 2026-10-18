@@ -109,10 +109,10 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := h.svc.ChangePassword(r.Context(), principal.UserID, req.CurrentPassword, req.NewPassword)
+	token, err := h.svc.ChangePassword(r.Context(), principal.UserID, req.CurrentPassword, req.NewPassword)
 	switch {
 	case err == nil:
-		w.WriteHeader(http.StatusNoContent)
+		respondJSON(w, http.StatusOK, tokenResponse{Token: token})
 	case errors.Is(err, auth.ErrInvalidCurrentPassword):
 		respondError(w, http.StatusUnauthorized, "INVALID_CURRENT_PASSWORD", "Current password is incorrect")
 	case errors.Is(err, auth.ErrNoPassword):

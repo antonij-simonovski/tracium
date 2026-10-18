@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { IconChevron, IconCheck, IconPlus, IconTrash } from '../../../common';
+import React, { useCallback, useState, useRef } from 'react';
+import { IconChevron, IconCheck, IconPlus, IconTrash, handleDialogKeyDown, useClickOutside } from '../../../common';
+import hover from '../../../common/styles/hover.module.css';
 import type { Workspace } from '../interfaces';
 
 interface WorkspaceSwitcherProps {
@@ -7,7 +8,7 @@ interface WorkspaceSwitcherProps {
   workspaces: Workspace[];
   setWorkspace: (ws: Workspace) => void;
   createWorkspace: () => void;
-  deleteWorkspace: (id: string) => void;
+  deleteWorkspace: (id: string) => Promise<void>;
 }
 
 const ENV_COLOR: Record<Workspace['env'], string> = {
@@ -31,23 +32,25 @@ export function WorkspaceSwitcher({
 }: WorkspaceSwitcherProps): React.ReactElement {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
-  useEffect(() => {
-    const h = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
-  }, []);
+  const dismiss = useCallback(() => setOpen(false), []);
+  useClickOutside(ref, open, dismiss);
 
   const envColor = workspace ? ENV_COLOR[workspace.env] : 'var(--muted)';
   const envLabel = workspace ? ENV_LABEL[workspace.env] : '';
 
+  const close = () => {
+    setOpen(false);
+    triggerRef.current?.focus();
+  };
+
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button
+        ref={triggerRef}
+        aria-haspopup="dialog"
+        aria-expanded={open}
         onClick={() => setOpen(!open)}
         onMouseEnter={(e) => {
           if (!open) e.currentTarget.style.background = 'var(--surface-alt)';
@@ -127,6 +130,10 @@ export function WorkspaceSwitcher({
 
       {open && (
         <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Workspaces"
+          onKeyDown={(e) => handleDialogKeyDown(e, close)}
           style={{
             position: 'absolute',
             top: 'calc(100% + 6px)',
@@ -136,9 +143,8 @@ export function WorkspaceSwitcher({
             background: 'var(--surface)',
             border: '1px solid var(--border-strong)',
             borderRadius: 10,
-            boxShadow: '0 12px 40px rgba(0,0,0,0.5)',
+            boxShadow: '0 12px 40px var(--shadow-popover)',
             overflow: 'hidden',
-            animation: 'fadeIn .12s ease',
           }}
         >
           <div
@@ -164,10 +170,6 @@ export function WorkspaceSwitcher({
             return (
               <div
                 key={ws.id}
-                onClick={() => {
-                  setWorkspace(ws);
-                  setOpen(false);
-                }}
                 onMouseEnter={(e) => {
                   if (!active) e.currentTarget.style.background = 'var(--surface-alt)';
                 }}
@@ -179,57 +181,74 @@ export function WorkspaceSwitcher({
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 10,
-                  width: '100%',
-                  padding: '8px 10px',
+                  paddingRight: 10,
                   background: active ? 'var(--surface-active)' : 'transparent',
-                  cursor: 'pointer',
-                  textAlign: 'left',
                 }}
               >
-                <div
+                <button
+                  autoFocus={active}
+                  aria-current={active || undefined}
+                  onClick={() => {
+                    setWorkspace(ws);
+                    close();
+                  }}
                   style={{
-                    width: 22,
-                    height: 22,
-                    borderRadius: 5,
-                    background: `linear-gradient(135deg, ${wsEnvColor}, color-mix(in srgb, ${wsEnvColor} 60%, var(--surface)))`,
-                    display: 'grid',
-                    placeItems: 'center',
-                    color:
-                      ws.env === 'development' ? '#000' : 'var(--accent-contrast)',
-                    fontSize: 9.5,
-                    fontWeight: 700,
-                    flexShrink: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    flex: 1,
+                    minWidth: 0,
+                    padding: '8px 10px',
+                    background: 'transparent',
+                    border: 'none',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    fontFamily: 'inherit',
                   }}
                 >
-                  {ws.name.slice(0, 2).toUpperCase()}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
                   <div
                     style={{
-                      fontSize: 13.5,
-                      fontWeight: 500,
-                      color: 'var(--foreground)',
+                      width: 22,
+                      height: 22,
+                      borderRadius: 5,
+                      background: `linear-gradient(135deg, ${wsEnvColor}, color-mix(in srgb, ${wsEnvColor} 60%, var(--surface)))`,
+                      display: 'grid',
+                      placeItems: 'center',
+                      color:
+                        ws.env === 'development' ? '#000' : 'var(--accent-contrast)',
+                      fontSize: 9.5,
+                      fontWeight: 700,
+                      flexShrink: 0,
                     }}
                   >
-                    {ws.name}
+                    {ws.name.slice(0, 2).toUpperCase()}
                   </div>
-                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                    {ws.role} · {ws.members} members
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div
+                      style={{
+                        fontSize: 13.5,
+                        fontWeight: 500,
+                        color: 'var(--foreground)',
+                      }}
+                    >
+                      {ws.name}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                      {ws.role} · {ws.members} {ws.members === 1 ? 'member' : 'members'}
+                    </div>
                   </div>
-                </div>
-                {active && (
-                  <IconCheck size={13} style={{ color: 'var(--accent)', flexShrink: 0 }} />
-                )}
-                <button
+                  {active && (
+                    <IconCheck size={13} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+                  )}
+                </button>
+                {ws.role.toLowerCase() === 'owner' && <button
                   aria-label={`Delete ${ws.name} workspace`}
                   title={`Delete ${ws.name}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    deleteWorkspace(ws.id);
+                  onClick={() => {
+                    if (!window.confirm(`Delete ${ws.name}? This can’t be undone.`)) return;
+                    deleteWorkspace(ws.id).catch(() => window.alert(`Could not delete ${ws.name}. Please try again.`));
                   }}
-                  onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--danger, #f87171)')}
-                  onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--muted)')}
+                  className={hover.danger}
                   style={{
                     display: 'grid',
                     placeItems: 'center',
@@ -241,11 +260,10 @@ export function WorkspaceSwitcher({
                     border: 'none',
                     borderRadius: 5,
                     cursor: 'pointer',
-                    color: 'var(--muted)',
                   }}
                 >
                   <IconTrash size={13} />
-                </button>
+                </button>}
               </div>
             );
           })}
@@ -256,12 +274,12 @@ export function WorkspaceSwitcher({
             }}
           >
             <button
+              autoFocus={workspaces.length === 0}
               onClick={() => {
                 createWorkspace();
                 setOpen(false);
               }}
-              onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--foreground)')}
-              onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--muted)')}
+              className={hover.text}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -272,7 +290,6 @@ export function WorkspaceSwitcher({
                 background: 'transparent',
                 border: 'none',
                 cursor: 'pointer',
-                color: 'var(--muted)',
                 fontSize: 13,
               }}
             >

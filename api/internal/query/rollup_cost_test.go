@@ -3,6 +3,7 @@ package query
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 // The long-window (rollup) cost path must read the source-aware cost rollup and
@@ -53,5 +54,41 @@ func TestRollupCostQueriesReconcileBothSources(t *testing.T) {
 	series := costSeriesRollupSQL(clause)
 	if !strings.Contains(series, bucketMsExpr+" AS bucket_ms") {
 		t.Errorf("series does not emit bucket_ms on the shared grid:\n%s", series)
+	}
+}
+
+// The long-window token series reads the span rollup, where the token sums live,
+// on the same day grid as the cost series.
+func TestTokenSeriesRollupSQL(t *testing.T) {
+	const clause = "bucket_date >= ? AND bucket_date <= ?"
+	q := tokenSeriesRollupSQL(clause)
+	for _, want := range []string{
+		"FROM tracium.metrics_daily WHERE " + clause,
+		bucketMsExpr + " AS bucket_ms",
+		"sum(input_tokens)",
+		"sum(output_tokens)",
+	} {
+		if !strings.Contains(q, want) {
+			t.Errorf("query missing %q:\n%s", want, q)
+		}
+	}
+}
+
+// Workflow- and version-scoped long-window queries filter the span rollup; the
+// metric cost relation has neither, so the scoped cost series is span-only.
+func TestWorkflowRollupScope(t *testing.T) {
+	f := MetricsFilter{Workflow: "planner", Version: "v12", Start: time.Now().Add(-90 * 24 * time.Hour), End: time.Now()}
+	clause, args := rollupScope(f)
+	n := len(args)
+	if !strings.HasSuffix(clause, " AND workflow_name = ? AND workflow_version = ?") || args[n-2] != "planner" || args[n-1] != "v12" {
+		t.Errorf("scope = %q %v, want workflow_name then workflow_version bound last", clause, args)
+	}
+	if clause, _ := rollupScope(MetricsFilter{}); strings.Contains(clause, "workflow_name") {
+		t.Errorf("unscoped clause = %q, want no workflow filter", clause)
+	}
+	for _, q := range []string{scopedCostSeriesRollupSQL(clause), workflowDetailRollupSQL(clause)} {
+		if !strings.Contains(q, "FROM tracium.metrics_daily WHERE "+clause) {
+			t.Errorf("query does not read the span rollup:\n%s", q)
+		}
 	}
 }

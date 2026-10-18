@@ -1,5 +1,4 @@
-import type { TraceId } from '../ids';
-import type { UserId } from '../../../common/ids';
+import type { TraceId, UserId } from '../../../common/ids';
 
 export interface Trace {
   trace_id: TraceId;
@@ -11,4 +10,5 @@ export interface Trace {
   span_count: number;
   has_error: boolean;
   total_cost_usd: number;
+  workflow_version?: string;
 }

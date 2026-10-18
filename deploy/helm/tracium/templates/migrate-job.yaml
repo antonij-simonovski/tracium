@@ -6,17 +6,7 @@ metadata:
     {{- include "tracium.labels" . | nindent 4 }}
     app.kubernetes.io/component: migrate
   annotations:
-    # Create the ClickHouse schema and apply pending migrations on every release,
-    # mirroring the docker-compose `migrate` one-shot.
-    #
-    # Hook phases are post-install + pre-upgrade (NOT pre-install): on a fresh
-    # install the chart's ClickHouse/Postgres are created during the main release
-    # phase, so a pre-install hook would deadlock waiting for databases that do
-    # not exist yet. post-install runs after they are up; pre-upgrade runs before
-    # the new api/collector roll out, so queries never hit a stale schema.
-    #
-    # before-hook-creation deletes the prior Job (and ConfigMap) so the hook
-    # re-runs cleanly each release. run-migrations.sh is idempotent.
+    # Not pre-install: the databases it needs are created in the main release phase.
     "helm.sh/hook": post-install,pre-upgrade
     "helm.sh/hook-weight": "0"
     "helm.sh/hook-delete-policy": before-hook-creation
@@ -30,6 +20,9 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/component: migrate
     spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.migrate.podSecurityContext | nindent 8 }}
       restartPolicy: Never
       containers:
         - name: migrate
@@ -44,8 +37,6 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.clickhouse.existingSecret }}
                   key: {{ .Values.clickhouse.existingSecretKey }}
-            # POSTGRES_PASSWORD must precede POSTGRES_DSN: the DSN weaves it in
-            # via Kubernetes $(VAR) expansion (see tracium.postgresDSN).
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -62,6 +53,8 @@ spec:
               value: {{ .Values.migrate.legacyWorkspaceId | quote }}
             - name: LEGACY_INGESTION_PAUSED
               value: {{ .Values.migrate.legacyIngestionPaused | quote }}
+          securityContext:
+            {{- toYaml .Values.migrate.securityContext | nindent 12 }}
           resources:
             {{- toYaml .Values.migrate.resources | nindent 12 }}
           volumeMounts:
