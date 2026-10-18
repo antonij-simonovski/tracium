@@ -864,7 +864,7 @@ export default function SettingsPage({
   workspace = null,
   account = null,
   onSessionRenewed,
-}: SettingsPageProps): JSX.Element {
+}: SettingsPageProps): React.JSX.Element {
   const [tab, setTab] = useState<TabId>(createMode || !demo ? 'workspace' : 'account');
   const [creating, setCreating] = useState(createMode);
   const [createdId, setCreatedId] = useState<string | null>(null);
