@@ -17,7 +17,7 @@ OTLP (gRPC/HTTP)  →  [otlp receiver]  →  [tracium processor]  →  [clickhou
 ```
 
 Batching happens inside the exporter, after its durable `sending_queue`
-(`exporters.clickhousespan.batcher`), so a request is persisted before it is
+(`exporters.clickhousespan.sending_queue.batch`), so a request is persisted before it is
 acknowledged.
 
 ## The enrichment seam
@@ -90,7 +90,7 @@ were deleted because upstream OTel now provides them:
 |---------|-------------|
 | `internal/receiver` (OTLP stubs) | `otlpreceiver` |
 | `internal/pipeline` (retry/dead-letter) | exporter queue/retry + `enrich.Chain` |
-| `internal/writer/buffer.go` | exporter `sending_queue` + `batcher` |
+| `internal/writer/buffer.go` | exporter `sending_queue` + `sending_queue.batch` |
 | `internal/health` | `healthcheckextension` |
 | `internal/config`, `config.yaml`, `cmd/collector` | collector config + OCB binary |
 

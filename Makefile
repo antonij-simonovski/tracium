@@ -11,7 +11,7 @@ test: ## Run all unit tests (go + dashboard)
 	cd dashboard && npm ci --no-audit && npm test
 
 build-collector: ## Assemble the collector binary via OCB (GOWORK off — OCB owns its module graph)
-	cd collector && GOWORK=off go run go.opentelemetry.io/collector/cmd/builder@v0.116.0 --config builder/oss.builder.yaml
+	cd collector && GOWORK=off go run go.opentelemetry.io/collector/cmd/builder@v0.163.0 --config builder/oss.builder.yaml
 
 sync-generated: ## Copy the source-of-truth pricing + schema into the Helm chart's files/
 	mkdir -p $(CHART_FILES)/pricing $(CHART_FILES)/schema

@@ -3,7 +3,7 @@ RUN apk --no-cache add ca-certificates git
 WORKDIR /src
 
 # Must match otelcol_version in builder/oss.builder.yaml.
-ARG OCB_VERSION=v0.116.0
+ARG OCB_VERSION=v0.163.0
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     for attempt in 1 2 3 4 5; do \
       go install go.opentelemetry.io/collector/cmd/builder@${OCB_VERSION} && break; \

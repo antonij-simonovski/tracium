@@ -40,57 +40,64 @@ func TestConfigAcceptsSendingQueue(t *testing.T) {
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
-	if cfg.QueueConfig.StorageID == nil || cfg.QueueConfig.StorageID.String() != "file_storage" {
-		t.Fatalf("sending_queue.storage not honoured: %v", cfg.QueueConfig.StorageID)
+	q := cfg.QueueConfig.Get()
+	if q == nil {
+		t.Fatal("sending_queue not enabled")
 	}
-	if cfg.QueueConfig.QueueSize != 200 {
-		t.Fatalf("queue_size = %d, want 200", cfg.QueueConfig.QueueSize)
+	if q.StorageID == nil || q.StorageID.String() != "file_storage" {
+		t.Fatalf("sending_queue.storage not honoured: %v", q.StorageID)
+	}
+	if q.QueueSize != 200 {
+		t.Fatalf("queue_size = %d, want 200", q.QueueSize)
 	}
 	if cfg.BackOffConfig.MaxElapsedTime != 0 {
 		t.Fatalf("max_elapsed_time = %v, want 0 (retry indefinitely)", cfg.BackOffConfig.MaxElapsedTime)
 	}
 	// Fields the yaml does not set must keep the upstream defaults.
-	if !cfg.QueueConfig.Enabled || cfg.QueueConfig.NumConsumers != 10 {
-		t.Fatalf("unset fields lost their defaults: %+v", cfg.QueueConfig)
+	if q.NumConsumers != 10 || !q.Batch.HasValue() {
+		t.Fatalf("unset fields lost their defaults: %+v", q)
 	}
 }
 
-// TestConfigAcceptsBatcher proves the batcher block in config/collector.yaml
-// unmarshals into Config. Batching lives on the exporter (after the durable
+// TestConfigAcceptsBatch proves the sending_queue.batch block in
+// config/collector.yaml unmarshals into Config. Batching lives on the exporter (after the durable
 // queue) rather than in a standalone `batch` processor (before it), so that a
 // span is persisted before it is acknowledged.
-func TestConfigAcceptsBatcher(t *testing.T) {
+func TestConfigAcceptsBatch(t *testing.T) {
 	conf := confmap.NewFromStringMap(map[string]any{
 		"dsn": "clickhouse://tracium:pass@clickhouse:9000/tracium",
-		"batcher": map[string]any{
-			"enabled":        true,
-			"flush_timeout":  "5s",
-			"min_size_items": 5000,
-			"max_size_items": 10000,
+		"sending_queue": map[string]any{
+			"batch": map[string]any{
+				"flush_timeout": "5s",
+				"sizer":         "items",
+				"min_size":      5000,
+				"max_size":      10000,
+			},
 		},
 	})
 
 	cfg := NewFactory().CreateDefaultConfig().(*Config)
 	if err := conf.Unmarshal(cfg); err != nil {
-		t.Fatalf("collector.yaml-style batcher config does not unmarshal: %v", err)
+		t.Fatalf("collector.yaml-style batch config does not unmarshal: %v", err)
 	}
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
-	if !cfg.BatchConfig.Enabled {
-		t.Fatal("batcher.enabled not honoured")
+	b := cfg.QueueConfig.Get().Batch.Get()
+	if b == nil {
+		t.Fatal("sending_queue.batch not honoured")
 	}
-	if cfg.BatchConfig.MinSizeItems != 5000 || cfg.BatchConfig.MaxSizeItems != 10000 {
-		t.Fatalf("batcher sizes = %d/%d, want 5000/10000", cfg.BatchConfig.MinSizeItems, cfg.BatchConfig.MaxSizeItems)
+	if b.MinSize != 5000 || b.MaxSize != 10000 {
+		t.Fatalf("batch sizes = %d/%d, want 5000/10000", b.MinSize, b.MaxSize)
 	}
 }
 
 // TestDefaultConfigBatchesByDefault pins that batching is on out of the box, so
-// an operator who omits the batcher block still gets efficient inserts without
+// an operator who omits the batch block still gets efficient inserts without
 // reintroducing a pre-queue batch processor.
 func TestDefaultConfigBatchesByDefault(t *testing.T) {
 	cfg := NewFactory().CreateDefaultConfig().(*Config)
-	if !cfg.BatchConfig.Enabled {
+	if q := cfg.QueueConfig.Get(); q == nil || !q.Batch.HasValue() {
 		t.Fatal("default config should batch on the exporter by default")
 	}
 }
