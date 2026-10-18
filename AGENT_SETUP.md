@@ -237,13 +237,15 @@ Rules behind these:
   attribute on it (`tracium.cost_usd`, `gen_ai.usage.cost`,
   `llm.usage.total_cost`). For an embedding or self-hosted model the table
   lacks, add a price entry instead.
-- `tracium.cost_usd` is for spans with no model: a paid tool, search or
-  scraping API, OCR, a GPU job. Set it in USD as a number on the span that made
-  the call, not on the resource, and never on a parent span that sums its
-  children, since every cost figure is a sum over spans. A span with a value
-  below 0, not a number, or above $10,000 is rejected and shows up in the setup
-  checks. Costs on spans without a model add to run, workflow and client totals
-  but not to the per-model breakdown.
+- `tracium.cost_usd` is for spans with no model and no token counts: a paid
+  tool, search or scraping API, OCR, a GPU job. A span with tokens but no
+  model is a model call missing its model, and its cost attribute is ignored.
+  Set it in USD as a number on the span that made the call, not on the
+  resource, and never on a parent span that sums its children, since every
+  cost figure is a sum over spans. A span with a value below 0, not a number,
+  or above $10,000 is rejected and shows up in the setup checks. Costs on
+  spans without a model add to run, workflow and client totals but not to the
+  per-model breakdown.
 
 ## Step 5: Instrument each repository
 
