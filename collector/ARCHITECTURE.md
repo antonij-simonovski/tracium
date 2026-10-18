@@ -68,7 +68,7 @@ collector/
 
 ```bash
 # Install the builder, pinned to the manifest's otelcol_version.
-go install go.opentelemetry.io/collector/cmd/builder@v0.116.0
+go install go.opentelemetry.io/collector/cmd/builder@v0.163.0
 
 # Collector distribution → ./_build/collector
 builder --config builder/oss.builder.yaml

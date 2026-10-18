@@ -26,7 +26,7 @@ The binary is assembled by the OpenTelemetry Collector Builder (OCB), pinned to
 the manifest's collector version:
 
 ```bash
-GOWORK=off go install go.opentelemetry.io/collector/cmd/builder@v0.116.0
+GOWORK=off go install go.opentelemetry.io/collector/cmd/builder@v0.163.0
 GOWORK=off builder --config builder/oss.builder.yaml  # → ./_build/tracium-collector
 ./_build/tracium-collector --config config/collector.yaml
 ```
