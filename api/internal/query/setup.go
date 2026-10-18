@@ -86,6 +86,7 @@ var rejectedMessages = map[string]string{
 	"invalid_timestamp":        "Spans were rejected because their timestamps are invalid: missing, or ending before they start. Check the sending host's clock.",
 	"field_too_long":           "Spans were rejected because their model name is longer than the ingest limit.",
 	"token_count_out_of_range": "Spans were rejected because a token count is larger than any real call can produce. Check the gen_ai.usage.* attributes.",
+	"cost_out_of_range":        "Spans were rejected because tracium.cost_usd is negative, not a number, or above $10,000 for one span.",
 	"unknown_model":            "Spans were rejected because their model is not in the collector's allowed_models list.",
 	"missing_trace_id":         "Spans were rejected because they have no trace ID.",
 	"missing_span_id":          "Spans were rejected because they have no span ID.",

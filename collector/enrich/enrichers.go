@@ -78,6 +78,13 @@ func (ValidateEnricher) Enrich(_ context.Context, span *spanmodel.Span) error {
 				"%s is %d, limit is %d", tc.field, tc.count, ingest.MaxTokensPerCall)
 		}
 	}
+	if !ingest.CostInRange(span.ReportedCostUSD) {
+		err := customerrors.InvalidSpanf(customerrors.ErrCostOutOfRange,
+			"tracium.cost_usd is %v, must be between 0 and %d", span.ReportedCostUSD, ingest.MaxCostPerSpanUSD)
+		// The dead-letter file stores the span as JSON, which has no NaN or Inf.
+		span.ReportedCostUSD = 0
+		return err
+	}
 	return nil
 }
 
@@ -130,8 +137,8 @@ func (e UserEnricher) Enrich(ctx context.Context, span *spanmodel.Span) error {
 
 // PricingEnricher sets span.CostUSD from token usage via the Resolver. A missing
 // price is non-fatal: the cost is recorded as 0 rather than dropping the span.
-// A cost the instrumentation reported itself is never used: an ingest key
-// authenticates the sender, not its numbers.
+// A span with no model has nothing to price, so it keeps the sender's own
+// tracium.cost_usd, bounded by ValidateEnricher like a token count.
 type PricingEnricher struct {
 	Resolver pricing.Resolver
 }
@@ -141,6 +148,10 @@ func (PricingEnricher) Name() string { return "pricing" }
 
 // Enrich implements Enricher.
 func (e PricingEnricher) Enrich(ctx context.Context, span *spanmodel.Span) error {
+	if span.Model == "" {
+		span.CostUSD = span.ReportedCostUSD
+		return nil
+	}
 	if e.Resolver == nil || span.ModelNormalized == "" {
 		return nil
 	}
@@ -159,7 +170,8 @@ func (e PricingEnricher) Enrich(ctx context.Context, span *spanmodel.Span) error
 }
 
 // FilterEnricher discards spans from models outside allowedModels. An empty
-// allow-list permits every model.
+// allow-list permits every model, and spans with no model (tools, external
+// APIs) always pass.
 type FilterEnricher struct {
 	allowedModels map[string]bool
 }
@@ -178,7 +190,7 @@ func (FilterEnricher) Name() string { return "filter" }
 
 // Enrich implements Enricher.
 func (f FilterEnricher) Enrich(_ context.Context, span *spanmodel.Span) error {
-	if len(f.allowedModels) == 0 {
+	if len(f.allowedModels) == 0 || span.Model == "" {
 		return nil
 	}
 	model := span.ModelNormalized

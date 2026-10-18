@@ -15,6 +15,9 @@ const (
 	ErrUnknownModel     SpanErrorCode = "unknown_model"
 	// ErrTokenCountOutOfRange marks a usage count no real call could produce.
 	ErrTokenCountOutOfRange SpanErrorCode = "token_count_out_of_range"
+	// ErrCostOutOfRange marks a reported tracium.cost_usd that is negative,
+	// not a number, or past the per-span cap.
+	ErrCostOutOfRange SpanErrorCode = "cost_out_of_range"
 	// ErrFieldTooLong marks a client-controlled string past its ingest cap.
 	ErrFieldTooLong SpanErrorCode = "field_too_long"
 	// ErrUnauthenticated marks a span that reached the pipeline without a

@@ -60,7 +60,7 @@ func combine(base, extra string) string {
 }
 
 // Rollups are the tables this tool repairs, mirroring collector migrations
-// 003 (metrics_daily) and 008 (metrics_daily_cost). If those migrations change,
+// 003 (metrics_daily) and 008 (metrics_daily_cost, as rebuilt by 015). If those migrations change,
 // change these to match — the drift check (see DriftMatches) refuses to run when
 // a mirror no longer matches the deployed view, so a stale mirror fails loud
 // rather than writing aggregates the trigger would not have produced.
@@ -96,8 +96,9 @@ GROUP BY bucket_date, user_id, workspace_id, workflow_name, workflow_version, mo
     toDate(start_time_ms / 1000)       AS bucket_date,
     user_id,
     workspace_id,
-    sumIf(cost_usd, source = 'span')   AS span_cost,
-    sumIf(cost_usd, source = 'metric') AS metric_cost
+    sumIf(cost_usd, source = 'span')                AS span_cost,
+    sumIf(cost_usd, source = 'metric')              AS metric_cost,
+    sumIf(cost_usd, source = 'span' AND model = '') AS reported_cost
 FROM tracium.spans` + whereClause(where) + `
 GROUP BY bucket_date, user_id, workspace_id`
 		},
