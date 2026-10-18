@@ -70,7 +70,7 @@ func TestCreateVerifyRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if !strings.HasPrefix(created.Token, tokenPrefix) {
+	if !strings.HasPrefix(created.Token, TokenPrefix) {
 		t.Fatalf("token missing prefix: %q", created.Token)
 	}
 	if created.Key.Prefix == created.Token {
@@ -108,8 +108,8 @@ func TestVerifyRejectsBadTokens(t *testing.T) {
 
 	for name, token := range map[string]string{
 		"empty":            "",
-		"wrong prefix":     "abc_" + strings.TrimPrefix(created.Token, tokenPrefix),
-		"unknown":          tokenPrefix + strings.Repeat("0", len(created.Token)-len(tokenPrefix)),
+		"wrong prefix":     "abc_" + strings.TrimPrefix(created.Token, TokenPrefix),
+		"unknown":          TokenPrefix + strings.Repeat("0", len(created.Token)-len(TokenPrefix)),
 		"truncated":        created.Token[:len(created.Token)-4],
 		"whitespace only":  "   ",
 		"token with space": created.Token + " x",

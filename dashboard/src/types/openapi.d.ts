@@ -293,7 +293,7 @@ export interface paths {
         };
         /**
          * Instrumentation setup checks
-         * @description Ways the workspace's instrumentation is sending telemetry Tracium cannot fully use, found in the range's spans and in the spans the collector rejected at ingest, with how to fix each. Checks that affected no span are omitted. Results are ordered most severe first, then by spans affected. Reads raw spans, so ranges longer than 30d are rejected.
+         * @description Ways the workspace's instrumentation is sending telemetry Tracium cannot fully use, found in the range's spans and in the spans the collector rejected at ingest, with how to fix each. Checks that affected no span are omitted. Results are ordered most severe first, then by spans affected. Reads raw spans, so ranges longer than 30d are rejected. The only endpoint that also accepts a workspace ingest key (`trc_...`) as the bearer token; the key reads only its own workspace, and the entitlements of the user who created it apply.
          */
         get: operations["getSetupChecks"];
         put?: never;
@@ -1987,6 +1987,8 @@ export interface operations {
                 range?: components["parameters"]["Range"];
                 /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
                 workspace_id?: components["parameters"]["WorkspaceFilter"];
+                /** @description RFC 3339 timestamp. Only spans from this time on are checked, so a fix can be verified without older spans still reporting the problem. Earlier than the range start means the range start. */
+                since?: string;
             };
             header?: never;
             path?: never;
@@ -2003,8 +2005,26 @@ export interface operations {
                     "application/json": components["schemas"]["PaginatedSetupCheckResponse"];
                 };
             };
-            /** @description Invalid range, or one longer than 30d. */
+            /** @description Invalid range or since, or a range longer than 30d. */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Missing or invalid bearer token or ingest key. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The workspace is not the caller's, or not the ingest key's, or the caller (for a key, its creator) is not entitled to read telemetry. */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

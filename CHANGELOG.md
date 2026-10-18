@@ -9,6 +9,9 @@ Breaking changes require a `schema_version` bump. Additive changes do not.
 
 ### Added
 - `tracium.cost_usd` set by the sender on a span with no model and no token counts (a paid tool or external API call) is stored as that span's cost and counted in run, workflow and client totals. Model calls, embeddings included, are still priced from their tokens and ignore it. A value below 0, not a number, or above $10,000 drops the span with the new code `cost_out_of_range`, which the setup checks report. Token metrics never meter this spend, so cost totals add it on top of the span and metric reconciliation. Migration `015` adds `reported_cost` to `tracium.metrics_daily_cost` and recreates its view; stop the collector while it runs
+- `GET /v1/metrics/setup-checks` also accepts a workspace ingest key (`trc_...`) as the bearer token, scoped to the key's workspace and checked against the entitlements of the user who created the key, so a coding agent can verify instrumentation without a dashboard login. Every other route still requires a session token
+- `since` filter on `GET /v1/metrics/setup-checks`, so a fix can be checked against new spans only
+- `bootstrap` command in the API image (`docker compose exec api ./bootstrap --email you@example.com`) creates the account if missing, a workspace if it has none, and an API key, and prints the key, so a local install needs no dashboard steps before ingest. It only runs with access to the API's database; there is no HTTP endpoint. `AGENT_SETUP.md` uses it for the local Docker path
 
 ### Changed
 - Spans with no model always pass the collector's `allowed_models` list, which now restricts model calls only. Before, it dropped every tool and API span as `unknown_model`
