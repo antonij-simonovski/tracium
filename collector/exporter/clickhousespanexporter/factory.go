@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/config/configoptional"
 	"go.opentelemetry.io/collector/config/configretry"
 	"go.opentelemetry.io/collector/exporter"
-	"go.opentelemetry.io/collector/exporter/exporterbatcher"
 	"go.opentelemetry.io/collector/exporter/exporterhelper"
 )
 
@@ -23,13 +23,11 @@ type Config struct {
 	DSN string `mapstructure:"dsn"`
 
 	// QueueConfig and BackOffConfig are the standard exporterhelper
-	// sending_queue / retry_on_failure blocks.
-	QueueConfig   exporterhelper.QueueConfig `mapstructure:"sending_queue"`
-	BackOffConfig configretry.BackOffConfig  `mapstructure:"retry_on_failure"`
-
-	// BatchConfig batches spans after the durable sending_queue, so a request is
-	// only acknowledged once it is persisted in the queue.
-	BatchConfig exporterbatcher.Config `mapstructure:"batcher"`
+	// sending_queue / retry_on_failure blocks. sending_queue.batch batches spans
+	// after the durable queue, so a request is only acknowledged once it is
+	// persisted in the queue.
+	QueueConfig   configoptional.Optional[exporterhelper.QueueBatchConfig] `mapstructure:"sending_queue"`
+	BackOffConfig configretry.BackOffConfig                                `mapstructure:"retry_on_failure"`
 }
 
 // Validate implements component.ConfigValidator.
@@ -37,14 +35,18 @@ func (c *Config) Validate() error {
 	if c.DSN == "" {
 		return fmt.Errorf("clickhousespan: dsn must not be empty")
 	}
-	if err := c.QueueConfig.Validate(); err != nil {
-		return fmt.Errorf("clickhousespan: sending_queue: %w", err)
+	if q := c.QueueConfig.Get(); q != nil {
+		if err := q.Validate(); err != nil {
+			return fmt.Errorf("clickhousespan: sending_queue: %w", err)
+		}
+		if b := q.Batch.Get(); b != nil {
+			if err := b.Validate(); err != nil {
+				return fmt.Errorf("clickhousespan: sending_queue.batch: %w", err)
+			}
+		}
 	}
 	if err := c.BackOffConfig.Validate(); err != nil {
 		return fmt.Errorf("clickhousespan: retry_on_failure: %w", err)
-	}
-	if err := c.BatchConfig.Validate(); err != nil {
-		return fmt.Errorf("clickhousespan: batcher: %w", err)
 	}
 	return nil
 }
@@ -56,15 +58,16 @@ func NewFactory() exporter.Factory {
 	return exporter.NewFactory(
 		typeStr,
 		func() component.Config {
+			batch := exporterhelper.NewDefaultBatchConfig()
+			batch.FlushTimeout = 5 * time.Second
+			batch.Sizer = exporterhelper.RequestSizerTypeItems
+			batch.MinSize = 5000
+			batch.MaxSize = 10000
+			queue := exporterhelper.NewDefaultQueueConfig()
+			queue.Batch = configoptional.Some(batch)
 			return &Config{
-				QueueConfig:   exporterhelper.NewDefaultQueueConfig(),
+				QueueConfig:   configoptional.Some(queue),
 				BackOffConfig: configretry.NewDefaultBackOffConfig(),
-				BatchConfig: exporterbatcher.Config{
-					Enabled:       true,
-					FlushTimeout:  5 * time.Second,
-					MinSizeConfig: exporterbatcher.MinSizeConfig{MinSizeItems: 5000},
-					MaxSizeConfig: exporterbatcher.MaxSizeConfig{MaxSizeItems: 10000},
-				},
 			}
 		},
 		exporter.WithTraces(createTracesExporter, component.StabilityLevelStable),
@@ -85,7 +88,6 @@ func createTracesExporter(
 		exporterhelper.WithStart(exp.start),
 		exporterhelper.WithShutdown(exp.shutdown),
 		exporterhelper.WithQueue(c.QueueConfig),
-		exporterhelper.WithBatcher(c.BatchConfig),
 		exporterhelper.WithRetry(c.BackOffConfig),
 	)
 }
@@ -103,7 +105,6 @@ func createMetricsExporter(
 		exporterhelper.WithStart(exp.start),
 		exporterhelper.WithShutdown(exp.shutdown),
 		exporterhelper.WithQueue(c.QueueConfig),
-		exporterhelper.WithBatcher(c.BatchConfig),
 		exporterhelper.WithRetry(c.BackOffConfig),
 	)
 }
