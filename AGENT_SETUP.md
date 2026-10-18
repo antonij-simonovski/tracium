@@ -163,7 +163,10 @@ and ask them to confirm or change it. Ask about all of them in one message.
 Tracium reads the workflow from each span: `gen_ai.agent.name`, then
 `traceloop.workflow.name`, `traceloop.entity.name`, `service.name`, and finally
 the span name. Every span is filed under its own workflow, so spans without
-`gen_ai.agent.name` land under their service's name. Common shapes:
+`gen_ai.agent.name` land under their service's name. The trace list and ranges
+up to 30 days name a run after its root span, while longer ranges and anomaly
+detection count each span under its own name, so a name set only on the root
+span splits a run's cost between the two views. Common shapes:
 
 - **One workflow per entry point** (a chat endpoint, a nightly job): set
   `gen_ai.agent.name` on the entry point's root span and on its child spans,
@@ -291,16 +294,31 @@ sampler, propagators, resource and exporters exactly as they are.
   queues), send Tracium only the traces that contain an LLM call or a cost.
   Otherwise every request becomes a run and buries the LLM workflows. Put a
   filter in front of the Tracium exporter only, never the existing ones. It
-  holds each trace's spans in memory until the trace's local root ends (the
-  span with no parent, or a remote one), then exports all of them if any span
-  has a `gen_ai.*`, `llm.*` or `traceloop.*` attribute or a `tracium.cost_usd`,
-  and drops them otherwise. Matching `tracium.cost_usd` keeps runs whose only
-  spend is a paid tool or API. Holding the whole trace keeps tool calls,
-  retrieval and embeddings that run before the first LLM call. Bound the buffer
-  by traces and age; when it overflows, export the evicted trace if it has a
-  span that matches and let that trace's later spans pass straight through, so
-  nothing that matters is lost. If the user chose GenAI-only export (step 4),
-  that stricter filter replaces this one.
+  sees only this service's spans of each trace:
+  - Hold each trace's spans in memory until the trace's local root ends (the
+    span with no parent, or a remote one). Holding the whole trace keeps tool
+    calls, retrieval and embeddings that run before the first LLM call.
+  - Then export all of them if any span matches, and drop them otherwise. A
+    span matches when it has a `gen_ai.*`, `llm.*` or `traceloop.*` attribute
+    or a `tracium.cost_usd` (which keeps runs whose only spend is a paid tool
+    or API), or when it is a client or producer span calling a service that
+    does LLM work (step 6), matched on its target (`server.address`,
+    `url.full`, `rpc.service`, `messaging.destination.name`). That rule keeps
+    a gateway or plain service in front of an LLM service, so the downstream
+    spans keep their parents.
+  - Remember each trace's decision in a bounded map that expires after a few
+    minutes. Spans of a kept trace that end later, such as background work
+    still running when the response went out, pass straight through. A late
+    span of a dropped trace is exported only if it matches, and it arrives
+    without its root (`missing_root_span`). For LLM work started in the
+    background after the response, start a new root span with a span link to
+    the request instead.
+  - Bound the buffer by traces and age. Set the age above the longest time a
+    run spends before its first LLM call: minutes, not seconds. When the
+    buffer overflows, export an evicted trace that matches and record it as
+    kept; drop one that does not and record it as dropped.
+  - If the user chose GenAI-only export (step 4), that stricter filter
+    replaces this one.
 - The existing sampler decides for Tracium too. If it samples, tell the user
   that Tracium sees the same share of traces, and recommend token metrics so
   LLM cost totals stay complete. `tracium.cost_usd` comes from spans only, so
@@ -373,15 +391,17 @@ Skip if there is only one service and no queues.
     run): make the extracted context the parent, so one run is one trace.
   - **Its own workflow** (typically a queue, event or job consumer agreed as a
     separate workflow): start a new root span named after the workflow, with
-    `gen_ai.agent.name`, and attach the extracted context as a span link, not
-    as the parent. Otherwise its runs are filed under the sender's workflow.
-    Replace any workflow name carried in baggage with its own, so the span
-    processor does not stamp the sender's name on its spans. Tracium does not
-    show links yet, but other tracing backends on the same provider do, so the
-    two traces stay connected there.
+    `gen_ai.agent.name` on it and its child spans, and attach the extracted
+    context as a span link, not as the parent. Otherwise its runs are filed
+    under the sender's workflow. Replace any workflow name carried in baggage
+    with its own, so the span processor does not stamp the sender's name on
+    its spans. Tracium does not show links yet, but other tracing backends on
+    the same provider do, so the two traces stay connected there.
 - Every service on a parent path should export to Tracium, unless the user
   chose GenAI-only export (step 4). Otherwise traces arrive without their root
-  span and lose their workflow name.
+  span and lose their workflow name. A service on a parent path that has the
+  LLM-only filter (step 5B) needs the targets of its calls to LLM services, or
+  it drops its part of the trace.
 
 ## Step 7: Verify
 
