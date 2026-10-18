@@ -471,4 +471,11 @@ End with a report to the user, one section per repository:
   non-LLM services without a known cost, shown at $0, and setup checks still
   showing.
 
+Close the report by telling the user that missing, broken or disconnected
+traces almost always come from the OpenTelemetry instrumentation, not Tracium.
+If they see problems, they should give you (or their coding agent) more detail
+about how OpenTelemetry is set up in the affected service: SDK and
+instrumentation libraries, exporter configuration, and how context crosses
+service boundaries.
+
 Do not commit or push unless the user asks.

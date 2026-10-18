@@ -65,11 +65,7 @@ OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer YOUR_API_KEY"
 No app yet? Run `cd dashboard && npm run seed` and sign in as `demo@tracium.ai` / `tracium-demo-1234`,
 or try one of the [examples](examples/).
 
-### Set up with your coding agent
-
-Give this prompt to Claude Code, Cursor, Codex or any coding agent. It starts Tracium,
-instruments the repositories you choose without touching your existing OpenTelemetry setup,
-and reports back what it changed.
+Want to try Tracium without setting up OpenTelemetry yourself? Give this prompt to your coding agent:
 
 ```text
 Set up Tracium LLM observability for my project. Clone
