@@ -79,8 +79,11 @@ func (ValidateEnricher) Enrich(_ context.Context, span *spanmodel.Span) error {
 		}
 	}
 	if !ingest.CostInRange(span.ReportedCostUSD) {
-		return customerrors.InvalidSpanf(customerrors.ErrCostOutOfRange,
+		err := customerrors.InvalidSpanf(customerrors.ErrCostOutOfRange,
 			"tracium.cost_usd is %v, must be between 0 and %d", span.ReportedCostUSD, ingest.MaxCostPerSpanUSD)
+		// The dead-letter file stores the span as JSON, which has no NaN or Inf.
+		span.ReportedCostUSD = 0
+		return err
 	}
 	return nil
 }

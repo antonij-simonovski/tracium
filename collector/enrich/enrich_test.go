@@ -2,6 +2,7 @@ package enrich
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"math"
 	"strings"
@@ -74,6 +75,9 @@ func TestValidate_DropsOutOfRangeReportedCost(t *testing.T) {
 		err := chain.Apply(context.Background(), span)
 		if got := customerrors.Code(err); got != string(customerrors.ErrCostOutOfRange) {
 			t.Errorf("cost %v: got %v, want a %s drop", cost, err, customerrors.ErrCostOutOfRange)
+		}
+		if _, err := json.Marshal(span); err != nil {
+			t.Errorf("cost %v: rejected span cannot be dead-lettered: %v", cost, err)
 		}
 	}
 }

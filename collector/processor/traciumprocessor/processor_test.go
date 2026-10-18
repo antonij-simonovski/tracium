@@ -20,6 +20,13 @@ func TestToSpanModelReadsReportedCostOnlyWithoutModel(t *testing.T) {
 		t.Errorf("unparseable cost = %v, want NaN so validation rejects it", got)
 	}
 
+	s.Attributes().PutDouble(attrCostUSD, 0.25)
+	s.Attributes().PutInt("gen_ai.usage.input_tokens", 100)
+	if got := toSpanModel(s, pcommon.NewMap(), attrMap(s.Attributes())).ReportedCostUSD; got != 0 {
+		t.Errorf("span with tokens but no model: reported cost = %v, want 0", got)
+	}
+	s.Attributes().Remove("gen_ai.usage.input_tokens")
+
 	s.Attributes().PutStr(attrModelRequest, "gpt-4o")
 	if got := toSpanModel(s, pcommon.NewMap(), attrMap(s.Attributes())).ReportedCostUSD; got != 0 {
 		t.Errorf("model span: reported cost = %v, want 0", got)

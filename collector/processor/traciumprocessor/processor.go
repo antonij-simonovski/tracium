@@ -161,8 +161,12 @@ func toSpanModel(s ptrace.Span, resourceAttrs pcommon.Map, attrs map[string]stri
 	endMs := s.EndTimestamp().AsTime().UnixMilli()
 	usage := genai.Usage(attrs)
 
+	// A span with tokens is a model call missing its model; its metrics already
+	// meter the cost, so a reported cost would count it twice.
+	metered := usage.InputTokens > 0 || usage.OutputTokens > 0 ||
+		usage.CacheReadTokens > 0 || usage.CacheWriteTokens > 0
 	var reportedCost float64
-	if raw, ok := attrs[attrCostUSD]; ok && model == "" {
+	if raw, ok := attrs[attrCostUSD]; ok && model == "" && !metered {
 		var err error
 		if reportedCost, err = strconv.ParseFloat(raw, 64); err != nil {
 			// NaN fails the ingest bound, so the span is rejected, not stored at $0.
