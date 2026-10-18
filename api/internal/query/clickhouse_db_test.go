@@ -110,3 +110,34 @@ func TestVersionPerRunCheckFromClickHouse(t *testing.T) {
 		}
 	}
 }
+
+func TestReportedCostAddsOnTopOfMetricCost(t *testing.T) {
+	r, ws := newTestRepository(t)
+	now := time.Now().UTC()
+	at := now.Add(-time.Hour).UnixMilli()
+	// A sampled trace keeps $1 of the $10 the token metrics saw, plus a $0.20 tool call.
+	for _, row := range []struct {
+		source, model string
+		cost          float64
+	}{{"span", "gpt-4o", 1}, {"span", "", 0.2}, {"metric", "", 10}} {
+		if _, err := r.db.Exec(`INSERT INTO tracium.spans (trace_id, span_id, start_time_ms, end_time_ms, workspace_id, source, model, cost_usd)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, ws, row.source+row.model, at, at+10, ws, row.source, row.model, row.cost); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	raw, err := r.costTotal(context.Background(), "", []string{ws}, at-1000, now.UnixMilli(), time.Hour.Milliseconds())
+	if err != nil {
+		t.Fatal(err)
+	}
+	day := now.Truncate(24 * time.Hour)
+	rollup, err := r.costTotalRollup(context.Background(), "", []string{ws}, day.Add(-24*time.Hour), day, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, got := range map[string]float64{"raw": raw, "rollup": rollup} {
+		if got < 10.19 || got > 10.21 {
+			t.Errorf("%s cost total = %v, want 10.20", name, got)
+		}
+	}
+}

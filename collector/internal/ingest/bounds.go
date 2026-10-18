@@ -16,6 +16,10 @@ const (
 	// sum(cost_usd), one such row destroys the cost figures for everyone.
 	MaxTokensPerCall = 100_000_000
 
+	// MaxCostPerSpanUSD caps a cost the sender reports itself on a span with no
+	// model (tracium.cost_usd), for the same reason as MaxTokensPerCall.
+	MaxCostPerSpanUSD = 10_000
+
 	// MaxModelNameBytes caps the model name. metrics_daily types its model column
 	// as LowCardinality(String) and feeds it from the (client controlled)
 	// normalized model name; unbounded values degrade the one rollup that keeps
@@ -34,6 +38,12 @@ const (
 // negative and not above MaxTokensPerCall.
 func TokensInRange(n int64) bool {
 	return n >= 0 && n <= MaxTokensPerCall
+}
+
+// CostInRange reports whether a reported cost is a number between 0 and
+// MaxCostPerSpanUSD. NaN fails both comparisons and is rejected.
+func CostInRange(usd float64) bool {
+	return usd >= 0 && usd <= MaxCostPerSpanUSD
 }
 
 // SanitizeIdentifier makes a client-supplied identifier safe to store and to
