@@ -42,7 +42,7 @@ processors:
   # memory and returns success to the receiver (HTTP 200) the moment they are
   # buffered, so a crash or a full queue silently drops spans the client was
   # already told were stored. Batching now happens INSIDE the exporter, after the
-  # durable queue (see exporters.clickhousespan.batcher), so acknowledgement lines
+  # durable queue (see exporters.clickhousespan.sending_queue.batch), so acknowledgement lines
   # up with a durable on-disk write.
 
 exporters:
@@ -62,6 +62,16 @@ exporters:
       # With storage set this is bounded by DISK, not RAM, so it no longer
       # inflates the collector toward an OOM the way the in-memory default did.
       queue_size: ${env:QUEUE_SIZE:-200}
+      batch:
+        # Batches on the way OUT of the durable queue toward ClickHouse (fewer
+        # parts to merge), so it never sits between the receiver and durability.
+        # Every OTLP request is persisted to the queue before it is acknowledged;
+        # this only controls how persisted spans are grouped when flushed.
+        # Flush at 5k spans or 5s, whichever first; split anything over 10k.
+        flush_timeout: 5s
+        sizer: items
+        min_size: ${env:BATCH_MIN_SIZE:-5000}
+        max_size: ${env:BATCH_MAX_SIZE:-10000}
     retry_on_failure:
       enabled: true
       # 0 = retry indefinitely. The upstream default of 5m drops batches
@@ -69,16 +79,6 @@ exporters:
       # exceeds 5 minutes. Indefinite retry is only safe because the queue above
       # is durable and bounded — the two settings go together.
       max_elapsed_time: ${env:RETRY_MAX_ELAPSED:-0}
-    batcher:
-      # Batches on the way OUT of the durable queue toward ClickHouse (fewer
-      # parts to merge), so it never sits between the receiver and durability.
-      # Every OTLP request is persisted to the queue before it is acknowledged;
-      # this only controls how persisted spans are grouped when flushed.
-      # Flush at 5k spans or 5s, whichever first; split anything over 10k.
-      enabled: true
-      flush_timeout: 5s
-      min_size_items: ${env:BATCH_MIN_SIZE:-5000}
-      max_size_items: ${env:BATCH_MAX_SIZE:-10000}
   # Uncomment for local dev without ClickHouse:
   # debug:
   #   verbosity: detailed
@@ -129,7 +129,12 @@ service:
       # Bound to all interfaces so the collector's own metrics — including the
       # span-drop counters the tracium processor emits — are scrapable from
       # outside the container. localhost would make drops invisible in practice.
-      address: ${env:TELEMETRY_ADDR:-0.0.0.0:8888}
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
   pipelines:
     traces:
       receivers: [otlp]

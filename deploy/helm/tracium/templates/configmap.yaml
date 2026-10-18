@@ -37,7 +37,7 @@ data:
       # No standalone `batch` processor: it would sit BEFORE the durable queue
       # and ACK spans to the client before they are persisted, so a crash or a
       # full queue loses acknowledged spans. Batching is done by the exporter
-      # after the queue (see clickhousespan.batcher below).
+      # after the queue (see clickhousespan.sending_queue.batch below).
 
     exporters:
       clickhousespan:
@@ -49,19 +49,19 @@ data:
           storage: file_storage
           # In batches: 200 x 5000 spans x ~2KB = ~2GB ceiling, on disk.
           queue_size: 200
+          batch:
+            # Batches on the way OUT of the durable queue, so it never sits between
+            # the receiver and durability. Flush at 5k spans or 5s; split over 10k.
+            flush_timeout: 5s
+            sizer: items
+            min_size: 5000
+            max_size: 10000
         retry_on_failure:
           enabled: true
           # Retry indefinitely — safe only because the queue is durable and
           # bounded. The upstream 5m default drops batches across any longer
           # outage (a ClickHouse upgrade routinely exceeds it).
           max_elapsed_time: 0
-        batcher:
-          # Batches on the way OUT of the durable queue, so it never sits between
-          # the receiver and durability. Flush at 5k spans or 5s; split over 10k.
-          enabled: true
-          flush_timeout: 5s
-          min_size_items: 5000
-          max_size_items: 10000
 
     extensions:
       health_check:
@@ -92,7 +92,12 @@ data:
       telemetry:
         metrics:
           # All interfaces, so the span-drop counters are scrapable in-cluster.
-          address: 0.0.0.0:8888
+          readers:
+            - pull:
+                exporter:
+                  prometheus:
+                    host: 0.0.0.0
+                    port: 8888
       pipelines:
         traces:
           receivers: [otlp]

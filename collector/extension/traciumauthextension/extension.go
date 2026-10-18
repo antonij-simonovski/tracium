@@ -18,7 +18,7 @@ import (
 
 	"go.opentelemetry.io/collector/client"
 	"go.opentelemetry.io/collector/component"
-	"go.opentelemetry.io/collector/extension/auth"
+	"go.opentelemetry.io/collector/extension/extensionauth"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/peer"
 )
@@ -60,7 +60,7 @@ const defaultCacheMaxEntries = 10_000
 // at the configured CacheTTL.
 const shortCacheTTL = 5 * time.Second
 
-// traciumAuth implements auth.Server by verifying a presented ingest key against
+// traciumAuth implements extensionauth.Server by verifying a presented ingest key against
 // the Tracium API. Verifications are memoised in a bounded LRU cache.
 type traciumAuth struct {
 	cfg    *Config
@@ -110,7 +110,7 @@ type verified struct {
 	workspace string
 }
 
-var _ auth.Server = (*traciumAuth)(nil)
+var _ extensionauth.Server = (*traciumAuth)(nil)
 
 func newAuth(cfg *Config, logger *zap.Logger) *traciumAuth {
 	capacity := cfg.CacheMaxEntries
@@ -136,7 +136,7 @@ func (a *traciumAuth) Start(context.Context, component.Host) error { return nil 
 // Shutdown implements component.Component.
 func (a *traciumAuth) Shutdown(context.Context) error { return nil }
 
-// Authenticate implements auth.Server. It extracts the ingest key from the
+// Authenticate implements extensionauth.Server. It extracts the ingest key from the
 // configured header, verifies it (via cache or the API), and on success returns
 // a context whose client.Info carries the workspace the key grants, so the
 // processor can stamp it onto every span.

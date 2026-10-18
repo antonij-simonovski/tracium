@@ -1,7 +1,7 @@
 # OpenTelemetry Collector Builder (OCB) manifest for the Tracium collector.
 #
 # Build:
-#   go install go.opentelemetry.io/collector/cmd/builder@v0.116.0
+#   go install go.opentelemetry.io/collector/cmd/builder@v0.163.0
 #   builder --config builder/oss.builder.yaml
 #
 # This assembles a *generic* OpenTelemetry Collector from upstream components
@@ -18,24 +18,24 @@ dist:
   version: 0.1.0
 
 receivers:
-  - gomod: go.opentelemetry.io/collector/receiver/otlpreceiver v0.116.0
+  - gomod: go.opentelemetry.io/collector/receiver/otlpreceiver v0.163.0
 
 processors:
-  - gomod: go.opentelemetry.io/collector/processor/batchprocessor v0.116.0
+  - gomod: go.opentelemetry.io/collector/processor/batchprocessor v0.163.0
   - gomod: github.com/tracium/collector/processor/traciumprocessor v0.0.0
     path: ./processor/traciumprocessor
 
 exporters:
-  - gomod: go.opentelemetry.io/collector/exporter/debugexporter v0.116.0
+  - gomod: go.opentelemetry.io/collector/exporter/debugexporter v0.163.0
   - gomod: github.com/tracium/collector/exporter/clickhousespanexporter v0.0.0
     path: ./exporter/clickhousespanexporter
 
 extensions:
-  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/healthcheckextension v0.116.0
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/healthcheckextension v0.163.0
   # Durable exporter queue. Without this compiled in, sending_queue.storage
   # cannot reference a storage extension and the queue stays in memory only —
   # any collector restart destroys spans already ACKed to the client.
-  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/storage/filestorage v0.116.0
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/storage/filestorage v0.163.0
   # Mandatory ingest authentication — per-workspace API keys. The Tracium
   # authenticator validates each request's API key against the API's verify
   # endpoint (which owns the key store) and resolves it to the workspace the key
