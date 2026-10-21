@@ -93,7 +93,13 @@ embedded `migrations.Set` values through `Options.Migrations`; each has a separa
 namespace and runs after core. A transaction and advisory lock serialize migration
 application. Checksums refuse changed, missing, or backdated applied migrations.
 Append a new numbered file for every later change. Migration SQL must stay inside
-the runner's transaction (no `BEGIN`, `COMMIT`, or nontransactional DDL).
+the runner's transaction (no `BEGIN`, `COMMIT`, or nontransactional DDL). Core
+migrations must also be safe to run twice (`IF NOT EXISTS`, or `DROP ... IF EXISTS`
+before `ADD CONSTRAINT`): the upgrade test replays them without their ledger.
+
+ClickHouse migrations in `collector/schema` are append-only too. Their ledger has no
+checksum, so an edit to an applied file never reaches existing installs; add a new
+file instead.
 
 `app_schema_migrations` tracks Postgres independently of the existing deployment
 `schema_migrations` ledger used by ClickHouse. ClickHouse deployment and migration

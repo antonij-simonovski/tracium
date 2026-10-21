@@ -44,6 +44,13 @@ func TestUpgradeAndImmutableNamespaces(t *testing.T) {
 	if err = Apply(ctx, pool, Core); err != nil {
 		t.Fatal(err)
 	}
+	// deploy/tests/upgrade.sh replays core without its ledger, so every file must rerun.
+	if _, err = pool.Exec(ctx, `DROP TABLE app_schema_migrations`); err != nil {
+		t.Fatal(err)
+	}
+	if err = Apply(ctx, pool, Core); err != nil {
+		t.Fatalf("core migrations must be safe to rerun: %v", err)
+	}
 	set := Set{Namespace: "test_extension", Dir: ".", Files: fstest.MapFS{"001.sql": {Data: []byte("CREATE TABLE extension_marker(id INT);")}}}
 	if err = Apply(ctx, pool, set); err != nil {
 		t.Fatal(err)
