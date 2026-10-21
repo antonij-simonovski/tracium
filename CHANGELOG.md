@@ -5,7 +5,7 @@ Breaking changes require a `schema_version` bump. Additive changes do not.
 
 ---
 
-## [Unreleased]
+## [1.2.0] - 2026-10-21
 
 ### Added
 - MCP server at `POST /v1/mcp` (stateless Streamable HTTP) with `list_workspaces`, `describe_schema`, `query`, `list_traces`, `get_trace` and `detect_anomalies` tools, so an AI client can answer questions about your own telemetry. Each tool takes an optional `workspace_id`; `list_traces` and `get_trace` take `fields` (and `span_fields`) to return only what the client needs, and page with `page` (`span_page`). Tools are annotated read-only, results are returned once as text, and requests whose `Origin` is not the server's own host are refused. Creating a read key shows one connector URL, `/v1/mcp/<key>`, to paste into Claude's custom connector dialog or any MCP client; the bundled nginx keeps that path out of its access log, but a Helm Ingress logs it unless configured not to. `/v1/query` and both MCP routes share a rate limit of 120 requests per minute per account (`AUTH_QUERY_RATE_LIMIT_PER_MINUTE`), since hosted connectors such as Claude's share egress IPs
@@ -14,11 +14,15 @@ Breaking changes require a `schema_version` bump. Additive changes do not.
 - `tracium.cost_usd` set by the sender on a span with no model and no token counts (a paid tool or external API call) is stored as that span's cost and counted in run, workflow and client totals. Model calls, embeddings included, are still priced from their tokens and ignore it. A value below 0, not a number, or above $10,000 drops the span with the new code `cost_out_of_range`, which the setup checks report. Token metrics never meter this spend, so cost totals add it on top of the span and metric reconciliation. Migration `015` adds `reported_cost` to `tracium.metrics_daily_cost` and recreates its view; stop the collector while it runs
 - `GET /v1/metrics/setup-checks` also accepts a workspace ingest key (`trc_...`) as the bearer token, scoped to the key's workspace and checked against the entitlements of the user who created the key, so a coding agent can verify instrumentation without a dashboard login. Every other route still requires a session token
 - `since` filter on `GET /v1/metrics/setup-checks`, so a fix can be checked against new spans only
-- `bootstrap` command in the API image (`docker compose exec api ./bootstrap --email you@example.com`) creates the account if missing, a workspace if it has none, and an API key, and prints the key, so a local install needs no dashboard steps before ingest. It only runs with access to the API's database; there is no HTTP endpoint. `AGENT_SETUP.md` uses it for the local Docker path
+- `bootstrap` command in the API image (`docker compose exec api ./bootstrap --email you@example.com`) creates the account if missing, a workspace if it owns none (a workspace it was only invited to is never used), and an API key, and prints the key, so a local install needs no dashboard steps before ingest. It only runs with access to the API's database; there is no HTTP endpoint. `AGENT_SETUP.md` uses it for the local Docker path
+- `AGENT_SETUP.md`, a playbook a coding agent follows to instrument an app with OpenTelemetry and send it to Tracium: it asks about workflows, trace scope and non-LLM services, sets the workflow name and version on every span, exports only the traces that call LLM services, reports non-LLM costs with `tracium.cost_usd`, and verifies the result with the setup checks. The README quickstart opens with the prompt that starts it
 
 ### Changed
 - Spans with no model always pass the collector's `allowed_models` list, which now restricts model calls only. Before, it dropped every tool and API span as `unknown_model`
 - A streamed model call with no token usage is flagged unmetered even if it carries `gen_ai.usage.cost` or `llm.usage.total_cost`; those attributes were never used for cost
+- The collector is built on OpenTelemetry Collector v0.163.0 (OCB v0.163.0, `go.opentelemetry.io/otel` v1.69.0) with grpc 1.84 and clickhouse-go 2.49. A custom collector config must move the ClickHouse exporter's `batcher` block to `sending_queue.batch` (`min_size_items`/`max_size_items` become `min_size`/`max_size` with `sizer: items`) and `service.telemetry.metrics.address` to a `readers` pull exporter; the bundled config already does
+- Images build with Go 1.27
+- Dashboard: React 19, React Router 7, Vite 8 and Vitest 5. The dashboard library accepts React 18 or 19 as a peer
 
 ---
 
