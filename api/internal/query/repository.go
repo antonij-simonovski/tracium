@@ -45,6 +45,10 @@ type MetricsRepository interface {
 	// rollup-backed; f.AnomalyMetric / f.AnomalyMinSeverity narrow the output.
 	Anomalies(ctx context.Context, f MetricsFilter) ([]model.Anomaly, error)
 	SetupChecks(ctx context.Context, f MetricsFilter) ([]model.SetupCheck, error)
+	// RunQuery runs a structured custom query (see Query); callers Validate it first.
+	RunQuery(ctx context.Context, q Query) (model.QueryResult, error)
+	// QueryColumns lists the calls relation's columns a Query can use as fields.
+	QueryColumns(ctx context.Context) (Columns, error)
 }
 
 // Repository is the full data-access surface a backend must provide. Concrete

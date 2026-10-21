@@ -84,4 +84,22 @@ func TestUpgradeAndImmutableNamespaces(t *testing.T) {
 	if keyCount != 0 {
 		t.Fatalf("api keys survived workspace deletion: %d left", keyCount)
 	}
+
+	// A read key belongs to an account, never a workspace; an ingest key always has one.
+	if _, err = pool.Exec(ctx, `INSERT INTO api_keys(id,created_by,name,prefix,key_hash,scope)
+		 VALUES(gen_random_uuid(),'u','r','tk_ab','hash-read','read')`); err != nil {
+		t.Fatalf("read key without workspace: %v", err)
+	}
+	for name, stmt := range map[string]string{
+		"read key with workspace": `INSERT INTO api_keys(id,workspace_id,created_by,name,prefix,key_hash,scope)
+		 VALUES(gen_random_uuid(),'new-workspace','u','r','tk_ab','hash-bad-1','read')`,
+		"ingest key without workspace": `INSERT INTO api_keys(id,created_by,name,prefix,key_hash)
+		 VALUES(gen_random_uuid(),'u','i','tk_ab','hash-bad-2')`,
+		"unknown scope": `INSERT INTO api_keys(id,workspace_id,created_by,name,prefix,key_hash,scope)
+		 VALUES(gen_random_uuid(),'new-workspace','u','x','tk_ab','hash-bad-3','admin')`,
+	} {
+		if _, err = pool.Exec(ctx, stmt); err == nil {
+			t.Errorf("%s was accepted", name)
+		}
+	}
 }

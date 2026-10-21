@@ -30,6 +30,10 @@ type Store interface {
 	// that id exists in workspaceID, which both scopes revocation to the caller's
 	// workspace and makes an already-revoked or foreign key indistinguishable.
 	Revoke(ctx context.Context, id, workspaceID string) error
+	// ListRead returns userID's read keys, newest first, including revoked ones.
+	ListRead(ctx context.Context, userID string) ([]model.APIKey, error)
+	// RevokeRead revokes one of userID's read keys, or returns ErrNotFound.
+	RevokeRead(ctx context.Context, id, userID string) error
 	// FindActiveByHash resolves a presented token's hash to its key (carrying the
 	// workspace it grants), ignoring revoked keys, and stamps last_used_at.
 	// Returns ErrNotFound when there is no active match.
@@ -48,10 +52,10 @@ func NewStore(pool *pgxpool.Pool) *PostgresStore {
 func (s *PostgresStore) Insert(ctx context.Context, key model.APIKey, hash string) (time.Time, error) {
 	var createdAt time.Time
 	err := s.pool.QueryRow(ctx,
-		`INSERT INTO api_keys (id, workspace_id, created_by, name, prefix, key_hash)
-		 VALUES ($1, $2, $3, $4, $5, $6)
+		`INSERT INTO api_keys (id, workspace_id, created_by, name, prefix, scope, key_hash)
+		 VALUES ($1, NULLIF($2, ''), $3, $4, $5, $6, $7)
 		 RETURNING created_at`,
-		key.ID, key.WorkspaceID, key.CreatedBy, key.Name, key.Prefix, hash,
+		key.ID, key.WorkspaceID, key.CreatedBy, key.Name, key.Prefix, key.Scope, hash,
 	).Scan(&createdAt)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("postgres: insert api key: %w", err)
@@ -60,9 +64,17 @@ func (s *PostgresStore) Insert(ctx context.Context, key model.APIKey, hash strin
 }
 
 func (s *PostgresStore) List(ctx context.Context, workspaceID string) ([]model.APIKey, error) {
+	return s.list(ctx, `workspace_id = $1`, workspaceID)
+}
+
+func (s *PostgresStore) ListRead(ctx context.Context, userID string) ([]model.APIKey, error) {
+	return s.list(ctx, `created_by = $1 AND scope = 'read'`, userID)
+}
+
+func (s *PostgresStore) list(ctx context.Context, where, arg string) ([]model.APIKey, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, workspace_id, created_by, name, prefix, created_at, last_used_at, revoked_at
-		   FROM api_keys WHERE workspace_id = $1 ORDER BY created_at DESC`, workspaceID,
+		`SELECT id, COALESCE(workspace_id, ''), created_by, name, prefix, scope, created_at, last_used_at, revoked_at
+		   FROM api_keys WHERE `+where+` ORDER BY created_at DESC`, arg,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("postgres: list api keys: %w", err)
@@ -72,7 +84,7 @@ func (s *PostgresStore) List(ctx context.Context, workspaceID string) ([]model.A
 	var keys []model.APIKey
 	for rows.Next() {
 		var k model.APIKey
-		if err := rows.Scan(&k.ID, &k.WorkspaceID, &k.CreatedBy, &k.Name, &k.Prefix, &k.CreatedAt, &k.LastUsedAt, &k.RevokedAt); err != nil {
+		if err := rows.Scan(&k.ID, &k.WorkspaceID, &k.CreatedBy, &k.Name, &k.Prefix, &k.Scope, &k.CreatedAt, &k.LastUsedAt, &k.RevokedAt); err != nil {
 			return nil, fmt.Errorf("postgres: scan api key: %w", err)
 		}
 		keys = append(keys, k)
@@ -84,9 +96,17 @@ func (s *PostgresStore) List(ctx context.Context, workspaceID string) ([]model.A
 }
 
 func (s *PostgresStore) Revoke(ctx context.Context, id, workspaceID string) error {
+	return s.revoke(ctx, `workspace_id = $2`, id, workspaceID)
+}
+
+func (s *PostgresStore) RevokeRead(ctx context.Context, id, userID string) error {
+	return s.revoke(ctx, `created_by = $2 AND scope = 'read'`, id, userID)
+}
+
+func (s *PostgresStore) revoke(ctx context.Context, owner, id, ownerID string) error {
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE api_keys SET revoked_at = NOW()
-		   WHERE id::text = $1 AND workspace_id = $2 AND revoked_at IS NULL`, id, workspaceID,
+		   WHERE id::text = $1 AND `+owner+` AND revoked_at IS NULL`, id, ownerID,
 	)
 	if err != nil {
 		return fmt.Errorf("postgres: revoke api key: %w", err)
@@ -103,15 +123,15 @@ func (s *PostgresStore) FindActiveByHash(ctx context.Context, hash string) (*mod
 	var k model.APIKey
 	err := s.pool.QueryRow(ctx,
 		`WITH found AS (
-		   SELECT id, workspace_id, created_by, name, prefix, created_at, last_used_at, revoked_at
+		   SELECT id, COALESCE(workspace_id, '') AS workspace_id, created_by, name, prefix, scope, created_at, last_used_at, revoked_at
 		     FROM api_keys WHERE key_hash = $1 AND revoked_at IS NULL
 		 ), bumped AS (
 		   UPDATE api_keys SET last_used_at = NOW()
 		     WHERE key_hash = $1 AND revoked_at IS NULL
 		       AND (last_used_at IS NULL OR last_used_at < NOW() - INTERVAL '1 minute')
 		 )
-		 SELECT id, workspace_id, created_by, name, prefix, created_at, last_used_at, revoked_at FROM found`, hash,
-	).Scan(&k.ID, &k.WorkspaceID, &k.CreatedBy, &k.Name, &k.Prefix, &k.CreatedAt, &k.LastUsedAt, &k.RevokedAt)
+		 SELECT id, workspace_id, created_by, name, prefix, scope, created_at, last_used_at, revoked_at FROM found`, hash,
+	).Scan(&k.ID, &k.WorkspaceID, &k.CreatedBy, &k.Name, &k.Prefix, &k.Scope, &k.CreatedAt, &k.LastUsedAt, &k.RevokedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}

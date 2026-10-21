@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/tracium/api/internal/model"
 )
 
 func TestRateLimiterAllowsThenBlocks(t *testing.T) {
@@ -100,5 +102,31 @@ func TestClientIPForwardedForSpoofDoesNotBypassLimit(t *testing.T) {
 	}
 	if code := call("2.2.2.2"); code != http.StatusTooManyRequests {
 		t.Fatalf("spoofed second request: %d, want 429", code)
+	}
+}
+
+// Hosted MCP connectors call from shared egress IPs, so accounts behind one IP
+// must not share a bucket.
+func TestRateLimiterPerPrincipalIsolatesAccountsOnOneIP(t *testing.T) {
+	rl := NewRateLimiter(1, time.Minute, nil)
+	handler := rl.PerPrincipal()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+
+	call := func(user string) int {
+		req := httptest.NewRequest(http.MethodPost, "/v1/mcp", nil)
+		req.RemoteAddr = "10.0.0.1:5555"
+		req = req.WithContext(ContextWithPrincipal(req.Context(), &model.Principal{UserID: user}))
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		return rr.Code
+	}
+
+	if code := call("u1"); code != http.StatusOK {
+		t.Fatalf("account A first request: %d, want 200", code)
+	}
+	if code := call("u2"); code != http.StatusOK {
+		t.Fatalf("account B on the same IP: %d, want 200", code)
+	}
+	if code := call("u1"); code != http.StatusTooManyRequests {
+		t.Fatalf("account A second request: %d, want 429", code)
 	}
 }

@@ -93,7 +93,7 @@ func TestApplyEnv_AuthModeNoneIsRejected(t *testing.T) {
 }
 
 func TestApplyEnv_RejectsNonIntegerRateLimit(t *testing.T) {
-	for _, name := range []string{"AUTH_RATE_LIMIT_PER_MINUTE", "AUTH_VERIFY_RATE_LIMIT_PER_MINUTE"} {
+	for _, name := range []string{"AUTH_RATE_LIMIT_PER_MINUTE", "AUTH_VERIFY_RATE_LIMIT_PER_MINUTE", "AUTH_QUERY_RATE_LIMIT_PER_MINUTE"} {
 		t.Run(name, func(t *testing.T) {
 			t.Setenv(name, "ten")
 			err := (&Config{}).ApplyEnv()

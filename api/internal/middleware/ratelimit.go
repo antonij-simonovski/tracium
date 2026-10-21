@@ -127,13 +127,28 @@ func (rl *RateLimiter) allow(ip string) (bool, time.Duration) {
 	return true, 0
 }
 
-// Middleware returns an http middleware enforcing the limit. Requests over the
-// limit get a 429 with a Retry-After header.
+// Middleware returns an http middleware enforcing the limit per client IP.
+// Requests over the limit get a 429 with a Retry-After header.
 func (rl *RateLimiter) Middleware() func(http.Handler) http.Handler {
+	return rl.middleware(rl.clientIP)
+}
+
+// PerPrincipal enforces the limit per authenticated account instead, for routes
+// behind auth whose clients share egress IPs (hosted MCP connectors). It must
+// run after the auth middleware; without a principal it keys by client IP.
+func (rl *RateLimiter) PerPrincipal() func(http.Handler) http.Handler {
+	return rl.middleware(func(r *http.Request) string {
+		if p, ok := PrincipalFromContext(r.Context()); ok && p.UserID != "" {
+			return "user:" + p.UserID
+		}
+		return rl.clientIP(r)
+	})
+}
+
+func (rl *RateLimiter) middleware(key func(*http.Request) string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ip := rl.clientIP(r)
-			ok, retryAfter := rl.allow(ip)
+			ok, retryAfter := rl.allow(key(r))
 			if !ok {
 				secs := int(retryAfter.Seconds())
 				if secs < 1 {

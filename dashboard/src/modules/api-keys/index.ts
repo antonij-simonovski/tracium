@@ -1,1 +1,1 @@
-export { default as ApiKeysPage } from './pages/ApiKeysPage';
+export { default as ApiKeysPage, ReadKeysSection } from './pages/ApiKeysPage';

@@ -7,6 +7,7 @@ import (
 	"github.com/tracium/api/internal/auth"
 	"github.com/tracium/api/internal/handler"
 	"github.com/tracium/api/internal/middleware"
+	"github.com/tracium/api/internal/model"
 	"github.com/tracium/api/internal/query"
 	"github.com/tracium/api/internal/version"
 	"github.com/tracium/api/internal/workspace"
@@ -25,6 +26,7 @@ func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, invit
 	traceHandler := handler.NewTraceHandler(repo, wsStore)
 	spanHandler := handler.NewSpanHandler(repo, wsStore)
 	metricsHandler := handler.NewMetricsHandler(repo, wsStore)
+	queryHandler := handler.NewQueryHandler(repo, repo, wsStore)
 	healthHandler := handler.NewHealthHandler(healthChecks...)
 
 	r := chi.NewRouter()
@@ -99,6 +101,11 @@ func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, invit
 		r.Get(version.Route(version.V1, "/workspaces/{id}/api-keys"), apiKeyHandler.List)
 		r.Post(version.Route(version.V1, "/workspaces/{id}/api-keys"), apiKeyHandler.Create)
 		r.Delete(version.Route(version.V1, "/workspaces/{id}/api-keys/{keyId}"), apiKeyHandler.Revoke)
+
+		// Read keys belong to the signed-in account, not a workspace.
+		r.Get(version.Route(version.V1, "/account/api-keys"), apiKeyHandler.ListRead)
+		r.Post(version.Route(version.V1, "/account/api-keys"), apiKeyHandler.CreateRead)
+		r.Delete(version.Route(version.V1, "/account/api-keys/{keyId}"), apiKeyHandler.RevokeRead)
 	})
 
 	for _, ext := range opts.Extensions {
@@ -142,9 +149,35 @@ func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, invit
 		r.Get(version.Route(version.V1, "/metrics/anomalies"), metricsHandler.Anomalies)
 	})
 
-	// Setup checks also accept the workspace's ingest key, so a coding agent can
+	// One bucket per account for the query API and both MCP routes: read keys
+	// hand them to machine clients, and each query can scan up to 92 days of
+	// spans. Hosted connectors share egress IPs, so the key is the account.
+	queryLimit := func(next http.Handler) http.Handler { return next }
+	if cfg.Auth.QueryRateLimitPerMinute >= 0 {
+		queryLimit = middleware.NewRateLimiter(cfg.Auth.QueryRateLimitPerMinute, time.Minute, cfg.Auth.TrustedProxies).PerPrincipal()
+		log.Printf("query and MCP endpoints throttled to %d requests/min per account", cfg.Auth.QueryRateLimitPerMinute)
+	} else {
+		log.Println("WARNING: query and MCP endpoint rate limiting is disabled")
+	}
+
+	// The query API and the MCP server also accept read keys, which act as their
+	// owner since MCP clients outlive sessions. Ingest keys never read here.
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.APIKeyOr(apiKeyService, middleware.Auth(authenticator), model.ScopeRead))
+		r.Use(queryLimit)
+		r.Use(services.Gate("telemetry.read"))
+		r.Post(version.Route(version.V1, "/query"), queryHandler.Query)
+		r.Get(version.Route(version.V1, "/query/schema"), queryHandler.Schema)
+		r.Post(version.Route(version.V1, "/mcp"), queryHandler.MCP)
+	})
+
+	// MCP connectors that take only a URL carry the read key as its last segment.
+	r.With(middleware.BearerFromPath("key"), middleware.APIKeyOr(apiKeyService, middleware.Auth(authenticator), model.ScopeRead), queryLimit, services.Gate("telemetry.read")).
+		Post(version.Route(version.V1, "/mcp/{key}"), queryHandler.MCP)
+
+	// Setup checks also accept the workspace's api keys, so a coding agent can
 	// verify instrumentation without a dashboard login.
-	r.With(middleware.IngestKeyOr(apiKeyService, middleware.Auth(authenticator)), services.Gate("telemetry.read")).
+	r.With(middleware.APIKeyOr(apiKeyService, middleware.Auth(authenticator), model.ScopeIngest, model.ScopeRead), services.Gate("telemetry.read")).
 		Get(version.Route(version.V1, "/metrics/setup-checks"), metricsHandler.SetupChecks)
 
 	return r

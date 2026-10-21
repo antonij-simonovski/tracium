@@ -22,28 +22,39 @@ export interface UseApiKeysResult {
 
 export function useApiKeys(workspaceId: string | undefined): UseApiKeysResult {
   const { apiKeysAPI } = useAPIClient();
+  // Guarded by `enabled`, so workspaceId is defined whenever these run.
+  const ws = workspaceId as string;
+  return useKeys(keysKey(workspaceId), !!workspaceId, {
+    list: () => apiKeysAPI.list(ws),
+    create: (name) => apiKeysAPI.create(ws, name),
+    revoke: (keyId) => apiKeysAPI.revoke(ws, keyId),
+  });
+}
+
+// useReadKeys manages the signed-in account's read keys, which query every
+// workspace the account can read through the query API and MCP.
+export function useReadKeys(): UseApiKeysResult {
+  const { apiKeysAPI } = useAPIClient();
+  return useKeys(['read-keys'], true, {
+    list: () => apiKeysAPI.listRead(),
+    create: (name) => apiKeysAPI.createRead(name),
+    revoke: (keyId) => apiKeysAPI.revokeRead(keyId),
+  });
+}
+
+interface KeyCalls {
+  list: () => Promise<ApiKeyRecord[]>;
+  create: (name: string) => Promise<CreatedApiKey>;
+  revoke: (keyId: string) => Promise<void>;
+}
+
+function useKeys(queryKey: readonly unknown[], enabled: boolean, calls: KeyCalls): UseApiKeysResult {
   const queryClient = useQueryClient();
+  const refresh = () => void queryClient.invalidateQueries({ queryKey });
 
-  const { data: keys = [], isLoading, isError } = useQuery({
-    queryKey: keysKey(workspaceId),
-    // Guarded by `enabled`, so workspaceId is defined whenever this runs.
-    queryFn: () => apiKeysAPI.list(workspaceId as string),
-    enabled: !!workspaceId,
-  });
-
-  const createMutation = useMutation({
-    mutationFn: (name: string) => apiKeysAPI.create(workspaceId as string, name),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: keysKey(workspaceId) });
-    },
-  });
-
-  const revokeMutation = useMutation({
-    mutationFn: (keyId: string) => apiKeysAPI.revoke(workspaceId as string, keyId),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: keysKey(workspaceId) });
-    },
-  });
+  const { data: keys = [], isLoading, isError } = useQuery({ queryKey, queryFn: calls.list, enabled });
+  const createMutation = useMutation({ mutationFn: calls.create, onSuccess: refresh });
+  const revokeMutation = useMutation({ mutationFn: calls.revoke, onSuccess: refresh });
 
   return {
     keys,
@@ -70,6 +81,7 @@ function seedDemoKeys(): ApiKeyRecord[] {
       created_by: 'you@example.com',
       name: 'Production ingest',
       prefix: 'trc_9f3a1b2c',
+      scope: 'ingest',
       created_at: iso(9 * day),
       last_used_at: iso(4 * 60 * 1000),
       revoked_at: null,
@@ -80,6 +92,7 @@ function seedDemoKeys(): ApiKeyRecord[] {
       created_by: 'you@example.com',
       name: 'Staging ingest',
       prefix: 'trc_4d2e77a0',
+      scope: 'ingest',
       created_at: iso(5 * day),
       last_used_at: iso(2 * 60 * 60 * 1000),
       revoked_at: null,
@@ -90,6 +103,7 @@ function seedDemoKeys(): ApiKeyRecord[] {
       created_by: 'you@example.com',
       name: 'Old laptop',
       prefix: 'trc_1a0b9c8d',
+      scope: 'ingest',
       created_at: iso(40 * day),
       last_used_at: iso(21 * day),
       revoked_at: iso(20 * day),
@@ -113,6 +127,7 @@ export function useDemoApiKeys(): UseApiKeysResult {
       created_by: 'you@example.com',
       name: name.trim() || 'default',
       prefix: token.slice(0, 12),
+      scope: 'ingest',
       created_at: new Date().toISOString(),
       last_used_at: null,
       revoked_at: null,

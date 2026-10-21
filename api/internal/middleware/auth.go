@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/go-chi/chi/v5"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/tracium/api/internal/apikey"
@@ -58,14 +60,15 @@ func Auth(authenticator Authenticator) func(http.Handler) http.Handler {
 	}
 }
 
-// KeyLookup resolves a workspace ingest key to the active key.
+// KeyLookup resolves a workspace api key to the active key.
 type KeyLookup interface {
 	Lookup(ctx context.Context, token string) (*model.APIKey, error)
 }
 
-// IngestKeyOr authenticates a bearer ingest key as its creator, scoped to the
-// key's workspace, and hands every other request to fallback.
-func IngestKeyOr(keys KeyLookup, fallback func(http.Handler) http.Handler) func(http.Handler) http.Handler {
+// APIKeyOr authenticates a bearer api key whose scope is one of scopes as its
+// creator, limited to the key's workspace when it has one (ingest keys), and
+// hands every other request to fallback.
+func APIKeyOr(keys KeyLookup, fallback func(http.Handler) http.Handler, scopes ...string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		other := fallback(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -83,8 +86,31 @@ func IngestKeyOr(keys KeyLookup, fallback func(http.Handler) http.Handler) func(
 				WriteError(w, http.StatusServiceUnavailable, "UNAVAILABLE", "could not verify the api key")
 				return
 			}
+			if !slices.Contains(scopes, key.Scope) {
+				WriteError(w, http.StatusForbidden, "FORBIDDEN", "this api key's scope cannot access this endpoint")
+				return
+			}
 			ctx := context.WithValue(r.Context(), principalKey, &model.Principal{UserID: key.CreatedBy, WorkspaceID: key.WorkspaceID})
 			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+// BearerFromPath lets a client that can only be given a URL, such as an MCP
+// connector, carry its key in the path parameter param. A header still wins.
+func BearerFromPath(param string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			key := chi.URLParam(r, param)
+			// Only api keys belong in a URL; never a session token.
+			if !strings.HasPrefix(key, apikey.TokenPrefix) {
+				WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "invalid api key")
+				return
+			}
+			if r.Header.Get("Authorization") == "" {
+				r.Header.Set("Authorization", "Bearer "+key)
+			}
+			next.ServeHTTP(w, r)
 		})
 	}
 }

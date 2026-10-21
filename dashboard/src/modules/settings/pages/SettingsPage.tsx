@@ -19,6 +19,7 @@ import {
   BREAKPOINTS,
 } from '../../../common';
 import { useAPIClient } from '../../../common/providers/APIProvider';
+import { ReadKeysSection } from '../../api-keys';
 import { APIError, inviteLink, type CreatedInvite, type WorkspaceMember } from '../../../common/api';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
@@ -413,6 +414,8 @@ function AccountView({ user, demo, onSessionRenewed }: AccountViewProps) {
 
     <SectionHead title="Security" hint="Change the password used to sign in." />
     <ChangePasswordField onSessionRenewed={onSessionRenewed} />
+
+    <ReadKeysSection />
   </div>;
 
   return (

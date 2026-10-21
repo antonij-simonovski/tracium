@@ -21,35 +21,48 @@ type WorkspaceAccess interface {
 // is empty. An empty result matches nothing in the query layer. On failure it
 // writes the error response and returns ok=false.
 func resolveWorkspaceScope(w http.ResponseWriter, r *http.Request, access WorkspaceAccess, requested string) ([]string, bool) {
-	principal, ok := middleware.PrincipalFromContext(r.Context())
+	scope, err := workspaceScope(r.Context(), access, requested)
+	if err != nil {
+		respondError(w, err.status, err.code, err.message)
+		return nil, false
+	}
+	return scope, true
+}
+
+type scopeError struct {
+	status        int
+	code, message string
+}
+
+// workspaceScope is resolveWorkspaceScope for callers that report errors
+// themselves, such as MCP tool calls.
+func workspaceScope(ctx context.Context, access WorkspaceAccess, requested string) ([]string, *scopeError) {
+	forbidden := &scopeError{http.StatusForbidden, "FORBIDDEN", "you do not have access to that workspace"}
+	principal, ok := middleware.PrincipalFromContext(ctx)
 	if ok && principal.WorkspaceID != "" {
 		if requested != "" && requested != principal.WorkspaceID {
-			respondError(w, http.StatusForbidden, "FORBIDDEN", "you do not have access to that workspace")
-			return nil, false
+			return nil, forbidden
 		}
-		return []string{principal.WorkspaceID}, true
+		return []string{principal.WorkspaceID}, nil
 	}
 	if !ok || principal.UserID == "" {
-		respondError(w, http.StatusUnauthorized, "UNAUTHORIZED", "user identity could not be resolved")
-		return nil, false
+		return nil, &scopeError{http.StatusUnauthorized, "UNAUTHORIZED", "user identity could not be resolved"}
 	}
 
-	allowed, err := access.AllowedIDs(r.Context(), principal.UserID)
+	allowed, err := access.AllowedIDs(ctx, principal.UserID)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "INTERNAL", "could not resolve workspace access")
-		return nil, false
+		return nil, &scopeError{http.StatusInternalServerError, "INTERNAL", "could not resolve workspace access"}
 	}
 
 	if requested != "" {
 		for _, id := range allowed {
 			if id == requested {
-				return []string{requested}, true
+				return []string{requested}, nil
 			}
 		}
-		respondError(w, http.StatusForbidden, "FORBIDDEN", "you do not have access to that workspace")
-		return nil, false
+		return nil, forbidden
 	}
-	return allowed, true
+	return allowed, nil
 }
 
 // OwnerCheck reports whether a user owns a workspace.

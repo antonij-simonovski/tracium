@@ -54,6 +54,31 @@ func (m *memStore) Revoke(_ context.Context, id, workspaceID string) error {
 	return nil
 }
 
+func (m *memStore) ListRead(_ context.Context, userID string) ([]model.APIKey, error) {
+	var out []model.APIKey
+	for _, k := range m.byHash {
+		if k.CreatedBy == userID && k.Scope == model.ScopeRead {
+			out = append(out, k)
+		}
+	}
+	return out, nil
+}
+
+func (m *memStore) RevokeRead(_ context.Context, id, userID string) error {
+	hash, ok := m.hashOf[id]
+	if !ok {
+		return ErrNotFound
+	}
+	k := m.byHash[hash]
+	if k.CreatedBy != userID || k.Scope != model.ScopeRead || k.RevokedAt != nil {
+		return ErrNotFound
+	}
+	now := k.CreatedAt
+	k.RevokedAt = &now
+	m.byHash[hash] = k
+	return nil
+}
+
 func (m *memStore) FindActiveByHash(_ context.Context, hash string) (*model.APIKey, error) {
 	k, ok := m.byHash[hash]
 	if !ok || k.RevokedAt != nil {
@@ -148,5 +173,36 @@ func TestDefaultName(t *testing.T) {
 	}
 	if created.Key.Name != "default" {
 		t.Fatalf("blank name became %q, want default", created.Key.Name)
+	}
+}
+
+func TestReadKeysBelongToTheirCreator(t *testing.T) {
+	svc := NewService(newMemStore())
+	ctx := context.Background()
+	created, err := svc.CreateRead(ctx, "user-1", "mcp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Key.Scope != model.ScopeRead || created.Key.WorkspaceID != "" || created.Key.CreatedBy != "user-1" {
+		t.Fatalf("read key = %+v", created.Key)
+	}
+	if _, err := svc.Verify(ctx, created.Token); !errors.Is(err, ErrInvalidKey) {
+		t.Fatalf("read key verified for ingest: %v", err)
+	}
+	if keys, _ := svc.ListRead(ctx, "user-2"); len(keys) != 0 {
+		t.Fatalf("another user listed %v", keys)
+	}
+	if err := svc.RevokeRead(ctx, created.Key.ID, "user-2"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("another user revoked the key: %v", err)
+	}
+	if err := svc.RevokeRead(ctx, created.Key.ID, "user-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Lookup(ctx, created.Token); !errors.Is(err, ErrInvalidKey) {
+		t.Fatalf("revoked read key still looks up: %v", err)
+	}
+	ingest, _ := svc.Create(ctx, "ws-1", "user-1", "app")
+	if ingest.Key.Scope != model.ScopeIngest {
+		t.Fatalf("workspace key scope = %q, want ingest", ingest.Key.Scope)
 	}
 }
