@@ -49,6 +49,25 @@ func TestBootstrap(t *testing.T) {
 		t.Fatalf("workspaces %+v, %v", all, err)
 	}
 
+	member, err := bootstrap(ctx, pool, "member@example.com", "", "Mine")
+	if err != nil {
+		t.Fatal(err)
+	}
+	memberUser, err := auth.NewUserStore(pool).ByEmail(ctx, "member@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := workspace.NewStore(pool).GrantMember(ctx, wsID, memberUser.ID, func(context.Context, bool) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	again, err := bootstrap(ctx, pool, "member@example.com", "", "Other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Workspace != member.Workspace {
+		t.Fatalf("member's key went to %q, want their own %q", again.Workspace, member.Workspace)
+	}
+
 	if _, err := bootstrap(ctx, pool, "new@example.com", "short", "Default"); err == nil {
 		t.Fatal("weak password accepted")
 	}
