@@ -104,6 +104,55 @@ func (h *APIKeyHandler) Revoke(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// ListRead handles GET /v1/account/api-keys — the caller's read keys.
+func (h *APIKeyHandler) ListRead(w http.ResponseWriter, r *http.Request) {
+	principal, _ := middleware.PrincipalFromContext(r.Context())
+	keys, err := h.svc.ListRead(r.Context(), principal.UserID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "INTERNAL", "could not fetch api keys")
+		return
+	}
+	if keys == nil {
+		keys = []model.APIKey{}
+	}
+	respondJSON(w, http.StatusOK, keys)
+}
+
+// CreateRead handles POST /v1/account/api-keys — mints a read key that acts as
+// the caller on the query API and MCP.
+func (h *APIKeyHandler) CreateRead(w http.ResponseWriter, r *http.Request) {
+	principal, _ := middleware.PrincipalFromContext(r.Context())
+	r.Body = http.MaxBytesReader(w, r.Body, maxAPIKeyBody)
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		respondDecodeError(w, err)
+		return
+	}
+	created, err := h.svc.CreateRead(r.Context(), principal.UserID, body.Name)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "INTERNAL", "could not create api key")
+		return
+	}
+	respondJSON(w, http.StatusCreated, created)
+}
+
+// RevokeRead handles DELETE /v1/account/api-keys/{keyId}.
+func (h *APIKeyHandler) RevokeRead(w http.ResponseWriter, r *http.Request) {
+	principal, _ := middleware.PrincipalFromContext(r.Context())
+	err := h.svc.RevokeRead(r.Context(), chi.URLParam(r, "keyId"), principal.UserID)
+	if errors.Is(err, apikey.ErrNotFound) {
+		respondError(w, http.StatusNotFound, "API_KEY_NOT_FOUND", "api key not found")
+		return
+	}
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "INTERNAL", "could not revoke api key")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // Verify handles POST /v1/ingest/keys/verify — the collector's authenticator
 // extension calls this with a presented ingest token and receives the workspace
 // the key grants, or 401. It is intentionally terse and leaks no detail about

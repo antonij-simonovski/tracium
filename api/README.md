@@ -73,6 +73,7 @@ a bearer token. Changing a password ends every session issued before it.
 GET  /health  /ready
 POST /auth/register  /auth/login
 GET|POST /workspaces        DELETE /workspaces/{id}         (auth only)
+GET|POST /account/api-keys  DELETE /account/api-keys/{keyId}   (your read keys; auth only)
 POST /workspaces/{id}/members   DELETE /workspaces/{id}/members/{userId}   (owner only)
 GET  /traces  /traces/{id}  /traces/{traceId}/spans        (auth)
 GET  /metrics/kpis  /cost-series  /latency-series  /error-series
@@ -80,7 +81,39 @@ GET  /metrics/top-workflows  /workflows  /workflows/{name}  /failures
 GET  /metrics/workflows/{name}/versions
 GET  /metrics/model-costs  /usage-users  /usage-workflows
 GET  /metrics/attribute-keys  /usage-by-attribute        (allocate cost by any attribute)
+POST /query   GET /query/schema   POST /mcp                (auth or read key)
+POST /mcp/{key}                                            (read key in the URL, for connectors)
 ```
+
+`/query` takes a structured query (metrics, dimensions, filters, granularity,
+formulas over the metrics, `having` on them), or `columns` to list matching
+calls or runs, and compiles it in `internal/query/custom.go`; no SQL is
+accepted. Fields are the curated dimensions plus every column ClickHouse
+reports for `tracium.calls`, so a column a migration adds is queryable without
+code changes. On calls, `run.<field>` and `parent.<column>` join each call's run
+and parent span; on runs, per-run totals such as `cost_usd` are fields. Filters
+are AND-ed, with `any` for alternatives. Results page with
+`page` and `meta.next_page`. `/mcp` is a stateless MCP server over the same queries. Both also
+accept a read key, created under Settings → Account. A read key acts as your
+account, so an MCP client can reach every workspace you are a member of and
+picks one per call with `workspace_id` (see the `list_workspaces` tool).
+
+Creating a read key shows a connector URL, `https://your-tracium/v1/mcp/trc_...`,
+which is all a client needs: paste it as the server URL of a custom connector in
+Claude, or run:
+
+```bash
+claude mcp add --transport http tracium https://your-tracium/v1/mcp/trc_...
+```
+
+The URL is a secret. The bundled nginx does not log `/v1/mcp/` paths, but the
+Helm chart's Ingress sends `/v1` straight to the API, and most ingress
+controllers log full paths by default. Exclude `/v1/mcp/` from those access logs,
+or use clients that can send headers: `POST /v1/mcp` with
+`Authorization: Bearer trc_...`.
+
+`/query` and both `/mcp` routes share one rate limit of 120 requests per minute
+per account, since hosted connectors share egress IPs (`AUTH_QUERY_RATE_LIMIT_PER_MINUTE`; negative disables).
 
 The canonical request/response shapes live in
 [`spec/api/openapi.yaml`](../spec/api/openapi.yaml), not here.

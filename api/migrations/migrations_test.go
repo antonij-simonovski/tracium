@@ -44,6 +44,13 @@ func TestUpgradeAndImmutableNamespaces(t *testing.T) {
 	if err = Apply(ctx, pool, Core); err != nil {
 		t.Fatal(err)
 	}
+	// deploy/tests/upgrade.sh replays core without its ledger, so every file must rerun.
+	if _, err = pool.Exec(ctx, `DROP TABLE app_schema_migrations`); err != nil {
+		t.Fatal(err)
+	}
+	if err = Apply(ctx, pool, Core); err != nil {
+		t.Fatalf("core migrations must be safe to rerun: %v", err)
+	}
 	set := Set{Namespace: "test_extension", Dir: ".", Files: fstest.MapFS{"001.sql": {Data: []byte("CREATE TABLE extension_marker(id INT);")}}}
 	if err = Apply(ctx, pool, set); err != nil {
 		t.Fatal(err)
@@ -83,5 +90,23 @@ func TestUpgradeAndImmutableNamespaces(t *testing.T) {
 	}
 	if keyCount != 0 {
 		t.Fatalf("api keys survived workspace deletion: %d left", keyCount)
+	}
+
+	// A read key belongs to an account, never a workspace; an ingest key always has one.
+	if _, err = pool.Exec(ctx, `INSERT INTO api_keys(id,created_by,name,prefix,key_hash,scope)
+		 VALUES(gen_random_uuid(),'u','r','tk_ab','hash-read','read')`); err != nil {
+		t.Fatalf("read key without workspace: %v", err)
+	}
+	for name, stmt := range map[string]string{
+		"read key with workspace": `INSERT INTO api_keys(id,workspace_id,created_by,name,prefix,key_hash,scope)
+		 VALUES(gen_random_uuid(),'new-workspace','u','r','tk_ab','hash-bad-1','read')`,
+		"ingest key without workspace": `INSERT INTO api_keys(id,created_by,name,prefix,key_hash)
+		 VALUES(gen_random_uuid(),'u','i','tk_ab','hash-bad-2')`,
+		"unknown scope": `INSERT INTO api_keys(id,workspace_id,created_by,name,prefix,key_hash,scope)
+		 VALUES(gen_random_uuid(),'new-workspace','u','x','tk_ab','hash-bad-3','admin')`,
+	} {
+		if _, err = pool.Exec(ctx, stmt); err == nil {
+			t.Errorf("%s was accepted", name)
+		}
 	}
 }

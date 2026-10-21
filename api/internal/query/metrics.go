@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -61,13 +62,14 @@ const costReconcileExpr = `greatest(sum(span_cost) - sum(reported_cost), sum(met
 
 // reconciledCostUnion builds the row-level UNION ALL over the two cost relations
 // for one window: calls rows contribute span_cost (and reported_cost for spans
-// with no model), usage_metrics rows metric_cost. The returned args bind the
-// clause once per branch.
-func reconciledCostUnion(clause string, args []any) (string, []any) {
-	sql := fmt.Sprintf(`SELECT start_time_ms, cost_usd AS span_cost, if(model = '', cost_usd, 0) AS reported_cost, 0 AS metric_cost FROM %s WHERE %s
+// with no model), usage_metrics rows metric_cost. cols are extra columns each
+// row leads with. The returned args bind the clause once per branch.
+func reconciledCostUnion(cols []string, clause string, args []any) (string, []any) {
+	rowCols := strings.Join(append(slices.Clone(cols), "start_time_ms"), ", ")
+	sql := fmt.Sprintf(`SELECT %s, cost_usd AS span_cost, if(model = '', cost_usd, 0) AS reported_cost, 0 AS metric_cost FROM %s WHERE %s
     UNION ALL
-    SELECT start_time_ms, 0 AS span_cost, 0 AS reported_cost, cost_usd AS metric_cost FROM %s WHERE %s`,
-		tableCalls, clause, tableUsageMetrics, clause)
+    SELECT %s, 0 AS span_cost, 0 AS reported_cost, cost_usd AS metric_cost FROM %s WHERE %s`,
+		rowCols, tableCalls, clause, rowCols, tableUsageMetrics, clause)
 	both := make([]any, 0, len(args)*2)
 	both = append(both, args...)
 	both = append(both, args...)
@@ -80,7 +82,7 @@ func reconciledCostUnion(clause string, args []any) (string, []any) {
 // the per-bucket greatest matches CostSeries bucket-for-bucket.
 func (r *ClickHouseRepository) costTotal(ctx context.Context, user string, workspaces []string, lo, hi, bucketMs int64) (float64, error) {
 	clause, args := window(user, workspaces, lo, hi)
-	union, uargs := reconciledCostUnion(clause, args)
+	union, uargs := reconciledCostUnion(nil, clause, args)
 	var cost float64
 	// The GROUP BY bucket placeholder is textually after the union, so bucketMs
 	// binds last.
@@ -256,7 +258,7 @@ GROUP BY bucket_ms`, scopeCols, tableCalls, clause, scopeWhere)
 	// bucket placeholders are in the outer SELECT/GROUP BY, textually before the
 	// union, so bucketMs binds first.
 	clause, args := window(f.UserID, f.WorkspaceIDs, f.Start.UnixMilli(), f.End.UnixMilli())
-	union, uargs := reconciledCostUnion(clause, args)
+	union, uargs := reconciledCostUnion(nil, clause, args)
 	q := fmt.Sprintf(`
 SELECT intDiv(start_time_ms, ?) * ? AS bucket_ms, %s AS value
 FROM (%s)

@@ -117,6 +117,10 @@ type MockMetricsRepository struct {
 	AttrUsage       []model.AttributeUsage
 	AnomalyItems    []model.Anomaly
 	Checks          []model.SetupCheck
+	QueryResult     model.QueryResult
+	QueryCols       query.Columns
+	// LastQuery records the query RunQuery last received.
+	LastQuery query.Query
 
 	Err error
 }
@@ -187,4 +191,13 @@ func (m *MockMetricsRepository) Anomalies(_ context.Context, _ query.MetricsFilt
 
 func (m *MockMetricsRepository) SetupChecks(_ context.Context, _ query.MetricsFilter) ([]model.SetupCheck, error) {
 	return m.Checks, m.Err
+}
+
+func (m *MockMetricsRepository) QueryColumns(_ context.Context) (query.Columns, error) {
+	return m.QueryCols, nil
+}
+
+func (m *MockMetricsRepository) RunQuery(_ context.Context, q query.Query) (model.QueryResult, error) {
+	m.LastQuery = q
+	return m.QueryResult, m.Err
 }

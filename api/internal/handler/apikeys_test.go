@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -59,6 +60,31 @@ func (m *memKeyStore) Revoke(_ context.Context, id, workspaceID string) error {
 	m.byHash[hash] = k
 	return nil
 }
+func (m *memKeyStore) ListRead(_ context.Context, userID string) ([]model.APIKey, error) {
+	var out []model.APIKey
+	for _, k := range m.byHash {
+		if k.CreatedBy == userID && k.Scope == model.ScopeRead {
+			out = append(out, k)
+		}
+	}
+	return out, nil
+}
+
+func (m *memKeyStore) RevokeRead(_ context.Context, id, userID string) error {
+	hash, ok := m.hashOf[id]
+	if !ok {
+		return apikey.ErrNotFound
+	}
+	k := m.byHash[hash]
+	if k.CreatedBy != userID || k.Scope != model.ScopeRead || k.RevokedAt != nil {
+		return apikey.ErrNotFound
+	}
+	now := k.CreatedAt
+	k.RevokedAt = &now
+	m.byHash[hash] = k
+	return nil
+}
+
 func (m *memKeyStore) FindActiveByHash(_ context.Context, hash string) (*model.APIKey, error) {
 	k, ok := m.byHash[hash]
 	if !ok || k.RevokedAt != nil {
@@ -86,6 +112,9 @@ func apiKeyTestRouter(h *APIKeyHandler, userID string) http.Handler {
 	r.Post("/v1/workspaces/{id}/api-keys", h.Create)
 	r.Delete("/v1/workspaces/{id}/api-keys/{keyId}", h.Revoke)
 	r.Post("/v1/ingest/keys/verify", h.Verify)
+	r.Get("/v1/account/api-keys", h.ListRead)
+	r.Post("/v1/account/api-keys", h.CreateRead)
+	r.Delete("/v1/account/api-keys/{keyId}", h.RevokeRead)
 	return r
 }
 
@@ -188,5 +217,43 @@ func TestAPIKeyVerifyRejectsOversizedBody(t *testing.T) {
 	apiKeyTestRouter(h, "user-1").ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/ingest/keys/verify", strings.NewReader(body)))
 	if w.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("status %d, want 413", w.Code)
+	}
+}
+
+func TestReadKeyLifecycle(t *testing.T) {
+	svc := apikey.NewService(newMemKeyStore())
+	h := NewAPIKeyHandler(svc, fakeAccess{ids: []string{"ws-1"}})
+	owner, other := apiKeyTestRouter(h, "user-1"), apiKeyTestRouter(h, "user-2")
+	do := func(router http.Handler, method, path, body string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, httptest.NewRequest(method, path, strings.NewReader(body)))
+		return w
+	}
+
+	w := do(owner, http.MethodPost, "/v1/account/api-keys", `{"name":"mcp"}`)
+	var created apikey.Created
+	if w.Code != http.StatusCreated || json.Unmarshal(w.Body.Bytes(), &created) != nil {
+		t.Fatalf("create: %d %s", w.Code, w.Body.String())
+	}
+	if created.Key.Scope != model.ScopeRead || created.Key.WorkspaceID != "" || strings.Contains(w.Body.String(), "workspace_id") {
+		t.Fatalf("read key = %s", w.Body.String())
+	}
+	if w := do(owner, http.MethodPost, "/v1/ingest/keys/verify", `{"key":"`+created.Token+`"}`); w.Code != http.StatusUnauthorized {
+		t.Fatalf("read key verified for ingest: %d", w.Code)
+	}
+	if w := do(other, http.MethodGet, "/v1/account/api-keys", ""); w.Body.String() != "[]\n" {
+		t.Fatalf("another user sees %s", w.Body.String())
+	}
+	if w := do(owner, http.MethodGet, "/v1/workspaces/ws-1/api-keys", ""); strings.Contains(w.Body.String(), created.Key.ID) {
+		t.Fatalf("read key listed under a workspace: %s", w.Body.String())
+	}
+	if w := do(other, http.MethodDelete, "/v1/account/api-keys/"+created.Key.ID, ""); w.Code != http.StatusNotFound {
+		t.Fatalf("another user revoked it: %d", w.Code)
+	}
+	if w := do(owner, http.MethodDelete, "/v1/account/api-keys/"+created.Key.ID, ""); w.Code != http.StatusNoContent {
+		t.Fatalf("revoke: %d", w.Code)
+	}
+	if _, err := svc.Lookup(context.Background(), created.Token); !errors.Is(err, apikey.ErrInvalidKey) {
+		t.Fatalf("revoked read key still works: %v", err)
 	}
 }

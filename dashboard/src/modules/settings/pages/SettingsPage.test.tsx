@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render as rtlRender, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import SettingsPage from './SettingsPage';
 import type { Workspace } from '../../shell/interfaces';
@@ -13,9 +13,15 @@ const changePassword = vi.fn();
 const workspacesAPI = {
   members: vi.fn(), invites: vi.fn(), invite: vi.fn(), revokeInvite: vi.fn(), removeMember: vi.fn(),
 };
+const apiKeysAPI = { listRead: vi.fn(() => Promise.resolve([])), createRead: vi.fn(), revokeRead: vi.fn() };
 vi.mock('../../../common/providers/APIProvider', () => ({
-  useAPIClient: () => ({ usersAPI: { changePassword }, workspacesAPI }),
+  useAPIClient: () => ({ usersAPI: { changePassword }, workspacesAPI, apiKeysAPI }),
 }));
+
+// The account tab lists read keys through react-query.
+const render = (ui: React.ReactElement) => rtlRender(ui, {
+  wrapper: ({ children }) => <QueryClientProvider client={new QueryClient()}>{children}</QueryClientProvider>,
+});
 
 const workspace: Workspace = {
   id: 'ws_generated_123' as Workspace['id'], name: 'Acme Production',
@@ -252,5 +258,39 @@ describe('members', () => {
     expect(screen.queryByRole('textbox', { name: 'Invite email' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Remove' })).toBeNull();
     expect(workspacesAPI.invites).not.toHaveBeenCalled();
+  });
+});
+
+describe('read keys', () => {
+  it('creates an account read key and shows where to point an MCP client', async () => {
+    apiKeysAPI.createRead.mockResolvedValue({
+      key: { id: 'k1', created_by: 'u', name: 'Claude Code', prefix: 'trc_1234abcd', scope: 'read', created_at: '2026-10-18T10:00:00Z', last_used_at: null, revoked_at: null },
+      token: 'trc_read_token',
+    });
+    render(<SettingsPage workspace={workspace} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Account' }));
+    expect(await screen.findByText(/No read keys yet/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Create key/ }));
+    expect(screen.getByText('Reads your workspaces')).toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText(/Claude Code/), { target: { value: 'Claude Code' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+
+    // One copyable connector URL that carries the key; scheme and host are editable.
+    const host = await screen.findByLabelText('Tracium address');
+    expect(screen.getByText('/v1/mcp/trc_read_token')).toBeInTheDocument();
+    expect(apiKeysAPI.createRead).toHaveBeenCalledWith('Claude Code');
+
+    // A pasted scheme is stripped; the toggle owns it.
+    fireEvent.change(host, { target: { value: 'https://tracium.acme.com' } });
+    expect(host).toHaveValue('tracium.acme.com');
+    // jsdom serves the page from http://localhost, so the toggle starts on http.
+    fireEvent.click(screen.getByRole('button', { name: 'http://' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith('https://tracium.acme.com/v1/mcp/trc_read_token'));
+
+    fireEvent.change(host, { target: { value: 'tracium.acme.com/extra' } });
+    expect(screen.getByRole('button', { name: /^Cop/ })).toBeDisabled();
+    expect(screen.getByText('Enter a host, without a path.')).toBeInTheDocument();
   });
 });

@@ -124,6 +124,10 @@ func (s keyStore) Insert(_ context.Context, key model.APIKey, hash string) (time
 }
 func (s keyStore) List(context.Context, string) ([]model.APIKey, error) { return nil, nil }
 func (s keyStore) Revoke(context.Context, string, string) error         { return nil }
+func (s keyStore) ListRead(context.Context, string) ([]model.APIKey, error) {
+	return nil, nil
+}
+func (s keyStore) RevokeRead(context.Context, string, string) error { return nil }
 func (s keyStore) FindActiveByHash(_ context.Context, hash string) (*model.APIKey, error) {
 	if key, ok := s[hash]; ok {
 		return &key, nil
@@ -185,6 +189,78 @@ func TestIngestKeyFollowsCreatorEntitlements(t *testing.T) {
 		router.ServeHTTP(w, r)
 		if w.Code != want {
 			t.Errorf("%.8s: %d want %d", token, w.Code, want)
+		}
+	}
+}
+
+func TestReadKeysActAsTheirOwner(t *testing.T) {
+	var cfg Config
+	cfg.Default()
+	keys := apikey.NewService(keyStore{})
+	read, _ := keys.CreateRead(context.Background(), "user", "mcp")
+	ingest, _ := keys.Create(context.Background(), "ws-1", "user", "app")
+	repo := repository{mocks.NewMockTraceRepository(), &mocks.MockMetricsRepository{}}
+	workspaces := &mocks.MockWorkspaceStore{Workspaces: []model.Workspace{{ID: "ws-1", UserID: "user"}, {ID: "ws-2", UserID: "user"}, {ID: "ws-3", UserID: "someone"}}}
+	router := newRouter(cfg, repo, workspaces, nil, nil, tokenAuth{"session": "user"}, nil, keys, nil, Options{})
+	query := `{"metrics":["cost"],"workspace_id":"ws-2"}`
+	ping := `{"jsonrpc":"2.0","id":1,"method":"ping"}`
+	for _, tt := range []struct {
+		method, path, token, body string
+		want                      int
+	}{
+		{"POST", "/v1/query", "session", `{"metrics":["cost"]}`, 200},
+		{"POST", "/v1/query", ingest.Token, query, 403},
+		{"POST", "/v1/query", "trc_unknown", query, 401},
+		{"POST", "/v1/query", read.Token, `{"metrics":["price"]}`, 400},
+		{"POST", "/v1/query", read.Token, `{"metrics":["cost"],"workspace_id":"ws-3"}`, 403},
+		{"GET", "/v1/query/schema?workspace_id=ws-1", read.Token, "", 200},
+		{"POST", "/v1/mcp", read.Token, ping, 200},
+		{"POST", "/v1/mcp", ingest.Token, ping, 403},
+		{"POST", "/v1/mcp", "", ping, 401},
+		{"POST", "/v1/mcp/" + read.Token, "", ping, 200},
+		{"POST", "/v1/mcp/" + ingest.Token, "", ping, 403},
+		{"POST", "/v1/mcp/trc_unknown", "", ping, 401},
+		{"POST", "/v1/mcp/session", "", ping, 401},
+		{"GET", "/v1/metrics/setup-checks", read.Token, "", 200},
+		{"GET", "/v1/metrics/kpis", read.Token, "", 401},
+		{"GET", "/v1/traces", read.Token, "", 401},
+		{"GET", "/v1/account/api-keys", read.Token, "", 401},
+		{"POST", "/v1/account/api-keys", read.Token, `{}`, 401},
+		{"GET", "/v1/account/api-keys", "session", "", 200},
+		{"POST", "/v1/query", read.Token, query, 200},
+	} {
+		r := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
+		if tt.token != "" {
+			r.Header.Set("Authorization", "Bearer "+tt.token)
+		}
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, r)
+		if w.Code != tt.want {
+			t.Errorf("%s %s with %.8s: %d want %d: %s", tt.method, tt.path, tt.token, w.Code, tt.want, w.Body.String())
+		}
+	}
+	// The read key's query is the last to reach the repository.
+	if got := repo.MockMetricsRepository.LastQuery.WorkspaceIDs; len(got) != 1 || got[0] != "ws-2" {
+		t.Fatalf("read key query scoped to %v, want [ws-2]", got)
+	}
+}
+
+func TestQueryAndMCPShareOneRateLimitPerAccount(t *testing.T) {
+	var cfg Config
+	cfg.Default()
+	cfg.Auth.QueryRateLimitPerMinute = 2
+	repo := repository{mocks.NewMockTraceRepository(), &mocks.MockMetricsRepository{}}
+	auth := tokenAuth{"a": "u1", "b": "u2"}
+	router := newRouter(cfg, repo, &mocks.MockWorkspaceStore{}, nil, nil, auth, nil, apikey.NewService(keyStore{}), nil, Options{})
+	for i, tt := range []struct{ path, token string }{
+		{"/v1/mcp", "a"}, {"/v1/mcp/trc_unknown", "a"}, {"/v1/query", "a"}, {"/v1/query", "b"},
+	} {
+		r := httptest.NewRequest("POST", tt.path, strings.NewReader("{}"))
+		r.Header.Set("Authorization", "Bearer "+tt.token)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, r)
+		if throttled := w.Code == http.StatusTooManyRequests; throttled != (i == 2) {
+			t.Fatalf("%s as %s: status %d", tt.path, tt.token, w.Code)
 		}
 	}
 }

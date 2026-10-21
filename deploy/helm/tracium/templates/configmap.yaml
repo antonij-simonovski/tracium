@@ -130,6 +130,9 @@ data:
       # login's bucket let a few invalid keys block verification of good keys.
       # Default 120; negative disables. Override with AUTH_VERIFY_RATE_LIMIT_PER_MINUTE.
       verify_rate_limit_per_minute: 120
+      # Query API and MCP requests per account per minute, one bucket for both.
+      # Default 120; negative disables. Override with AUTH_QUERY_RATE_LIMIT_PER_MINUTE.
+      query_rate_limit_per_minute: 120
       # Trust the dashboard pod addresses, plus explicitly configured ingress
       # peers. Each proxy must sanitize X-Forwarded-For. dns: names must resolve
       # to actual peers (headless Services), not virtual ClusterIP addresses.

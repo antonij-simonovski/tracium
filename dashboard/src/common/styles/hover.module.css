@@ -31,3 +31,11 @@
   border-color: var(--border-strong);
   color: var(--foreground);
 }
+
+.accent {
+  color: var(--foreground);
+}
+
+.accent:hover {
+  color: var(--accent);
+}

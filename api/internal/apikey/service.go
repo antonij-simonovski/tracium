@@ -36,21 +36,25 @@ type Created struct {
 // recorded for provenance only. The returned Token must be surfaced to the
 // caller exactly once; it cannot be recovered later.
 func (s *Service) Create(ctx context.Context, workspaceID, createdBy, name string) (Created, error) {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		name = "default"
+	return s.create(ctx, model.APIKey{WorkspaceID: workspaceID, CreatedBy: createdBy, Name: name, Scope: model.ScopeIngest})
+}
+
+// CreateRead mints a read key owned by userID. It reads whatever workspaces
+// userID can read when it is used, through the query API and MCP only.
+func (s *Service) CreateRead(ctx context.Context, userID, name string) (Created, error) {
+	return s.create(ctx, model.APIKey{CreatedBy: userID, Name: name, Scope: model.ScopeRead})
+}
+
+func (s *Service) create(ctx context.Context, key model.APIKey) (Created, error) {
+	key.Name = strings.TrimSpace(key.Name)
+	if key.Name == "" {
+		key.Name = "default"
 	}
 	gen, err := generate()
 	if err != nil {
 		return Created{}, err
 	}
-	key := model.APIKey{
-		ID:          uuid.NewString(),
-		WorkspaceID: workspaceID,
-		CreatedBy:   createdBy,
-		Name:        name,
-		Prefix:      gen.Prefix,
-	}
+	key.ID, key.Prefix = uuid.NewString(), gen.Prefix
 	createdAt, err := s.store.Insert(ctx, key, gen.Hash)
 	if err != nil {
 		return Created{}, err
@@ -66,6 +70,17 @@ func (s *Service) List(ctx context.Context, workspaceID string) ([]model.APIKey,
 	return s.store.List(ctx, workspaceID)
 }
 
+// ListRead returns userID's read keys (metadata only), newest first.
+func (s *Service) ListRead(ctx context.Context, userID string) ([]model.APIKey, error) {
+	return s.store.ListRead(ctx, userID)
+}
+
+// RevokeRead disables one of userID's read keys. Returns ErrNotFound when
+// userID has no active read key with that id.
+func (s *Service) RevokeRead(ctx context.Context, id, userID string) error {
+	return s.store.RevokeRead(ctx, id, userID)
+}
+
 // Revoke disables a key in the given workspace. Returns ErrNotFound when no
 // active key with that id belongs to workspaceID.
 func (s *Service) Revoke(ctx context.Context, id, workspaceID string) error {
@@ -73,13 +88,16 @@ func (s *Service) Revoke(ctx context.Context, id, workspaceID string) error {
 }
 
 // Verify resolves a presented plaintext token to the workspace it grants,
-// returning ErrInvalidKey for anything malformed, unknown, or revoked. This is
+// returning ErrInvalidKey for anything malformed, unknown, revoked or read-scoped. This is
 // what the ingest path (via the collector's verify call) uses to authenticate a
 // sender and decide where its spans land.
 func (s *Service) Verify(ctx context.Context, token string) (string, error) {
 	key, err := s.Lookup(ctx, token)
 	if err != nil {
 		return "", err
+	}
+	if key.Scope != model.ScopeIngest {
+		return "", ErrInvalidKey
 	}
 	return key.WorkspaceID, nil
 }

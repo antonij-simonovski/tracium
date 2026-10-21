@@ -69,20 +69,23 @@ type fakeKeys struct{}
 func (fakeKeys) Lookup(_ context.Context, token string) (*model.APIKey, error) {
 	switch token {
 	case "trc_good":
-		return &model.APIKey{WorkspaceID: "ws-1", CreatedBy: "u-key"}, nil
+		return &model.APIKey{WorkspaceID: "ws-1", CreatedBy: "u-key", Scope: model.ScopeIngest}, nil
+	case "trc_read":
+		return &model.APIKey{WorkspaceID: "ws-1", CreatedBy: "u-key", Scope: model.ScopeRead}, nil
 	case "trc_db-down":
 		return nil, errors.New("connection refused")
 	}
 	return nil, apikey.ErrInvalidKey
 }
 
-func TestIngestKeyOr(t *testing.T) {
+func TestAPIKeyOr(t *testing.T) {
 	for _, tt := range []struct {
 		name, header, user, workspace string
 		want                          int
 	}{
 		{"valid key", "Bearer trc_good", "u-key", "ws-1", http.StatusNoContent},
 		{"invalid key", "Bearer trc_bad", "", "", http.StatusUnauthorized},
+		{"key with another scope", "Bearer trc_read", "", "", http.StatusForbidden},
 		{"key store down", "Bearer trc_db-down", "", "", http.StatusServiceUnavailable},
 		{"session token", "Bearer good", "u-1", "", http.StatusNoContent},
 		{"invalid session token", "Bearer bad", "", "", http.StatusUnauthorized},
@@ -101,7 +104,7 @@ func TestIngestKeyOr(t *testing.T) {
 				r.Header.Set("Authorization", tt.header)
 			}
 			w := httptest.NewRecorder()
-			IngestKeyOr(fakeKeys{}, Auth(fakeAuthenticator{}))(next).ServeHTTP(w, r)
+			APIKeyOr(fakeKeys{}, Auth(fakeAuthenticator{}), model.ScopeIngest)(next).ServeHTTP(w, r)
 			if w.Code != tt.want {
 				t.Fatalf("status = %d, want %d", w.Code, tt.want)
 			}

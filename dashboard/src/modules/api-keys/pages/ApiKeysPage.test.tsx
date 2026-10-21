@@ -10,11 +10,11 @@ vi.mock('../../../common/providers/APIProvider', () => ({
   }),
 }));
 
-function show(workspaceId: string | undefined = 'ws-1') {
+function show(workspaceId: string | undefined = 'ws-1', workspaceName?: string) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
-      <ApiKeysPage workspaceId={workspaceId} />
+      <ApiKeysPage workspaceId={workspaceId} workspaceName={workspaceName} />
     </QueryClientProvider>,
   );
 }
@@ -25,6 +25,7 @@ const KEY = {
   created_by: 'demo@tracium.ai',
   name: 'Production ingest',
   prefix: 'trc_9f3a1b2c',
+  scope: 'ingest' as const,
   created_at: '2026-03-12T10:00:00Z',
   last_used_at: null,
   revoked_at: null,
@@ -61,12 +62,35 @@ describe('live API keys page', () => {
     fireEvent.change(screen.getByPlaceholderText(/Production ingest/), {
       target: { value: 'CI runner' },
     });
-    // The dialog's submit button (last of the two "Create key" buttons).
-    const createButtons = screen.getAllByRole('button', { name: /Create key/ });
-    fireEvent.click(createButtons[createButtons.length - 1]);
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
 
     expect(await screen.findByText('trc_secret_full_token')).toBeInTheDocument();
     expect(api.create).toHaveBeenCalledWith('ws-1', 'CI runner');
+  });
+
+  it('drafts the key in a row that Esc cancels and Done closes', async () => {
+    api.list.mockResolvedValue([]);
+    api.create.mockResolvedValue({ key: KEY, token: 'trc_secret_full_token' });
+    show('ws-1', 'Acme');
+    await screen.findByText(/No API keys yet/);
+    expect(screen.queryByPlaceholderText(/Production ingest/)).not.toBeInTheDocument();
+
+    const open = screen.getByRole('button', { name: /Create key/ });
+    fireEvent.click(open);
+    expect(open).toBeDisabled();
+    expect(screen.getByText('Ingests to Acme')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Create' })).toBeDisabled();
+    fireEvent.keyDown(screen.getByPlaceholderText(/Production ingest/), { key: 'Escape' });
+    expect(screen.queryByPlaceholderText(/Production ingest/)).not.toBeInTheDocument();
+    expect(open).toBeEnabled();
+
+    fireEvent.click(open);
+    fireEvent.change(screen.getByPlaceholderText(/Production ingest/), { target: { value: 'CI' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+    await screen.findByText('trc_secret_full_token');
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    expect(screen.queryByText('trc_secret_full_token')).not.toBeInTheDocument();
+    expect(open).toBeEnabled();
   });
 
   it('does not report a successful copy when the clipboard write fails', async () => {
@@ -81,8 +105,7 @@ describe('live API keys page', () => {
     fireEvent.change(screen.getByPlaceholderText(/Production ingest/), {
       target: { value: 'CI runner' },
     });
-    const createButtons = screen.getAllByRole('button', { name: /Create key/ });
-    fireEvent.click(createButtons[createButtons.length - 1]);
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
     await screen.findByText('trc_secret_full_token');
 
     fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
@@ -120,8 +143,7 @@ describe('live API keys page', () => {
     fireEvent.change(screen.getByPlaceholderText(/Production ingest/), {
       target: { value: 'CI runner' },
     });
-    const createButtons = screen.getAllByRole('button', { name: /Create key/ });
-    fireEvent.click(createButtons[createButtons.length - 1]);
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
     expect(await screen.findByText('trc_secret_full_token')).toBeInTheDocument();
 
     rerender(
@@ -151,12 +173,12 @@ describe('live API keys page', () => {
     expect(await screen.findByText('Production ingest')).toBeInTheDocument();
     expect(screen.getByText('Staging ingest')).toBeInTheDocument();
 
+    fireEvent.click(screen.getByRole('button', { name: /Create key/ }));
     fireEvent.change(screen.getByPlaceholderText(/Production ingest/), {
       target: { value: 'Local test' },
     });
-    const createButtons = screen.getAllByRole('button', { name: /Create key/ });
-    fireEvent.click(createButtons[createButtons.length - 1]);
-    expect(await screen.findByText(/Key created/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+    expect(await screen.findByText('Shown once.')).toBeInTheDocument();
 
     // The demo path must not hit the real API client.
     expect(api.list).not.toHaveBeenCalled();
