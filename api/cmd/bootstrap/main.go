@@ -1,5 +1,5 @@
 // Command bootstrap gives a fresh local install an ingest key without the
-// dashboard: it creates the account if missing, a workspace if the account has
+// dashboard: it creates the account if missing, a workspace if the account owns
 // none, and a new API key, then prints the key (trc_...) to stdout. Like
 // reset-password it is an admin operation for whoever can reach the API's
 // database, e.g. `docker compose exec api ./bootstrap --email you@example.com`,
@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -42,7 +43,7 @@ func main() {
 	var (
 		email    = flag.String("email", "", "account to bootstrap (required)")
 		password = flag.String("password", "", "password for a new account (default: generated)")
-		wsName   = flag.String("workspace", "Default", "name of the workspace created when the account has none")
+		wsName   = flag.String("workspace", "Default", "name of the workspace created when the account owns none")
 	)
 	flag.Parse()
 
@@ -114,9 +115,10 @@ func bootstrap(ctx context.Context, pool *pgxpool.Pool, email, password, wsName 
 	if err != nil {
 		return result{}, err
 	}
+	i := slices.IndexFunc(existing, func(w model.Workspace) bool { return w.Role == workspace.RoleOwner })
 	var ws model.Workspace
-	if len(existing) > 0 {
-		ws = existing[0]
+	if i >= 0 {
+		ws = existing[i]
 	} else {
 		ws = model.Workspace{ID: uuid.NewString(), UserID: user.ID, Name: wsName, Slug: slug(wsName), Env: "development"}
 		if err := workspaces.Create(ctx, ws); err != nil {
