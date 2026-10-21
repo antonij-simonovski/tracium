@@ -152,6 +152,9 @@ ingress:
   trustedProxies: []
   host: "tracium.example.com"
   className: "nginx"
+  # MCP connector URLs (/v1/mcp/trc_...) carry a read key in the path, and this
+  # Ingress routes /v1 to the API directly. Keep /v1/mcp/ out of the
+  # controller's access log.
   annotations:
     nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "60"

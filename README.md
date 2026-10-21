@@ -1,8 +1,6 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/tracium-robot-dark.png">
-    <img alt="Tracium robot mascot" src="docs/assets/tracium-robot-light.png" width="400">
-  </picture>
+  <img alt="Tracium robot mascot" src="docs/assets/tracium-robot-light.png#gh-light-mode-only" width="400">
+  <img alt="Tracium robot mascot" src="docs/assets/tracium-robot-dark.png#gh-dark-mode-only" width="400">
 </p>
 
 <h3 align="center">Open-source, self-hosted LLM observability</h3>
@@ -15,7 +13,7 @@
 <p align="center">
   <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache%202.0-0e9f6e"></a>
   <a href="https://github.com/antonij-simonovski/tracium/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/antonij-simonovski/tracium?color=0e9f6e"></a>
-  <a href="https://github.com/antonij-simonovski/tracium/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/antonij-simonovski/tracium?color=0e9f6e"></a>
+  <a href="https://github.com/antonij-simonovski/tracium/stargazers"><img alt="GitHub stars" src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.github.com%2Frepos%2Fantonij-simonovski%2Ftracium&query=%24.stargazers_count&label=stars&color=0e9f6e"></a>
 </p>
 
 <p align="center">
@@ -41,10 +39,19 @@ Anthropic, Bedrock, Vertex AI, LangChain, LlamaIndex and more work out of the bo
 - **Trace viewer**: every step of a run with its prompt, completion, tokens, cost and timing.
 - **Cost allocation**: split spend by model, or by any attribute you attach (`team`, `environment`, …).
 - **Clients**: meter spend and failures per end client.
+- **MCP server**: ask Claude or any MCP client about your own cost, latency and failures; it can query any stored column, never through raw SQL.
 - **Setup checks**: catch instrumentation gaps like unpriced models, with how to fix each.
 - **Self-hosted**: one `docker compose up` or a Helm chart; your prompts and traces never leave your infrastructure.
 
 ## Quickstart
+
+Want to try Tracium without setting up OpenTelemetry yourself? Give this prompt to your coding agent:
+
+```text
+Set up Tracium LLM observability for my project. Clone
+https://github.com/antonij-simonovski/tracium, then read and follow AGENT_SETUP.md
+from that clone. Don't change any code until I've told you which repositories to instrument.
+```
 
 Requires Docker with Compose v2.
 

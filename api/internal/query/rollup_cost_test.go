@@ -30,7 +30,7 @@ func TestRollupCostQueriesReconcileBothSources(t *testing.T) {
 				t.Errorf("query reads span-only metrics_daily:\n%s", tc.sql)
 			}
 			// Reconciles greatest(span, metric); a plain sum(cost) would be the bug.
-			if !strings.Contains(tc.sql, "greatest(sum(span_cost), sum(metric_cost))") {
+			if !strings.Contains(tc.sql, costReconcileExpr) {
 				t.Errorf("query does not reconcile both sources:\n%s", tc.sql)
 			}
 			if strings.Contains(tc.sql, "sum(cost)") {

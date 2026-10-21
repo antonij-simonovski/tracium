@@ -525,11 +525,28 @@ paths:
         rejected at ingest, with how to fix each. Checks that affected no span
         are omitted. Results are ordered most severe first, then by spans
         affected. Reads raw spans, so ranges longer than 30d are rejected.
+        Also accepts an API key (`trc_...`) as the bearer token. An ingest key
+        reads only its own workspace; a read key reads its owner's workspaces.
+        The entitlements of the user who created the key apply.
       tags:
         - Metrics
+      security:
+        - bearerAuth: []
+        - ingestKey: []
+        - readKey: []
       parameters:
         - $ref: "#/components/parameters/Range"
         - $ref: "#/components/parameters/WorkspaceFilter"
+        - name: since
+          in: query
+          required: false
+          description: >
+            RFC 3339 timestamp. Only spans from this time on are checked, so a
+            fix can be verified without older spans still reporting the
+            problem. Earlier than the range start means the range start.
+          schema:
+            type: string
+            format: date-time
       responses:
         "200":
           description: Setup checks that found a problem.
@@ -538,7 +555,170 @@ paths:
               schema:
                 $ref: "#/components/schemas/PaginatedSetupCheckResponse"
         "400":
-          description: Invalid range, or one longer than 30d.
+          description: Invalid range or since, or a range longer than 30d.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Missing or invalid bearer token or ingest key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: The workspace is not the caller's, or not the ingest key's, or the caller (for a key, its creator) is not entitled to read telemetry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/query:
+    post:
+      operationId: runQuery
+      summary: Custom telemetry query
+      description: >
+        Aggregates the caller's own telemetry from a structured query: metrics,
+        dimensions, filters and an optional time granularity, plus formulas
+        over the metrics and having filters on them; or, with columns, lists
+        the matching calls or runs. On the calls view any stored column is a
+        field, so columns added later are queryable as they appear, and
+        run.<field> and parent.<column> read each call's run and parent span.
+        On the runs view per-run totals (cost_usd, duration_ms, errored, ...)
+        are fields, so filters select runs by them. No
+        SQL is accepted; every name is checked against the catalog from
+        GET /v1/query/schema and every value is bound as a parameter. The
+        window is at most 92 days. Accepts a read key, which acts as the
+        account that created it.
+      tags:
+        - Query
+      security:
+        - bearerAuth: []
+        - readKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QueryRequest"
+      responses:
+        "200":
+          description: The query's rows.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QueryResult"
+        "400":
+          description: Invalid query. The message names the valid choices.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: The workspace is not readable, or the key is an ingest key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/query/schema:
+    get:
+      operationId: getQuerySchema
+      summary: Custom query catalog
+      description: >
+        The views, metrics, dimensions, stored columns, metric functions,
+        filter operators and limits a query may use, plus the workflows, models and custom attribute keys seen in the
+        caller's last 30 days.
+      tags:
+        - Query
+      security:
+        - bearerAuth: []
+        - readKey: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceFilter"
+      responses:
+        "200":
+          description: The catalog.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuerySchema"
+
+  /v1/mcp:
+    post:
+      operationId: mcp
+      summary: MCP server
+      description: >
+        A stateless Model Context Protocol server over Streamable HTTP. Each
+        request carries one JSON-RPC message and is answered with JSON. Tools:
+        list_workspaces, describe_schema, query, list_traces, get_trace and
+        detect_anomalies, all limited to the caller's workspaces and taking an
+        optional workspace_id. Point an MCP client here with a read key as the
+        bearer token.
+      tags:
+        - Query
+      security:
+        - bearerAuth: []
+        - readKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: A JSON-RPC 2.0 request or notification.
+      responses:
+        "200":
+          description: A JSON-RPC 2.0 response.
+          content:
+            application/json:
+              schema:
+                type: object
+        "202":
+          description: A notification was accepted.
+
+  /v1/mcp/{key}:
+    post:
+      operationId: mcpWithKeyInPath
+      summary: MCP server, key in the URL
+      description: >
+        POST /v1/mcp for clients that can only be given a URL, such as a custom
+        connector in Claude. The last path segment is a read key (`trc_...`);
+        anything else is rejected, so a session token never travels in a URL.
+        The URL is a secret: anyone holding it reads as the key's owner.
+      tags:
+        - Query
+      security: []
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: A JSON-RPC 2.0 request or notification.
+      responses:
+        "200":
+          description: A JSON-RPC 2.0 response.
+          content:
+            application/json:
+              schema:
+                type: object
+        "202":
+          description: A notification was accepted.
+        "401":
+          description: The path segment is not a valid key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: The key is an ingest key.
           content:
             application/json:
               schema:
@@ -1359,6 +1539,65 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /v1/account/api-keys:
+    get:
+      operationId: listReadKeys
+      summary: List your read keys
+      description: The signed-in account's read keys, newest first, including revoked ones. Requires a session.
+      tags: [API Keys]
+      responses:
+        "200":
+          description: The keys (metadata only).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/APIKey"
+    post:
+      operationId: createReadKey
+      summary: Create a read key
+      description: >
+        Mints a read key that acts as the signed-in account on the query API
+        and MCP, reading whatever workspaces the account can read when it is
+        used. The token is returned only here. Requires a session; a read key
+        cannot mint keys.
+      tags: [API Keys]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/APIKeyInput"
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIKeyCreated"
+
+  /v1/account/api-keys/{keyId}:
+    delete:
+      operationId: revokeReadKey
+      summary: Revoke a read key
+      description: Disables one of the signed-in account's read keys immediately. Requires a session.
+      tags: [API Keys]
+      parameters:
+        - name: keyId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Revoked.
+        "404":
+          description: The account has no such active read key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /v1/ingest/keys/verify:
     post:
       operationId: verifyApiKey
@@ -1408,6 +1647,18 @@ components:
       type: http
       scheme: bearer
       description: JWT or opaque bearer token issued by the Tracium auth service.
+    ingestKey:
+      type: http
+      scheme: bearer
+      description: Workspace ingest key (`trc_...`), accepted only by GET /v1/metrics/setup-checks.
+    readKey:
+      type: http
+      scheme: bearer
+      description: >
+        Account read key (`trc_...`), accepted by the query API, the MCP
+        server and GET /v1/metrics/setup-checks. It acts as the account that
+        created it, so it reads that account's workspaces at request time. It
+        never authenticates ingest.
 
   parameters:
     WorkflowName:
@@ -1645,19 +1896,19 @@ components:
           description: The workspace the account just joined.
     APIKey:
       type: object
-      required: [id, workspace_id, created_by, name, prefix, created_at]
+      required: [id, created_by, name, prefix, scope, created_at]
       properties:
         id:
           type: string
           format: uuid
         workspace_id:
           type: string
-          description: The workspace this key is bound to and ingests into.
+          description: The workspace an ingest key is bound to and ingests into. Absent on read keys.
         created_by:
           type: string
           description: >
-            The account that created the key, for provenance only. It carries no
-            authority; the key keeps working regardless of this account.
+            The account that created the key. For an ingest key it is provenance
+            only; a read key acts as this account.
         name:
           type: string
           description: Human label for the key.
@@ -1666,6 +1917,13 @@ components:
           description: >
             Non-secret leading slice of the token (e.g. "trc_9f3a1b2c"), shown so
             the key is identifiable in the UI without revealing it.
+        scope:
+          type: string
+          enum: ["ingest", "read"]
+          description: >
+            ingest keys belong to a workspace and send its telemetry; read keys
+            belong to an account and query its workspaces through the query API
+            and MCP.
         created_at:
           type: string
           format: date-time
@@ -2740,3 +2998,283 @@ components:
           type: integer
         page_size:
           type: integer
+
+    QueryRequest:
+      type: object
+      description: Set metrics to aggregate, or columns to list calls.
+      properties:
+        view:
+          type: string
+          enum: ["calls", "runs"]
+          description: calls has one row per call (span); runs one per run (trace). Defaults to calls.
+        metrics:
+          type: array
+          items:
+            type: string
+          description: >
+            Metrics of the view, e.g. cost, calls, error_rate, latency_p95_ms,
+            or <func>:<field>, e.g. max:cost_usd, with func one of
+            metric_functions.
+        dimensions:
+          type: array
+          maxItems: 4
+          items:
+            type: string
+          description: >
+            Fields to group by: a dimension, a column of the view, or
+            attr.<key>. On the calls view also run.<field> (a runs-view field
+            of the call's run, including run.attr.<key>) and parent.<column>
+            (a stored column or parent.attr.<key> of the call's parent span;
+            with no parent in the window, text reads empty and numbers 0, so
+            filter parent_span_id not_empty to skip root calls). On the
+            runs view attr.<key> is the first non-empty value among the run's
+            calls.
+        columns:
+          type: array
+          maxItems: 30
+          items:
+            type: string
+          description: >
+            Lists the matching calls or runs with these fields instead of
+            aggregating; metrics, dimensions, granularity, formulas and having
+            must be empty. Text longer than 2000 characters is truncated.
+        filters:
+          type: array
+          maxItems: 10
+          description: All must match; a filter with any matches when one of its filters does.
+          items:
+            $ref: "#/components/schemas/QueryFilter"
+        formulas:
+          type: array
+          maxItems: 5
+          items:
+            $ref: "#/components/schemas/QueryFormula"
+        having:
+          type: array
+          maxItems: 10
+          description: Keeps aggregated rows where every comparison on a metric or formula holds.
+          items:
+            $ref: "#/components/schemas/QueryHaving"
+        granularity:
+          type: string
+          enum: ["hour", "day"]
+        from:
+          type: string
+          format: date-time
+          description: Defaults to 7 days before to.
+        to:
+          type: string
+          format: date-time
+          description: Defaults to now.
+        order_by:
+          type: string
+          description: >
+            A metric, a formula, a dimension, or time; when listing, one of the columns.
+            Defaults to the first metric, time with a granularity, or newest
+            first when listing.
+        order:
+          type: string
+          enum: ["asc", "desc"]
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          description: Rows per page. Defaults to 100; when listing, 50 and at most 200.
+        page:
+          type: integer
+          minimum: 1
+          description: 1-indexed. Pass meta.next_page to read the next page; pages reach at most 100000 rows deep.
+        workspace_id:
+          type: string
+          description: Restrict to one workspace. Defaults to every readable workspace.
+    QueryFilter:
+      type: object
+      description: Either field and op, or any.
+      properties:
+        any:
+          type: array
+          maxItems: 10
+          items:
+            $ref: "#/components/schemas/QueryFilter"
+          description: Filters of which at least one must match. They do not nest.
+        field:
+          type: string
+        op:
+          type: string
+          enum: ["eq", "neq", "contains", "in", "not_in", "gt", "ge", "lt", "le", "is_empty", "not_empty"]
+          description: gt, ge, lt and le need a numeric field; is_empty and not_empty take no value.
+        value:
+          oneOf:
+            - type: string
+            - type: number
+          description: For eq, neq, contains, gt, ge, lt and le.
+        values:
+          type: array
+          maxItems: 100
+          items:
+            type: string
+          description: For in and not_in.
+    QueryFormula:
+      type: object
+      required: [name, expr]
+      properties:
+        name:
+          type: string
+          pattern: "^[A-Za-z_][A-Za-z0-9_]{0,63}$"
+          description: The result column; must not repeat a metric or dimension.
+        expr:
+          type: string
+          maxLength: 500
+          description: >
+            Arithmetic over the query's metrics and numbers with + - * / and
+            parentheses, e.g. cost / runs. Division by zero gives 0.
+    QueryHaving:
+      type: object
+      required: [field, op, value]
+      properties:
+        field:
+          type: string
+          description: One of the query's metrics or formulas.
+        op:
+          type: string
+          enum: ["eq", "neq", "gt", "ge", "lt", "le"]
+        value:
+          oneOf:
+            - type: string
+            - type: number
+    QueryResult:
+      type: object
+      required: [columns, rows, meta]
+      properties:
+        columns:
+          type: array
+          items:
+            type: string
+          description: The listed columns; or dimensions, then time (with a granularity), then metrics, then formulas.
+        rows:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+            description: Keyed by column. Dimensions and text columns are strings, time is RFC 3339, metrics and numeric columns are numbers.
+        meta:
+          $ref: "#/components/schemas/QueryMeta"
+    QueryMeta:
+      type: object
+      required: [view, from, to, truncated, page]
+      properties:
+        view:
+          type: string
+        from:
+          type: string
+          format: date-time
+        to:
+          type: string
+          format: date-time
+        granularity:
+          type: string
+        cost_source:
+          type: string
+          enum: ["reconciled", "spans"]
+          description: >
+            reconciled matches the dashboard's cost KPI; spans counts span cost
+            only, used when grouping or filtering by a dimension usage metrics
+            do not carry.
+        truncated:
+          type: boolean
+          description: More rows matched than the limit.
+        page:
+          type: integer
+        next_page:
+          type: integer
+          description: Set when more rows match; pass it as page to read them.
+    QuerySchema:
+      type: object
+      required: [views, metric_functions, filter_ops, having_ops, granularities, attribute_keys, workflows, models, max_window_days, max_limit, max_row_limit]
+      properties:
+        views:
+          type: array
+          items:
+            $ref: "#/components/schemas/QueryView"
+        metric_functions:
+          type: array
+          items:
+            type: string
+          description: Functions that build a metric from any field as <func>:<field>.
+        filter_ops:
+          type: array
+          items:
+            type: string
+        having_ops:
+          type: array
+          items:
+            type: string
+        granularities:
+          type: array
+          items:
+            type: string
+        attribute_keys:
+          type: array
+          items:
+            type: string
+        workflows:
+          type: array
+          items:
+            type: string
+        models:
+          type: array
+          items:
+            type: string
+        max_window_days:
+          type: integer
+        max_limit:
+          type: integer
+        max_row_limit:
+          type: integer
+    QueryView:
+      type: object
+      required: [name, description, dimensions, metrics, columns, related]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        dimensions:
+          type: array
+          items:
+            $ref: "#/components/schemas/QueryField"
+        metrics:
+          type: array
+          items:
+            $ref: "#/components/schemas/QueryField"
+        columns:
+          type: array
+          items:
+            $ref: "#/components/schemas/QueryColumn"
+          description: >
+            Fields beside the dimensions: per-run totals on runs, stored
+            columns read live from the database on calls.
+        related:
+          type: array
+          items:
+            $ref: "#/components/schemas/QueryField"
+          description: Prefixed fields that read related rows, such as run.<field> and parent.<column>.
+    QueryColumn:
+      type: object
+      required: [name, kind]
+      properties:
+        name:
+          type: string
+        kind:
+          type: string
+          enum: ["number", "text"]
+        description:
+          type: string
+    QueryField:
+      type: object
+      required: [name, description]
+      properties:
+        name:
+          type: string
+        description:
+          type: string

@@ -157,9 +157,27 @@ func (h *MetricsHandler) Anomalies(w http.ResponseWriter, r *http.Request) {
 	respondPage(w, anomalies, len(anomalies), 1, len(anomalies))
 }
 
-// SetupChecks handles GET /v1/metrics/setup-checks.
+// SetupChecks handles GET /v1/metrics/setup-checks. An optional RFC 3339
+// `since` narrows the range to spans from that time on.
 func (h *MetricsHandler) SetupChecks(w http.ResponseWriter, r *http.Request) {
-	serveList(w, r, h.rawFilter, "setup checks", h.repo.SetupChecks)
+	serveList(w, r, h.setupFilter, "setup checks", h.repo.SetupChecks)
+}
+
+func (h *MetricsHandler) setupFilter(w http.ResponseWriter, r *http.Request) (query.MetricsFilter, bool) {
+	f, ok := h.rawFilter(w, r)
+	since := r.URL.Query().Get("since")
+	if !ok || since == "" {
+		return f, ok
+	}
+	t, err := time.Parse(time.RFC3339, since)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "BAD_REQUEST", "since must be an RFC 3339 timestamp")
+		return query.MetricsFilter{}, false
+	}
+	if t.After(f.Start) {
+		f.Start = t
+	}
+	return f, true
 }
 
 // KPIs handles GET /v1/metrics/kpis.

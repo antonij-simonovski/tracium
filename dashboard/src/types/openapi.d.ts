@@ -293,11 +293,91 @@ export interface paths {
         };
         /**
          * Instrumentation setup checks
-         * @description Ways the workspace's instrumentation is sending telemetry Tracium cannot fully use, found in the range's spans and in the spans the collector rejected at ingest, with how to fix each. Checks that affected no span are omitted. Results are ordered most severe first, then by spans affected. Reads raw spans, so ranges longer than 30d are rejected.
+         * @description Ways the workspace's instrumentation is sending telemetry Tracium cannot fully use, found in the range's spans and in the spans the collector rejected at ingest, with how to fix each. Checks that affected no span are omitted. Results are ordered most severe first, then by spans affected. Reads raw spans, so ranges longer than 30d are rejected. Also accepts an API key (`trc_...`) as the bearer token. An ingest key reads only its own workspace; a read key reads its owner's workspaces. The entitlements of the user who created the key apply.
          */
         get: operations["getSetupChecks"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/query": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Custom telemetry query
+         * @description Aggregates the caller's own telemetry from a structured query: metrics, dimensions, filters and an optional time granularity, plus formulas over the metrics and having filters on them; or, with columns, lists the matching calls or runs. On the calls view any stored column is a field, so columns added later are queryable as they appear, and run.<field> and parent.<column> read each call's run and parent span. On the runs view per-run totals (cost_usd, duration_ms, errored, ...) are fields, so filters select runs by them. No SQL is accepted; every name is checked against the catalog from GET /v1/query/schema and every value is bound as a parameter. The window is at most 92 days. Accepts a read key, which acts as the account that created it.
+         */
+        post: operations["runQuery"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/query/schema": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Custom query catalog
+         * @description The views, metrics, dimensions, stored columns, metric functions, filter operators and limits a query may use, plus the workflows, models and custom attribute keys seen in the caller's last 30 days.
+         */
+        get: operations["getQuerySchema"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/mcp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * MCP server
+         * @description A stateless Model Context Protocol server over Streamable HTTP. Each request carries one JSON-RPC message and is answered with JSON. Tools: list_workspaces, describe_schema, query, list_traces, get_trace and detect_anomalies, all limited to the caller's workspaces and taking an optional workspace_id. Point an MCP client here with a read key as the bearer token.
+         */
+        post: operations["mcp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/mcp/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * MCP server, key in the URL
+         * @description POST /v1/mcp for clients that can only be given a URL, such as a custom connector in Claude. The last path segment is a read key (`trc_...`); anything else is rejected, so a session token never travels in a URL. The URL is a secret: anyone holding it reads as the key's owner.
+         */
+        post: operations["mcpWithKeyInPath"];
         delete?: never;
         options?: never;
         head?: never;
@@ -720,6 +800,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/account/api-keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List your read keys
+         * @description The signed-in account's read keys, newest first, including revoked ones. Requires a session.
+         */
+        get: operations["listReadKeys"];
+        put?: never;
+        /**
+         * Create a read key
+         * @description Mints a read key that acts as the signed-in account on the query API and MCP, reading whatever workspaces the account can read when it is used. The token is returned only here. Requires a session; a read key cannot mint keys.
+         */
+        post: operations["createReadKey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/account/api-keys/{keyId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke a read key
+         * @description Disables one of the signed-in account's read keys immediately. Requires a session.
+         */
+        delete: operations["revokeReadKey"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/ingest/keys/verify": {
         parameters: {
             query?: never;
@@ -856,14 +980,19 @@ export interface components {
         APIKey: {
             /** Format: uuid */
             id: string;
-            /** @description The workspace this key is bound to and ingests into. */
-            workspace_id: string;
-            /** @description The account that created the key, for provenance only. It carries no authority; the key keeps working regardless of this account. */
+            /** @description The workspace an ingest key is bound to and ingests into. Absent on read keys. */
+            workspace_id?: string;
+            /** @description The account that created the key. For an ingest key it is provenance only; a read key acts as this account. */
             created_by: string;
             /** @description Human label for the key. */
             name: string;
             /** @description Non-secret leading slice of the token (e.g. "trc_9f3a1b2c"), shown so the key is identifiable in the UI without revealing it. */
             prefix: string;
+            /**
+             * @description ingest keys belong to a workspace and send its telemetry; read keys belong to an account and query its workspaces through the query API and MCP.
+             * @enum {string}
+             */
+            scope: "ingest" | "read";
             /** Format: date-time */
             created_at: string;
             /**
@@ -1343,6 +1472,135 @@ export interface components {
             total: number;
             page: number;
             page_size: number;
+        };
+        /** @description Set metrics to aggregate, or columns to list calls. */
+        QueryRequest: {
+            /**
+             * @description calls has one row per call (span); runs one per run (trace). Defaults to calls.
+             * @enum {string}
+             */
+            view?: "calls" | "runs";
+            /** @description Metrics of the view, e.g. cost, calls, error_rate, latency_p95_ms, or <func>:<field>, e.g. max:cost_usd, with func one of metric_functions. */
+            metrics?: string[];
+            /** @description Fields to group by: a dimension, a column of the view, or attr.<key>. On the calls view also run.<field> (a runs-view field of the call's run, including run.attr.<key>) and parent.<column> (a stored column or parent.attr.<key> of the call's parent span; with no parent in the window, text reads empty and numbers 0, so filter parent_span_id not_empty to skip root calls). On the runs view attr.<key> is the first non-empty value among the run's calls. */
+            dimensions?: string[];
+            /** @description Lists the matching calls or runs with these fields instead of aggregating; metrics, dimensions, granularity, formulas and having must be empty. Text longer than 2000 characters is truncated. */
+            columns?: string[];
+            /** @description All must match; a filter with any matches when one of its filters does. */
+            filters?: components["schemas"]["QueryFilter"][];
+            formulas?: components["schemas"]["QueryFormula"][];
+            /** @description Keeps aggregated rows where every comparison on a metric or formula holds. */
+            having?: components["schemas"]["QueryHaving"][];
+            /** @enum {string} */
+            granularity?: "hour" | "day";
+            /**
+             * Format: date-time
+             * @description Defaults to 7 days before to.
+             */
+            from?: string;
+            /**
+             * Format: date-time
+             * @description Defaults to now.
+             */
+            to?: string;
+            /** @description A metric, a formula, a dimension, or time; when listing, one of the columns. Defaults to the first metric, time with a granularity, or newest first when listing. */
+            order_by?: string;
+            /** @enum {string} */
+            order?: "asc" | "desc";
+            /** @description Rows per page. Defaults to 100; when listing, 50 and at most 200. */
+            limit?: number;
+            /** @description 1-indexed. Pass meta.next_page to read the next page; pages reach at most 100000 rows deep. */
+            page?: number;
+            /** @description Restrict to one workspace. Defaults to every readable workspace. */
+            workspace_id?: string;
+        };
+        /** @description Either field and op, or any. */
+        QueryFilter: {
+            /** @description Filters of which at least one must match. They do not nest. */
+            any?: components["schemas"]["QueryFilter"][];
+            field?: string;
+            /**
+             * @description gt, ge, lt and le need a numeric field; is_empty and not_empty take no value.
+             * @enum {string}
+             */
+            op?: "eq" | "neq" | "contains" | "in" | "not_in" | "gt" | "ge" | "lt" | "le" | "is_empty" | "not_empty";
+            /** @description For eq, neq, contains, gt, ge, lt and le. */
+            value?: string | number;
+            /** @description For in and not_in. */
+            values?: string[];
+        };
+        QueryFormula: {
+            /** @description The result column; must not repeat a metric or dimension. */
+            name: string;
+            /** @description Arithmetic over the query's metrics and numbers with + - * / and parentheses, e.g. cost / runs. Division by zero gives 0. */
+            expr: string;
+        };
+        QueryHaving: {
+            /** @description One of the query's metrics or formulas. */
+            field: string;
+            /** @enum {string} */
+            op: "eq" | "neq" | "gt" | "ge" | "lt" | "le";
+            value: string | number;
+        };
+        QueryResult: {
+            /** @description The listed columns; or dimensions, then time (with a granularity), then metrics, then formulas. */
+            columns: string[];
+            rows: {
+                [key: string]: unknown;
+            }[];
+            meta: components["schemas"]["QueryMeta"];
+        };
+        QueryMeta: {
+            view: string;
+            /** Format: date-time */
+            from: string;
+            /** Format: date-time */
+            to: string;
+            granularity?: string;
+            /**
+             * @description reconciled matches the dashboard's cost KPI; spans counts span cost only, used when grouping or filtering by a dimension usage metrics do not carry.
+             * @enum {string}
+             */
+            cost_source?: "reconciled" | "spans";
+            /** @description More rows matched than the limit. */
+            truncated: boolean;
+            page: number;
+            /** @description Set when more rows match; pass it as page to read them. */
+            next_page?: number;
+        };
+        QuerySchema: {
+            views: components["schemas"]["QueryView"][];
+            /** @description Functions that build a metric from any field as <func>:<field>. */
+            metric_functions: string[];
+            filter_ops: string[];
+            having_ops: string[];
+            granularities: string[];
+            attribute_keys: string[];
+            workflows: string[];
+            models: string[];
+            max_window_days: number;
+            max_limit: number;
+            max_row_limit: number;
+        };
+        QueryView: {
+            name: string;
+            description: string;
+            dimensions: components["schemas"]["QueryField"][];
+            metrics: components["schemas"]["QueryField"][];
+            /** @description Fields beside the dimensions: per-run totals on runs, stored columns read live from the database on calls. */
+            columns: components["schemas"]["QueryColumn"][];
+            /** @description Prefixed fields that read related rows, such as run.<field> and parent.<column>. */
+            related: components["schemas"]["QueryField"][];
+        };
+        QueryColumn: {
+            name: string;
+            /** @enum {string} */
+            kind: "number" | "text";
+            description?: string;
+        };
+        QueryField: {
+            name: string;
+            description: string;
         };
     };
     responses: never;
@@ -1987,6 +2245,8 @@ export interface operations {
                 range?: components["parameters"]["Range"];
                 /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
                 workspace_id?: components["parameters"]["WorkspaceFilter"];
+                /** @description RFC 3339 timestamp. Only spans from this time on are checked, so a fix can be verified without older spans still reporting the problem. Earlier than the range start means the range start. */
+                since?: string;
             };
             header?: never;
             path?: never;
@@ -2003,8 +2263,173 @@ export interface operations {
                     "application/json": components["schemas"]["PaginatedSetupCheckResponse"];
                 };
             };
-            /** @description Invalid range, or one longer than 30d. */
+            /** @description Invalid range or since, or a range longer than 30d. */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Missing or invalid bearer token or ingest key. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The workspace is not the caller's, or not the ingest key's, or the caller (for a key, its creator) is not entitled to read telemetry. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    runQuery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QueryRequest"];
+            };
+        };
+        responses: {
+            /** @description The query's rows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueryResult"];
+                };
+            };
+            /** @description Invalid query. The message names the valid choices. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The workspace is not readable, or the key is an ingest key. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getQuerySchema: {
+        parameters: {
+            query?: {
+                /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
+                workspace_id?: components["parameters"]["WorkspaceFilter"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The catalog. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuerySchema"];
+                };
+            };
+        };
+    };
+    mcp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description A JSON-RPC 2.0 response. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description A notification was accepted. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    mcpWithKeyInPath: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description A JSON-RPC 2.0 response. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description A notification was accepted. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The path segment is not a valid key. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The key is an ingest key. */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2899,6 +3324,79 @@ export interface operations {
                 };
             };
             /** @description No such active key in this workspace. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listReadKeys: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The keys (metadata only). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIKey"][];
+                };
+            };
+        };
+    };
+    createReadKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["APIKeyInput"];
+            };
+        };
+        responses: {
+            /** @description Created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIKeyCreated"];
+                };
+            };
+        };
+    };
+    revokeReadKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                keyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revoked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The account has no such active read key. */
             404: {
                 headers: {
                     [name: string]: unknown;

@@ -48,6 +48,10 @@ type AuthConfig struct {
 	// IP per minute, on a bucket separate from login. Defaults to 120; a negative
 	// value disables throttling of the verify endpoint.
 	VerifyRateLimitPerMinute int `yaml:"verify_rate_limit_per_minute"`
+	// QueryRateLimitPerMinute caps query API and MCP requests per account per
+	// minute, since read keys hand them to machine clients. Defaults to 120; a
+	// negative value disables it.
+	QueryRateLimitPerMinute int `yaml:"query_rate_limit_per_minute"`
 	// TrustedProxies lists IPs/CIDRs or dns:service-name entries for proxies allowed to set
 	// X-Forwarded-For for the rate limiter. Empty (the default) means the header
 	// is ignored and the socket peer is always used, so a direct client cannot
@@ -85,6 +89,9 @@ func (c *Config) Default() {
 	}
 	if c.Auth.VerifyRateLimitPerMinute == 0 {
 		c.Auth.VerifyRateLimitPerMinute = 120
+	}
+	if c.Auth.QueryRateLimitPerMinute == 0 {
+		c.Auth.QueryRateLimitPerMinute = 120
 	}
 }
 
@@ -180,6 +187,9 @@ func (c *Config) ApplyEnv() error {
 		return err
 	}
 	if err := envInt("AUTH_VERIFY_RATE_LIMIT_PER_MINUTE", &c.Auth.VerifyRateLimitPerMinute); err != nil {
+		return err
+	}
+	if err := envInt("AUTH_QUERY_RATE_LIMIT_PER_MINUTE", &c.Auth.QueryRateLimitPerMinute); err != nil {
 		return err
 	}
 	if v := os.Getenv("AUTH_TRUSTED_PROXIES"); v != "" {

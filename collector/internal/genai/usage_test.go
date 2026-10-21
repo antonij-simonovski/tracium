@@ -46,18 +46,6 @@ func TestUsage_CacheTokensBothForms(t *testing.T) {
 	}
 }
 
-func TestUsage_ReportedCost(t *testing.T) {
-	if got := Usage(map[string]string{attrCostGenAI: "0.0123"}).ReportedCostUSD; got != 0.0123 {
-		t.Errorf("gen_ai.usage.cost = %v, want 0.0123", got)
-	}
-	if got := Usage(map[string]string{attrCostLLM: "0.5"}).ReportedCostUSD; got != 0.5 {
-		t.Errorf("llm.usage.total_cost = %v, want 0.5", got)
-	}
-	if got := Usage(map[string]string{}).ReportedCostUSD; got != 0 {
-		t.Errorf("absent cost = %v, want 0", got)
-	}
-}
-
 func TestUsage_FloatFormattedTokenCount(t *testing.T) {
 	if got := Usage(map[string]string{attrInputTokens: "1234.0"}).InputTokens; got != 1234 {
 		t.Errorf("InputTokens = %d, want 1234", got)
@@ -145,11 +133,6 @@ func TestUsage_MeteredOrNonStreamingSpansAreNotFlagged(t *testing.T) {
 		"streamed but metered": {
 			attrModelRequest: "gpt-4o-mini", attrGenAIStreaming: "true",
 			attrInputTokens: "12", attrOutputTokens: "8",
-			prefixCompletion + "0.content": "one, two, three",
-		},
-		"streamed, no usage, but cost reported upstream": {
-			attrModelRequest: "gpt-4o-mini", attrGenAIStreaming: "true",
-			attrCostGenAI:                  "0.002",
 			prefixCompletion + "0.content": "one, two, three",
 		},
 		"not streamed": {

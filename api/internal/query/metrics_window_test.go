@@ -142,7 +142,7 @@ func TestWindowClause(t *testing.T) {
 // window args once per branch, so a caller binds them calls-first.
 func TestReconciledCostUnionReadsBothRelations(t *testing.T) {
 	clause, args := window("acme", []string{"ws_1"}, 100, 200)
-	sql, both := reconciledCostUnion(clause, args)
+	sql, both := reconciledCostUnion(nil, clause, args)
 
 	if !strings.Contains(sql, "tracium.calls") || !strings.Contains(sql, "tracium.usage_metrics") {
 		t.Errorf("union does not read both relations:\n%s", sql)
@@ -150,7 +150,8 @@ func TestReconciledCostUnionReadsBothRelations(t *testing.T) {
 	if strings.Contains(sql, "source") {
 		t.Errorf("union should not mention source:\n%s", sql)
 	}
-	if !strings.Contains(sql, "cost_usd AS span_cost") || !strings.Contains(sql, "cost_usd AS metric_cost") {
+	if !strings.Contains(sql, "cost_usd AS span_cost") || !strings.Contains(sql, "cost_usd AS metric_cost") ||
+		!strings.Contains(sql, "if(model = '', cost_usd, 0) AS reported_cost") {
 		t.Errorf("union does not tag cost by relation:\n%s", sql)
 	}
 	// Window args are repeated once per branch, in order.

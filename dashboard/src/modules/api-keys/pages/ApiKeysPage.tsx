@@ -6,6 +6,7 @@ import {
   IconKey,
   IconCheck,
   IconAlert,
+  IconPlus,
   StatusPill,
   Spinner,
   SlicedButton,
@@ -15,15 +16,17 @@ import {
   useCopy,
 } from '../../../common';
 import hover from '../../../common/styles/hover.module.css';
-import { useApiKeys, useDemoApiKeys } from '../hooks/useApiKeys';
+import { useApiKeys, useDemoApiKeys, useReadKeys } from '../hooks/useApiKeys';
 import type { UseApiKeysResult } from '../hooks/useApiKeys';
-import type { ApiKeyRecord, CreatedApiKey } from '../../../common/api';
+import { API_VERSION, apiBaseUrl } from '../../../common/api';
+import type { ApiKeyRecord, ApiKeyScope, CreatedApiKey } from '../../../common/api';
 
 export interface ApiKeysPageProps {
   /** Seed the demo keys (auth-page preview). A real workspace starts with none. */
   demo?: boolean;
   /** The workspace to manage keys for, in the live (non-demo) page. */
   workspaceId?: string;
+  workspaceName?: string;
 }
 
 function fmtLastUsed(iso: string | null): string {
@@ -33,206 +36,249 @@ function fmtLastUsed(iso: string | null): string {
   return relativeTime(d.getTime());
 }
 
-function FieldLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <div
-      style={{
-        fontSize: 12,
-        color: 'var(--muted)',
-        textTransform: 'uppercase',
-        letterSpacing: '0.08em',
-        fontWeight: 500,
-        marginBottom: 8,
-      }}
-    >
-      {children}
-    </div>
-  );
-}
+const MONO = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
 
-interface InlineCreateFormProps {
+interface DraftKeyRowProps {
+  kind: ApiKeyScope;
+  scopeLabel: string;
   onCreate: (name: string) => void;
+  onCancel: () => void;
   submitting: boolean;
   error: string | null;
 }
 
-function InlineCreateForm({ onCreate, submitting, error }: InlineCreateFormProps) {
+function DraftKeyRow({ kind, scopeLabel, onCreate, onCancel, submitting, error }: DraftKeyRowProps) {
   const [name, setName] = useState('');
-
   const canCreate = name.trim().length > 0 && !submitting;
 
   return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (canCreate) onCreate(name.trim());
-      }}
-      style={{ padding: '4px 0 18px' }}
-    >
-      <FieldLabel>New key name</FieldLabel>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+    <>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (canCreate) onCreate(name.trim());
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') onCancel();
+        }}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          padding: '10px 12px',
+          margin: '8px 0',
+          background: 'var(--surface-alt)',
+          border: '1px solid var(--accent-border)',
+          borderRadius: 8,
+        }}
+      >
+        <span style={{ color: 'var(--accent)', display: 'flex', flexShrink: 0 }}>
+          <IconKey size={15} />
+        </span>
         <input
           aria-label="New key name"
+          autoFocus
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. Production ingest"
+          placeholder={kind === 'read' ? 'e.g. Claude Code' : 'e.g. Production ingest'}
           style={{
-            flex: '1 1 260px',
-            minWidth: 200,
-            padding: '9px 12px',
+            flex: 1,
+            minWidth: 0,
+            padding: '7px 0',
+            background: 'transparent',
+            border: 'none',
+            outline: 'none',
+            color: 'var(--foreground)',
+            fontSize: 14.5,
+            fontWeight: 500,
+            fontFamily: 'inherit',
+          }}
+        />
+        <span style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{scopeLabel}</span>
+        <button
+          type="button"
+          onClick={onCancel}
+          style={{
+            padding: '6px 12px',
             background: 'transparent',
             border: '1px solid var(--border-strong)',
             borderRadius: 7,
             color: 'var(--foreground)',
-            fontSize: 14,
-            outline: 'none',
-            fontFamily: 'inherit',
-            boxSizing: 'border-box',
-          }}
-        />
-        <SlicedButton type="submit" disabled={!canCreate}>
-          {submitting ? 'Creating…' : 'Create key'}
-        </SlicedButton>
-      </div>
-      <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 8 }}>
-        A label to recognise this key later. It grants ingest access to this
-        workspace. The full token is shown once, right after it's created.
-      </div>
-      {error && (
-        <div
-          style={{
-            marginTop: 12,
             fontSize: 13.5,
-            color: 'var(--error)',
-            display: 'flex',
-            gap: 8,
-            alignItems: 'center',
+            fontFamily: 'inherit',
+            cursor: 'pointer',
           }}
         >
+          Cancel
+        </button>
+        <SlicedButton type="submit" disabled={!canCreate} style={{ padding: '7px 20px 7px 14px', fontSize: 13.5 }}>
+          {submitting ? 'Creating…' : 'Create'}
+        </SlicedButton>
+      </form>
+      {error && (
+        <div style={{ fontSize: 13.5, color: 'var(--error)', display: 'flex', gap: 8, alignItems: 'center' }}>
           <IconAlert size={14} />
           {error}
         </div>
       )}
-    </form>
+    </>
   );
 }
 
-interface InlineRevealProps {
-  created: CreatedApiKey;
-  onClose: () => void;
+// splitBase turns the dashboard's own origin into the connector URL's editable
+// parts; the host keeps its port.
+function splitBase(base: string): { scheme: string; host: string } {
+  try {
+    const u = new URL(base);
+    return { scheme: u.protocol === 'http:' ? 'http://' : 'https://', host: u.host };
+  } catch {
+    return { scheme: 'https://', host: '' };
+  }
 }
 
-function InlineReveal({ created, onClose }: InlineRevealProps) {
+function validHost(scheme: string, host: string): boolean {
+  if (!/^[^\s/?#]+$/.test(host.trim())) return false;
+  try {
+    const u = new URL(scheme + host.trim());
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function KeyReveal({ created, onDone }: { created: CreatedApiKey; onDone: () => void }) {
   const [copyStatus, copy] = useCopy();
   const copied = copyStatus === 'copied';
   const copyFailed = copyStatus === 'failed';
-  const token = created.token;
+  const isRead = created.key.scope === 'read';
+  // A read key is handed over as the whole connector URL. The browser only knows
+  // how it reached Tracium, not how clients will, so scheme and host are editable.
+  const [{ scheme, host }, setAddress] = useState(() => splitBase(apiBaseUrl()));
+  const [hostFocused, setHostFocused] = useState(false);
+  const path = `/${API_VERSION}/mcp/${created.token}`;
+  const hostOk = validHost(scheme, host);
+  const secret = isRead ? scheme + host.trim() + path : created.token;
 
   return (
     <div
       style={{
-        padding: '18px 0',
-        borderBottom: '1px solid color-mix(in srgb, var(--border) 50%, transparent)',
+        margin: '8px 0',
+        padding: '16px 16px 14px',
+        background: 'var(--surface-alt)',
+        border: '1px solid var(--accent-border)',
+        borderRadius: 8,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 12,
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-        <span style={{ color: 'var(--accent)', flexShrink: 0 }}>
-          <IconKey size={15} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span style={{ color: 'var(--accent)', display: 'flex' }}>
+          <IconCheck size={15} stroke={2} />
         </span>
-        <div
-          style={{
-            fontSize: 15,
-            fontWeight: 600,
-            letterSpacing: '-0.015em',
-            color: 'var(--foreground)',
-          }}
-        >
-          Key created. Copy it now
-        </div>
-        <span style={{ fontSize: 13.5, color: 'var(--muted)' }}>
-          This is the only time the full token is shown.
-        </span>
+        <span style={{ fontSize: 14.5, fontWeight: 600, color: 'var(--foreground)' }}>{created.key.name}</span>
+        <span style={{ fontSize: 13, color: 'var(--muted)' }}>Shown once.</span>
       </div>
 
-      <FieldLabel>{created.key.name}</FieldLabel>
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
           gap: 10,
-          padding: '12px 14px',
-          background: 'var(--surface-alt)',
+          padding: '11px 12px 11px 14px',
+          background: 'var(--background)',
           border: '1px solid var(--border-strong)',
           borderRadius: 8,
-          fontFamily: 'var(--font-mono)',
-          fontSize: 13.5,
-          color: 'var(--foreground)',
-          wordBreak: 'break-all',
         }}
       >
-        <span style={{ flex: 1 }}>{token}</span>
-        <button
-          onClick={() => copy(token)}
+        <span
           style={{
-            padding: '5px 11px',
+            flex: 1,
+            fontFamily: MONO,
+            fontSize: 13,
+            lineHeight: isRead ? 2 : 1.5,
+            wordBreak: 'break-all',
+            color: 'var(--foreground)',
+          }}
+        >
+          {isRead ? (
+            <>
+              <button
+                type="button"
+                title="Switch between http and https"
+                className={hover.accent}
+                onClick={() => setAddress({ scheme: scheme === 'https://' ? 'http://' : 'https://', host })}
+                style={{
+                  font: 'inherit',
+                  background: 'none',
+                  border: 'none',
+                  borderBottom: '1px dotted var(--muted)',
+                  padding: 0,
+                  cursor: 'pointer',
+                }}
+              >
+                {scheme}
+              </button>
+              <input
+                aria-label="Tracium address"
+                title="Where your MCP client reaches Tracium. claude.ai needs a public https address."
+                value={host}
+                onChange={(e) => setAddress({ scheme, host: e.target.value.replace(/^https?:\/\//i, '') })}
+                onFocus={() => setHostFocused(true)}
+                onBlur={() => setHostFocused(false)}
+                size={Math.max(host.length, 4)}
+                spellCheck={false}
+                style={{
+                  font: 'inherit',
+                  color: 'var(--foreground)',
+                  background: hostOk ? 'var(--accent-soft)' : 'color-mix(in srgb, var(--error) 10%, transparent)',
+                  border: `1px ${hostFocused ? 'solid' : 'dashed'} ${hostOk ? 'var(--accent-border)' : 'var(--error)'}`,
+                  boxShadow: hostFocused ? '0 0 0 3px var(--focus-ring)' : 'none',
+                  borderRadius: 5,
+                  padding: '2px 7px',
+                  margin: '0 3px',
+                  outline: 'none',
+                }}
+              />
+              <span>{path}</span>
+            </>
+          ) : (
+            secret
+          )}
+        </span>
+        <button
+          type="button"
+          onClick={() => copy(secret)}
+          disabled={isRead && !hostOk}
+          style={{
+            padding: '6px 11px',
             background: copied ? 'var(--accent)' : 'transparent',
-            border:
-              '1px solid ' +
-              (copied
-                ? 'var(--accent)'
-                : copyFailed
-                  ? 'var(--error)'
-                  : 'var(--border-strong)'),
+            border: '1px solid ' + (copied ? 'var(--accent)' : copyFailed ? 'var(--error)' : 'var(--border-strong)'),
             borderRadius: 6,
-            color: copied
-              ? 'var(--accent-contrast)'
-              : copyFailed
-                ? 'var(--error)'
-                : 'var(--foreground)',
+            color: copied ? 'var(--accent-contrast)' : copyFailed ? 'var(--error)' : 'var(--foreground)',
             fontSize: 12.5,
             fontWeight: 500,
             fontFamily: 'inherit',
             flexShrink: 0,
-            cursor: 'pointer',
+            cursor: isRead && !hostOk ? 'not-allowed' : 'pointer',
+            opacity: isRead && !hostOk ? 0.5 : 1,
           }}
         >
           {copied ? 'Copied' : copyFailed ? 'Copy failed' : 'Copy'}
         </button>
       </div>
       {copyFailed && (
-        <div style={{ marginTop: 8, fontSize: 13, color: 'var(--error)' }}>
-          Couldn't copy automatically. Select the token above and copy it manually.
+        <div style={{ fontSize: 13, color: 'var(--error)' }}>
+          Select it and copy it manually.
         </div>
       )}
 
-      <div
-        style={{
-          marginTop: 12,
-          fontSize: 13.5,
-          color: 'var(--muted)',
-          display: 'flex',
-          gap: 10,
-          alignItems: 'flex-start',
-        }}
-      >
-        <span style={{ color: 'var(--warning)', flexShrink: 0, marginTop: 1 }}>
-          <IconAlert size={14} />
-        </span>
-        <span>
-          Store it in a secrets manager and send it as{' '}
-          <code style={{ fontFamily: 'var(--font-mono)', color: 'var(--foreground)' }}>
-            Authorization: Bearer &lt;token&gt;
-          </code>{' '}
-          on OTLP ingest. From now on the dashboard shows only{' '}
-          <code style={{ fontFamily: 'var(--font-mono)', color: 'var(--foreground)' }}>
-            {created.key.prefix}…
-          </code>
-        </span>
-      </div>
-
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
-        <SlicedButton onClick={onClose}>
-          Done, I've stored it safely
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+        <div style={{ fontSize: 13, color: isRead && !hostOk ? 'var(--error)' : 'var(--muted)' }}>
+          {!isRead ? 'Bearer token for OTLP ingest.' : hostOk ? 'Paste into your MCP client.' : 'Enter a host, without a path.'}
+        </div>
+        <SlicedButton onClick={onDone} style={{ padding: '7px 20px 7px 14px', fontSize: 13.5 }}>
+          Done
         </SlicedButton>
       </div>
     </div>
@@ -264,10 +310,12 @@ function RevokeConfirmRow({ target, onCancel, onConfirm, submitting, error }: Re
         <span style={{ color: 'var(--foreground)', fontWeight: 500 }}>
           Revoke “{target.name}”?
         </span>{' '}
-        Ingest requests presenting{' '}
+        {target.scope === 'read' ? 'Requests' : 'Ingest requests'} presenting{' '}
         <code style={{ fontFamily: 'var(--font-mono)' }}>{target.prefix}…</code>{' '}
-        will be rejected shortly after (subject to the collector's short
-        verification cache). This cannot be undone.
+        {target.scope === 'read'
+          ? 'will be rejected right away.'
+          : "will be rejected shortly after (subject to the collector's short verification cache)."}{' '}
+        This cannot be undone.
       </div>
       {error && (
         <div
@@ -458,7 +506,18 @@ function LiveKeyRow({ k, isLast, confirming, onRevoke }: LiveKeyRowProps) {
 // ApiKeysView is the presentational page: it owns the create/reveal/revoke UI
 // state and renders whatever key data it is handed. The data source is injected
 // so the live page (real backend) and the demo (in-memory mock) share one UI.
-function ApiKeysView({ data, canCreate }: { data: UseApiKeysResult; canCreate: boolean }) {
+interface ApiKeysViewProps {
+  data: UseApiKeysResult;
+  canCreate: boolean;
+  kind?: ApiKeyScope;
+  /** Renders just the key list section, for embedding in another page. */
+  embedded?: boolean;
+  workspaceName?: string;
+}
+
+type Step = 'idle' | 'form' | 'reveal';
+
+function ApiKeysView({ data, canCreate, kind = 'ingest', embedded = false, workspaceName }: ApiKeysViewProps) {
   const {
     keys,
     isLoading,
@@ -470,6 +529,7 @@ function ApiKeysView({ data, canCreate }: { data: UseApiKeysResult; canCreate: b
   } = data;
 
   const [search, setSearch] = useState('');
+  const [step, setStep] = useState<Step>('idle');
   const [createError, setCreateError] = useState<string | null>(null);
   const [created, setCreated] = useState<CreatedApiKey | null>(null);
   const [revokeTarget, setRevokeTarget] = useState<ApiKeyRecord | null>(null);
@@ -491,6 +551,7 @@ function ApiKeysView({ data, canCreate }: { data: UseApiKeysResult; canCreate: b
     try {
       const result = await createKey(name);
       setCreated(result);
+      setStep('reveal');
     } catch {
       setCreateError('Could not create the key. Please try again.');
     }
@@ -508,13 +569,17 @@ function ApiKeysView({ data, canCreate }: { data: UseApiKeysResult; canCreate: b
 
   return (
     <div
-      style={{
-        padding: 'clamp(24px, 4vw, 40px) clamp(16px, 4vw, 28px) 96px',
-        maxWidth: 1080,
-        margin: '0 auto',
-      }}
+      style={
+        embedded
+          ? undefined
+          : {
+              padding: 'clamp(24px, 4vw, 40px) clamp(16px, 4vw, 28px) 96px',
+              maxWidth: 1080,
+              margin: '0 auto',
+            }
+      }
     >
-      <div style={{ marginBottom: 28, minWidth: 0 }}>
+      {!embedded && <div style={{ marginBottom: 28, minWidth: 0 }}>
         <h1
           style={{
             fontSize: 26,
@@ -536,63 +601,60 @@ function ApiKeysView({ data, canCreate }: { data: UseApiKeysResult; canCreate: b
             lineHeight: 1.55,
           }}
         >
-          Ingest keys authenticate trace data sent to this workspace. Each key
-          both proves the sender and decides which workspace the telemetry lands
-          in.
+          Keys that send traces to {workspaceName ?? 'this workspace'}.
         </p>
-      </div>
+      </div>}
 
       <SectionHead
-        first
-        title="Keys"
-        hint="Active and revoked keys for this workspace, newest first."
+        first={!embedded}
+        title={kind === 'read' ? 'Read keys' : 'Keys'}
         right={
-          <div style={{ position: 'relative' }}>
-            <span
-              style={{
-                position: 'absolute',
-                left: 11,
-                top: '50%',
-                transform: 'translateY(-50%)',
-                color: 'var(--muted)',
-                pointerEvents: 'none',
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <div style={{ position: 'relative' }}>
+              <span
+                style={{
+                  position: 'absolute',
+                  left: 11,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: 'var(--muted)',
+                  pointerEvents: 'none',
+                }}
+              >
+                <IconSearch size={13} />
+              </span>
+              <input
+                aria-label="Search keys"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search keys…"
+                style={{
+                  padding: '7px 10px 7px 32px',
+                  width: 220,
+                  background: 'transparent',
+                  border: '1px solid var(--border-strong)',
+                  borderRadius: 7,
+                  color: 'var(--foreground)',
+                  fontSize: 14,
+                  outline: 'none',
+                  fontFamily: 'inherit',
+                }}
+              />
+            </div>
+            <SlicedButton
+              onClick={() => {
+                setCreateError(null);
+                setStep('form');
               }}
+              disabled={!canCreate || step !== 'idle' || isLoading || isError}
+              style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '8px 22px 8px 14px' }}
             >
-              <IconSearch size={13} />
-            </span>
-            <input
-              aria-label="Search keys"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search keys…"
-              style={{
-                padding: '7px 10px 7px 32px',
-                width: 220,
-                background: 'transparent',
-                border: '1px solid var(--border-strong)',
-                borderRadius: 7,
-                color: 'var(--foreground)',
-                fontSize: 14,
-                outline: 'none',
-                fontFamily: 'inherit',
-              }}
-            />
+              <IconPlus size={14} stroke={2} />
+              Create key
+            </SlicedButton>
           </div>
         }
       />
-
-      {canCreate && (
-        <InlineCreateForm
-          key={created?.key.id ?? 'new'}
-          onCreate={handleCreate}
-          submitting={isCreating}
-          error={createError}
-        />
-      )}
-
-      {created && (
-        <InlineReveal key={created.token} created={created} onClose={() => setCreated(null)} />
-      )}
 
       {isLoading ? (
         <div style={{ padding: '60px 20px', display: 'grid', placeItems: 'center' }}>
@@ -608,7 +670,7 @@ function ApiKeysView({ data, canCreate }: { data: UseApiKeysResult; canCreate: b
           }}
           role="alert"
         >
-          Could not load API keys for this workspace.
+          Could not load API keys.
         </div>
       ) : (
         <div style={{ overflowX: 'auto' }}>
@@ -634,19 +696,45 @@ function ApiKeysView({ data, canCreate }: { data: UseApiKeysResult; canCreate: b
             ))}
           </div>
 
-          {visible.length === 0 ? (
-            <div
-              style={{
-                padding: '60px 20px',
-                textAlign: 'center',
-                color: 'var(--muted)',
-                fontSize: 14,
+          {step === 'form' && (
+            <DraftKeyRow
+              kind={kind}
+              scopeLabel={kind === 'read' ? 'Reads your workspaces' : `Ingests to ${workspaceName ?? 'this workspace'}`}
+              onCreate={handleCreate}
+              onCancel={() => setStep('idle')}
+              submitting={isCreating}
+              error={createError}
+            />
+          )}
+          {step === 'reveal' && created && (
+            <KeyReveal
+              key={created.token}
+              created={created}
+              onDone={() => {
+                setCreated(null);
+                setStep('idle');
               }}
-            >
-              {search
-                ? `No keys match “${search}”`
-                : 'No API keys yet. Create one to start sending traces.'}
-            </div>
+            />
+          )}
+
+          {visible.length === 0 ? (
+            // The draft row or reveal panel stands in for the empty message.
+            step === 'idle' && (
+              <div
+                style={{
+                  padding: '60px 20px',
+                  textAlign: 'center',
+                  color: 'var(--muted)',
+                  fontSize: 14,
+                }}
+              >
+                {search
+                  ? `No keys match “${search}”`
+                  : kind === 'read'
+                    ? 'No read keys yet. Create one to connect an MCP client.'
+                    : 'No API keys yet. Create one to start sending traces.'}
+              </div>
+            )
           ) : (
             visible.map((k, i) => (
               <React.Fragment key={k.id}>
@@ -685,15 +773,22 @@ function ApiKeysView({ data, canCreate }: { data: UseApiKeysResult; canCreate: b
 
 // Keyed by workspace so the one-time token and other view state never carry
 // over to another workspace.
-function LiveApiKeysPage({ workspaceId }: { workspaceId?: string }) {
-  return <ApiKeysView key={workspaceId} data={useApiKeys(workspaceId)} canCreate={!!workspaceId} />;
+function LiveApiKeysPage({ workspaceId, workspaceName }: { workspaceId?: string; workspaceName?: string }) {
+  return (
+    <ApiKeysView key={workspaceId} data={useApiKeys(workspaceId)} canCreate={!!workspaceId} workspaceName={workspaceName} />
+  );
 }
 
-function DemoApiKeysPage() {
-  return <ApiKeysView data={useDemoApiKeys()} canCreate />;
+// ReadKeysSection lists the signed-in account's read keys, for account settings.
+export function ReadKeysSection() {
+  return <ApiKeysView kind="read" embedded data={useReadKeys()} canCreate />;
 }
 
-export default function ApiKeysPage({ demo = false, workspaceId }: ApiKeysPageProps) {
-  if (demo) return <DemoApiKeysPage />;
-  return <LiveApiKeysPage workspaceId={workspaceId} />;
+function DemoApiKeysPage({ workspaceName }: { workspaceName?: string }) {
+  return <ApiKeysView data={useDemoApiKeys()} canCreate workspaceName={workspaceName} />;
+}
+
+export default function ApiKeysPage({ demo = false, workspaceId, workspaceName }: ApiKeysPageProps) {
+  if (demo) return <DemoApiKeysPage workspaceName={workspaceName} />;
+  return <LiveApiKeysPage workspaceId={workspaceId} workspaceName={workspaceName} />;
 }

@@ -6,11 +6,17 @@
 attributes:
   - name: tracium.cost_usd
     description: >
-      Computed cost in USD for this span, derived from token counts and the
-      pricing table: uncached input tokens at input_cost_per_token, cache reads
-      and writes at their cache rates, and output tokens at
-      output_cost_per_token, with long-context tiers chosen from the whole
-      prompt size.
+      Cost in USD for this span. For a span with a model (gen_ai.request.model
+      or gen_ai.response.model, embeddings included) the collector computes it
+      from token counts and the pricing table: uncached input tokens at
+      input_cost_per_token, cache reads and writes at their cache rates, and
+      output tokens at output_cost_per_token, with long-context tiers chosen
+      from the whole prompt size; any value the sender set is overwritten.
+      For a span with no model and no token counts (a paid tool or external
+      API call) the sender may set it, and the collector keeps it. A span with
+      token counts but no model is a model call missing its model; a value set
+      on it is ignored. A sent value below 0, not a
+      number, or above 10000 drops the span with code cost_out_of_range.
     type: float
     added_in_schema: 1
 
