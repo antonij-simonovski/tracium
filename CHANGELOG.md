@@ -5,6 +5,13 @@ Breaking changes require a `schema_version` bump. Additive changes do not.
 
 ---
 
+## [1.2.1] - 2026-10-21
+
+### Fixed
+- The dashboard library ships its stylesheet as `dist-library/style.css` again, so `tracium-dashboard/style.css` resolves. Vite 8 had renamed it to `tracium-dashboard.css`
+
+---
+
 ## [1.2.0] - 2026-10-21
 
 ### Added
