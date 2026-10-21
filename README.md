@@ -45,6 +45,14 @@ Anthropic, Bedrock, Vertex AI, LangChain, LlamaIndex and more work out of the bo
 
 ## Quickstart
 
+Want to try Tracium without setting up OpenTelemetry yourself? Give this prompt to your coding agent:
+
+```text
+Set up Tracium LLM observability for my project. Clone
+https://github.com/antonij-simonovski/tracium, then read and follow AGENT_SETUP.md
+from that clone. Don't change any code until I've told you which repositories to instrument.
+```
+
 Requires Docker with Compose v2.
 
 ```bash
@@ -63,14 +71,6 @@ OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer YOUR_API_KEY"
 
 No app yet? Run `cd dashboard && npm run seed` and sign in as `demo@tracium.ai` / `tracium-demo-1234`,
 or try one of the [examples](examples/).
-
-Want to try Tracium without setting up OpenTelemetry yourself? Give this prompt to your coding agent:
-
-```text
-Set up Tracium LLM observability for my project. Clone
-https://github.com/antonij-simonovski/tracium, then read and follow AGENT_SETUP.md
-from that clone. Don't change any code until I've told you which repositories to instrument.
-```
 
 ## Learn more
 
