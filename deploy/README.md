@@ -22,7 +22,7 @@ chart references, then install it:
 kubectl create secret generic tracium-clickhouse-secret --from-literal=password=$(openssl rand -hex 16)
 kubectl create secret generic tracium-postgres-secret   --from-literal=password=$(openssl rand -hex 16)
 kubectl create secret generic tracium-api-jwt           --from-literal=jwt-secret=$(openssl rand -hex 32)
-VERSION=1.2.1
+VERSION=1.2.2
 helm install tracium "https://github.com/antonij-simonovski/tracium/releases/download/v$VERSION/tracium-$VERSION.tgz"
 ```
 

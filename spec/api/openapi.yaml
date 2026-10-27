@@ -2,7 +2,7 @@ openapi: "3.1.0"
 
 info:
   title: Tracium API
-  version: 1.2.1
+  version: 1.2.2
   description: >
     REST API for querying traces and spans collected by the Tracium
     OpenTelemetry-native LLM observability platform. All timestamps are
