@@ -39,7 +39,7 @@ Anthropic, Bedrock, Vertex AI, LangChain, LlamaIndex and more work out of the bo
 - **Trace viewer**: every step of a run with its prompt, completion, tokens, cost and timing.
 - **Cost allocation**: split spend by model, or by any attribute you attach (`team`, `environment`, …).
 - **Clients**: meter spend and failures per end client.
-- **MCP server**: ask Claude or any MCP client about your own cost, latency and failures; it can query any stored column, never through raw SQL.
+- **MCP server**: ask Claude or any MCP client about your own cost, latency and failures; it can query any stored column, never through raw SQL. Set `PUBLIC_URL` and clients connect by signing in, with no key to paste.
 - **Setup checks**: catch instrumentation gaps like unpriced models, with how to fix each.
 - **Self-hosted**: one `docker compose up` or a Helm chart; your prompts and traces never leave your infrastructure.
 

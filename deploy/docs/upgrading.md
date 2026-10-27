@@ -144,3 +144,15 @@ The migration recreates `tracium.metrics_daily_cost_mv`. Stop the collector
 while it runs: spans written while the view is dropped are not added to the
 cost rollup. Nothing needs a backfill, since spans with no model were stored at
 $0 before this release.
+
+## MCP OAuth (Postgres migration 006)
+
+Migration `006` adds the `oauth_clients` and `oauth_codes` tables. The API
+applies it at startup; nothing else is needed. OAuth stays off until you set
+`PUBLIC_URL` (Helm: `api.publicURL`) to the origin you open the dashboard at.
+Connector URLs with a read key in the path (`/v1/mcp/trc_...`) keep working.
+
+If you run your own reverse proxy instead of the bundled nginx or the Helm
+Ingress, route `/.well-known/oauth-protected-resource` and
+`/.well-known/oauth-authorization-server` (and paths below them) to the API, and
+`/oauth/authorize` to the dashboard, next to the existing `/v1` rule.

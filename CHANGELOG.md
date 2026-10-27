@@ -9,7 +9,9 @@ Breaking changes require a `schema_version` bump. Additive changes do not.
 
 ### Added
 - MCP clients can connect with OAuth instead of a pasted read key. Set `PUBLIC_URL` (`server.public_url`, Helm `api.publicURL`) to the origin you open Tracium at, and give a client such as Claude just `https://your-tracium/v1/mcp`: it registers itself, the user signs in and clicks Allow on the dashboard's new `/oauth/authorize` page, and the client receives a new read key named after it, revoked under Settings → Account. Tracium is its own authorization server, so nothing is registered with an outside provider. New routes: `/.well-known/oauth-protected-resource[/v1/mcp]`, `/.well-known/oauth-authorization-server`, `POST /v1/oauth/register` (RFC 7591), `GET|POST /v1/oauth/authorize` and `POST /v1/oauth/token`. A 401 from `POST /v1/mcp` carries `WWW-Authenticate` with the resource metadata URL. Only the authorization code flow with S256 PKCE for public clients is supported; codes last a minute and work once. Register and token are limited per IP to `AUTH_VERIFY_RATE_LIMIT_PER_MINUTE` (120), not the login limit, since hosted connectors share egress IPs. Postgres migration `006` adds `oauth_clients` and `oauth_codes`. Without `PUBLIC_URL` nothing changes
-- The bundled nginx and the Helm Ingress route `/.well-known/oauth-*` to the API, and nginx serves `/oauth/authorize` with `frame-ancestors 'none'`
+- Dashboard: a consent page at `/oauth/authorize` names the app and where it will be sent back to, with Allow and Cancel. A signed-out visitor goes through login first and comes back to it
+- `PUBLIC_URL` in `.env.example` and `docker-compose.yml` (empty by default), and `api.publicURL` in the Helm chart's values, written to `server.public_url`
+- The bundled nginx and the Helm Ingress route `/.well-known/oauth-protected-resource` and `/.well-known/oauth-authorization-server` to the API, and nginx serves `/oauth/authorize` with `frame-ancestors 'none'` so other sites can't embed it. A reverse proxy of your own needs the same routes; see `deploy/docs/upgrading.md`
 
 ---
 

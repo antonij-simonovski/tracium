@@ -50,6 +50,12 @@ without this list. The controller must sanitize `X-Forwarded-For`; do not
 trust the entire pod network. Standalone API deployments can use the same
 IP/CIDR/`dns:service-name` entries in `AUTH_TRUSTED_PROXIES`.
 
+To let MCP clients such as Claude connect by signing in, set `api.publicURL` to
+the Ingress origin (e.g. `--set api.publicURL=https://tracium.example.com`). The
+Ingress already sends `/.well-known/oauth-protected-resource` and
+`/.well-known/oauth-authorization-server` to the API; a reverse proxy of your own
+must do the same, and serve `/oauth/authorize` from the dashboard.
+
 Existing installations: follow [the workspace upgrade guide](docs/upgrading.md).
 
 ## Notes

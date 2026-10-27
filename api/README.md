@@ -136,7 +136,8 @@ flow with S256 PKCE is supported, codes last a minute and work once, and
 redirect URIs must be https, loopback http, or an app's own scheme. Claude's
 hosted connectors call Tracium from Anthropic's servers, so they need a
 `PUBLIC_URL` reachable from the internet; Claude Code and other local clients
-work with an internal one.
+work with an internal one. Register and token are limited per client IP to
+`AUTH_VERIFY_RATE_LIMIT_PER_MINUTE` (120), separate from the login limit.
 
 `/query` and both `/mcp` routes share one rate limit of 120 requests per minute
 per account, since hosted connectors share egress IPs (`AUTH_QUERY_RATE_LIMIT_PER_MINUTE`; negative disables).
