@@ -435,7 +435,7 @@ export interface paths {
         put?: never;
         /**
          * Register an OAuth client
-         * @description RFC 7591 dynamic client registration. Takes client_name and 1 to 10 redirect_uris (https, loopback http, or an app's own scheme, with no fragment). No client secret is issued. Rate-limited with login.
+         * @description RFC 7591 dynamic client registration. Takes client_name and 1 to 10 redirect_uris (https, loopback http, or an app's own scheme, with no fragment). No client secret is issued. Rate-limited per IP with AUTH_VERIFY_RATE_LIMIT_PER_MINUTE.
          */
         post: operations["oauthRegister"];
         delete?: never;
@@ -479,7 +479,7 @@ export interface paths {
         put?: never;
         /**
          * Exchange a code for a token
-         * @description authorization_code grant with the PKCE code_verifier. The access token is a new read key named after the client; it does not expire and is revoked under Settings → Account. Rate-limited with login.
+         * @description authorization_code grant with the PKCE code_verifier. The access token is a new read key named after the client; it does not expire and is revoked under Settings → Account. Rate-limited per IP with AUTH_VERIFY_RATE_LIMIT_PER_MINUTE.
          */
         post: operations["oauthToken"];
         delete?: never;

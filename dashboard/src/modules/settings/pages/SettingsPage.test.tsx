@@ -53,7 +53,8 @@ describe('workspace setup', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Workspace name' }), { target: { value: workspace.name } });
     expect(screen.getByRole('textbox', { name: 'Slug' })).toHaveValue(workspace.slug);
     fireEvent.click(screen.getByRole('button', { name: 'Create workspace & continue' }));
-    expect(await screen.findByRole('heading', { name: 'Connect your application' })).toHaveFocus();
+    const heading = await screen.findByRole('heading', { name: 'Connect your application' });
+    await waitFor(() => expect(heading).toHaveFocus());
     expect(screen.getByText(/created · Step 2 of 2/)).toBeInTheDocument();
     expect(screen.queryByText(workspace.id)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Copy configuration' }));
