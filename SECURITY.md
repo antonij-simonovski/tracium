@@ -19,4 +19,9 @@ confirmed issues before any public disclosure.
   rejected with 401 and nothing is stored. Keeping the ports on a trusted network
   is still sound defense in depth. See
   [deploy/docs/collector-auth.md](deploy/docs/collector-auth.md).
+- **MCP OAuth hands out read keys.** With `PUBLIC_URL` set, any app can register
+  as an OAuth client, and a user who clicks Allow gives it a read key for every
+  workspace they can access. The consent page shows where the key will be sent;
+  users should only approve a connection they started. Revoke a connected app's
+  key under Settings → Account.
 - **`capture_content` stores raw prompts/completions** in ClickHouse when enabled.

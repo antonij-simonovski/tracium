@@ -22,7 +22,7 @@ chart references, then install it:
 kubectl create secret generic tracium-clickhouse-secret --from-literal=password=$(openssl rand -hex 16)
 kubectl create secret generic tracium-postgres-secret   --from-literal=password=$(openssl rand -hex 16)
 kubectl create secret generic tracium-api-jwt           --from-literal=jwt-secret=$(openssl rand -hex 32)
-VERSION=1.2.1
+VERSION=1.2.2
 helm install tracium "https://github.com/antonij-simonovski/tracium/releases/download/v$VERSION/tracium-$VERSION.tgz"
 ```
 
@@ -49,6 +49,12 @@ name that resolves to its pods. The chart refuses an ingress configuration
 without this list. The controller must sanitize `X-Forwarded-For`; do not
 trust the entire pod network. Standalone API deployments can use the same
 IP/CIDR/`dns:service-name` entries in `AUTH_TRUSTED_PROXIES`.
+
+To let MCP clients such as Claude connect by signing in, set `api.publicURL` to
+the Ingress origin (e.g. `--set api.publicURL=https://tracium.example.com`). The
+Ingress already sends `/.well-known/oauth-protected-resource` and
+`/.well-known/oauth-authorization-server` to the API; a reverse proxy of your own
+must do the same, and serve `/oauth/authorize` from the dashboard.
 
 Existing installations: follow [the workspace upgrade guide](docs/upgrading.md).
 

@@ -162,6 +162,10 @@ other version attribute, is ignored. Runs without it are unversioned.
 - **Network:** Compose binds published ports to `127.0.0.1`. The dashboard sends
   API requests to its own origin, so it works behind a reverse proxy without
   rebuilding the frontend.
+- **Public URL:** `PUBLIC_URL` (Helm: `api.publicURL`), the origin you open the
+  dashboard at, such as `https://tracium.example.com`. Optional; setting it lets
+  MCP clients connect to `<PUBLIC_URL>/v1/mcp` by signing in (OAuth) instead of
+  with a pasted read key. See [api/README.md](api/README.md#connecting-with-oauth).
 - **Retention:** `RETENTION_DAYS` (default 90; `0` keeps data forever).
 - **Cost allocation:** any custom OTLP attribute your apps attach (e.g. `team`,
   `user.id`, `environment`) is retained and becomes a dimension you can allocate

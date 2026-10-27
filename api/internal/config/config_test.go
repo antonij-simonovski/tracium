@@ -103,3 +103,20 @@ func TestApplyEnv_RejectsNonIntegerRateLimit(t *testing.T) {
 		})
 	}
 }
+
+func TestPublicURL(t *testing.T) {
+	for raw, ok := range map[string]bool{
+		"":                              true,
+		"https://tracium.example.com":   true,
+		"https://tracium.example.com/":  true,
+		"http://localhost:3000":         true,
+		"tracium.example.com":           false,
+		"https://tracium.example.com/x": false,
+		"ftp://tracium.example.com":     false,
+	} {
+		c := ServerConfig{Addr: ":1", ReadTimeoutSeconds: 1, WriteTimeoutSeconds: 1, PublicURL: raw}
+		if err := c.Validate(); (err == nil) != ok {
+			t.Errorf("%q: %v", raw, err)
+		}
+	}
+}

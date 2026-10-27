@@ -7,6 +7,7 @@ import { apiBaseUrl } from './common/api';
 import { Dashboard } from './modules/shell';
 import { LoginPage, SignupPage, TOKEN_KEY, EMAIL_KEY, REDIRECT_KEY, WORKSPACE_KEY, VIEW_KEY, readInitialToken, storeSession } from './modules/auth';
 import { InvitePage, readPendingInvite, clearPendingInvite } from './modules/invites';
+import { ConsentPage, readPendingOAuth, clearPendingOAuth } from './modules/oauth';
 
 /**
  * Catch-all for logged-out visitors. Stashes the deep link they tried to open
@@ -29,6 +30,7 @@ export default function App({ extensions = EMPTY_EXTENSIONS }: AppProps = {}) {
   const [token, setToken] = useState<string | null>(readInitialToken);
   // A pending invite replaces the dashboard until it's accepted or dismissed.
   const [inviteToken, setInviteToken] = useState<string | null>(readPendingInvite);
+  const [oauthRequest, setOAuthRequest] = useState<string | null>(readPendingOAuth);
 
   const leaveInvite = () => {
     clearPendingInvite();
@@ -80,6 +82,20 @@ export default function App({ extensions = EMPTY_EXTENSIONS }: AppProps = {}) {
           session={{ token, email: localStorage.getItem(EMAIL_KEY) ?? '' }}
           onAccepted={handleInviteAccepted}
           onDismiss={leaveInvite}
+          onSignOut={handleLogout}
+        />
+      </BrowserRouter>
+    );
+  }
+
+  if (oauthRequest) {
+    return (
+      <BrowserRouter>
+        <ConsentPage
+          request={oauthRequest}
+          session={{ token, email: localStorage.getItem(EMAIL_KEY) ?? '' }}
+          appearance={extensions.authAppearance}
+          onDismiss={() => { clearPendingOAuth(); setOAuthRequest(null); }}
           onSignOut={handleLogout}
         />
       </BrowserRouter>

@@ -12,6 +12,7 @@ import (
 	"github.com/tracium/api/internal/auth"
 	"github.com/tracium/api/internal/config"
 	"github.com/tracium/api/internal/handler"
+	"github.com/tracium/api/internal/oauth"
 	"github.com/tracium/api/internal/query"
 	"github.com/tracium/api/internal/workspace"
 	"github.com/tracium/api/migrations"
@@ -98,8 +99,12 @@ func New(ctx context.Context, cfg Config, opts Options) (*Application, error) {
 	apiKeys := apikey.NewStore(pool)
 	apiKeyService := apikey.NewService(apiKeys)
 	service := auth.NewService(users, auth.NewTokenIssuer(cfg.Auth.JWTSecret), opts.Accounts)
+	var oauthService *oauth.Service
+	if cfg.Server.PublicURL != "" {
+		oauthService = oauth.NewService(oauth.NewStore(pool), apiKeyService, cfg.Server.PublicURL+"/v1/mcp")
+	}
 	health := []handler.DependencyCheck{{Name: "clickhouse", Check: repo.Ping}, {Name: "postgres", Check: pool.Ping}}
-	return &Application{cfg: cfg, sessions: service, Handler: newRouter(cfg, repo, workspaces, workspaces, users, service, service, apiKeyService, health, opts), close: func() { pool.Close(); repo.Close() }}, nil
+	return &Application{cfg: cfg, sessions: service, Handler: newRouter(cfg, repo, workspaces, workspaces, users, service, service, apiKeyService, health, opts, oauthService), close: func() { pool.Close(); repo.Close() }}, nil
 }
 
 var extensionName = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
