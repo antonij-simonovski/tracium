@@ -121,7 +121,7 @@ func (s *Service) Authorize(ctx context.Context, userID string, req AuthorizeReq
 	}
 	err = s.store.InsertCode(ctx, tokens.Hash(code), Code{
 		ClientID: req.ClientID, UserID: userID, RedirectURI: req.RedirectURI,
-		Challenge: req.CodeChallenge, Resource: s.resource,
+		Challenge: req.CodeChallenge,
 	}, codeTTL)
 	return code, err
 }

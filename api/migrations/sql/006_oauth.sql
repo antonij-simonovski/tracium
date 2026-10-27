@@ -17,7 +17,6 @@ CREATE TABLE IF NOT EXISTS oauth_codes (
  user_id TEXT NOT NULL,
  redirect_uri TEXT NOT NULL,
  code_challenge TEXT NOT NULL,
- resource TEXT NOT NULL,
  expires_at TIMESTAMPTZ NOT NULL
 );
 CREATE INDEX IF NOT EXISTS oauth_codes_expires_at_idx ON oauth_codes (expires_at);

@@ -65,11 +65,19 @@ func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, invit
 		r.Post(version.Route(version.V1, "/auth/login"), authHandler.Login)
 		// Session-less, so it shares the auth limiter.
 		r.Get(version.Route(version.V1, "/invites/{token}"), inviteHandler.Preview)
-		if oauthHandler != nil {
+	})
+
+	// Hosted MCP clients such as Claude's connectors share egress IPs, so these
+	// get the verify allowance instead of login's.
+	if oauthHandler != nil {
+		r.Group(func(r chi.Router) {
+			if cfg.Auth.VerifyRateLimitPerMinute >= 0 {
+				r.Use(middleware.NewRateLimiter(cfg.Auth.VerifyRateLimitPerMinute, time.Minute, cfg.Auth.TrustedProxies).Middleware())
+			}
 			r.Post(version.Route(version.V1, "/oauth/register"), oauthHandler.Register)
 			r.Post(version.Route(version.V1, "/oauth/token"), oauthHandler.Token)
-		}
-	})
+		})
+	}
 
 	// Ingest key verification is called by the collector's authenticator, not a
 	// logged-in user, so it carries no bearer token. It is still an online-guessing

@@ -139,3 +139,21 @@ func TestOAuthOffWithoutPublicURL(t *testing.T) {
 		t.Errorf("mcp: %d %q", w.Code, w.Header().Get("WWW-Authenticate"))
 	}
 }
+
+func TestOAuthRateLimitIsSeparateFromLogin(t *testing.T) {
+	var cfg Config
+	cfg.Server.PublicURL = "https://tracium.example.com"
+	cfg.Default()
+	cfg.Auth.RateLimitPerMinute = 1
+	repo := repository{mocks.NewMockTraceRepository(), &mocks.MockMetricsRepository{}}
+	keys := apikey.NewService(keyStore{})
+	svc := oauth.NewService(mocks.NewOAuthStore(), keys, cfg.Server.PublicURL+"/v1/mcp")
+	router := newRouter(cfg, repo, &mocks.MockWorkspaceStore{}, nil, nil, tokenAuth{}, nil, keys, nil, Options{}, svc)
+	for i := 0; i < 3; i++ {
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, httptest.NewRequest("POST", "/v1/oauth/register", strings.NewReader(`{"redirect_uris":["https://claude.ai/cb"]}`)))
+		if w.Code != http.StatusCreated {
+			t.Fatalf("register %d: %d", i, w.Code)
+		}
+	}
+}

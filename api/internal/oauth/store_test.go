@@ -26,7 +26,7 @@ func TestPostgresStore(t *testing.T) {
 		t.Fatalf("unknown client: %v", err)
 	}
 
-	code := oauth.Code{ClientID: c.ID, UserID: uuid.NewString(), RedirectURI: "https://claude.ai/cb", Challenge: "ch", Resource: "r"}
+	code := oauth.Code{ClientID: c.ID, UserID: uuid.NewString(), RedirectURI: "https://claude.ai/cb", Challenge: "ch"}
 	if err := store.InsertCode(ctx, "live", code, time.Minute); err != nil {
 		t.Fatal(err)
 	}

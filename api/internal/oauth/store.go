@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -13,10 +14,10 @@ import (
 var ErrNotFound = errors.New("oauth: not found")
 
 type Client struct {
-	ID           string    `json:"client_id"`
-	Name         string    `json:"client_name"`
-	RedirectURIs []string  `json:"redirect_uris"`
-	CreatedAt    time.Time `json:"-"`
+	ID           string
+	Name         string
+	RedirectURIs []string
+	CreatedAt    time.Time
 }
 
 type Code struct {
@@ -24,7 +25,6 @@ type Code struct {
 	UserID      string
 	RedirectURI string
 	Challenge   string
-	Resource    string
 }
 
 type Store interface {
@@ -56,9 +56,13 @@ func (s *PostgresStore) InsertClient(ctx context.Context, c Client) (time.Time, 
 }
 
 func (s *PostgresStore) Client(ctx context.Context, id string) (*Client, error) {
+	uid, err := uuid.Parse(id)
+	if err != nil {
+		return nil, ErrNotFound
+	}
 	var c Client
-	err := s.pool.QueryRow(ctx,
-		`SELECT id::text, name, redirect_uris, created_at FROM oauth_clients WHERE id::text = $1`, id,
+	err = s.pool.QueryRow(ctx,
+		`SELECT id::text, name, redirect_uris, created_at FROM oauth_clients WHERE id = $1`, uid,
 	).Scan(&c.ID, &c.Name, &c.RedirectURIs, &c.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -75,9 +79,9 @@ func (s *PostgresStore) InsertCode(ctx context.Context, hash string, c Code, ttl
 		return fmt.Errorf("postgres: expire oauth codes: %w", err)
 	}
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO oauth_codes (code_hash, client_id, user_id, redirect_uri, code_challenge, resource, expires_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, NOW() + make_interval(secs => $7))`,
-		hash, c.ClientID, c.UserID, c.RedirectURI, c.Challenge, c.Resource, ttl.Seconds(),
+		`INSERT INTO oauth_codes (code_hash, client_id, user_id, redirect_uri, code_challenge, expires_at)
+		 VALUES ($1, $2, $3, $4, $5, NOW() + make_interval(secs => $6))`,
+		hash, c.ClientID, c.UserID, c.RedirectURI, c.Challenge, ttl.Seconds(),
 	)
 	if err != nil {
 		return fmt.Errorf("postgres: insert oauth code: %w", err)
@@ -90,8 +94,8 @@ func (s *PostgresStore) ConsumeCode(ctx context.Context, hash string) (*Code, er
 	var live bool
 	err := s.pool.QueryRow(ctx,
 		`DELETE FROM oauth_codes WHERE code_hash = $1
-		 RETURNING client_id::text, user_id, redirect_uri, code_challenge, resource, expires_at > NOW()`, hash,
-	).Scan(&c.ClientID, &c.UserID, &c.RedirectURI, &c.Challenge, &c.Resource, &live)
+		 RETURNING client_id::text, user_id, redirect_uri, code_challenge, expires_at > NOW()`, hash,
+	).Scan(&c.ClientID, &c.UserID, &c.RedirectURI, &c.Challenge, &live)
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !live) {
 		return nil, ErrNotFound
 	}
