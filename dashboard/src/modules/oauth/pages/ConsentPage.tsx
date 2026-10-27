@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { AuthShell, AuthButton } from '../../auth/components';
 import { AuthError, requestErrorMessage } from '../../auth/api';
 import { oauthClientInfo, decideOAuth, type OAuthClientInfo } from '../api';
+import { clearPendingOAuth } from '../pending';
 import styles from '../../auth/pages/LoginPage.module.css';
 
 interface ConsentPageProps {
@@ -55,7 +56,8 @@ export default function ConsentPage({ request, session, appearance, onDismiss, o
     setDecideError(null);
     try {
       const to = await decideOAuth(session.token, params, approve);
-      onDismiss();
+      // Leave the page as it is: mounting the dashboard now could cancel the navigation.
+      clearPendingOAuth();
       window.location.assign(to);
     } catch (err) {
       setDecideError(requestErrorMessage(err, { 400: INVALID, 401: EXPIRED }, 'We couldn’t connect this app. Try again in a moment.'));
@@ -101,6 +103,7 @@ export default function ConsentPage({ request, session, appearance, onDismiss, o
           {deciding ? 'Connecting…' : 'Allow'}
         </button>
         <AuthButton variant="secondary" onClick={() => decide(false)}>Cancel</AuthButton>
+        {leave}
       </div>
     </AuthShell>
   );

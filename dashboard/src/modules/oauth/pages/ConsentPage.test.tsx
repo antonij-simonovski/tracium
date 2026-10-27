@@ -45,12 +45,14 @@ describe('ConsentPage', () => {
     expect(init).toMatchObject({ headers: { Authorization: 'Bearer jwt' } });
   });
 
-  it('approves and follows the redirect', async () => {
+  it('approves and follows the redirect without leaving the page first', async () => {
     const onDismiss = vi.fn();
+    sessionStorage.setItem('tracium_oauth', REQUEST);
     renderPage({ onDismiss });
     fireEvent.click(await screen.findByRole('button', { name: 'Allow' }));
     await waitFor(() => expect(assign).toHaveBeenCalledWith('https://claude.ai/api/mcp/auth_callback?code=tco_1&state=s1'));
-    expect(onDismiss).toHaveBeenCalled();
+    expect(onDismiss).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem('tracium_oauth')).toBeNull();
     const [, init] = fetchMock.mock.calls.find(([, i]) => i?.method === 'POST')!;
     expect(JSON.parse(init.body)).toMatchObject({ client_id: 'c1', state: 's1', code_challenge_method: 'S256', approve: true });
   });
@@ -61,6 +63,14 @@ describe('ConsentPage', () => {
     await waitFor(() => expect(assign).toHaveBeenCalled());
     const [, init] = fetchMock.mock.calls.find(([, i]) => i?.method === 'POST')!;
     expect(JSON.parse(init.body)).toMatchObject({ approve: false });
+  });
+
+  it('lets the user skip connecting', async () => {
+    const onDismiss = vi.fn();
+    renderPage({ onDismiss });
+    fireEvent.click(await screen.findByRole('button', { name: 'Go to dashboard' }));
+    expect(onDismiss).toHaveBeenCalled();
+    expect(assign).not.toHaveBeenCalled();
   });
 
   it('never redirects for an unregistered redirect', async () => {
