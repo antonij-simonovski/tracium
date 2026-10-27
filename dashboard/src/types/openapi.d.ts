@@ -384,6 +384,110 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/.well-known/oauth-protected-resource/v1/mcp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * MCP OAuth resource metadata
+         * @description RFC 9728 metadata for the MCP endpoint, also served at /.well-known/oauth-protected-resource. Only when the server's public_url (PUBLIC_URL) is set; a 401 from POST /v1/mcp points here in its WWW-Authenticate header.
+         */
+        get: operations["oauthProtectedResource"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/.well-known/oauth-authorization-server": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * OAuth server metadata
+         * @description RFC 8414 metadata. Authorization code flow with S256 PKCE for public clients only; the authorization endpoint is the dashboard's /oauth/authorize page.
+         */
+        get: operations["oauthServerMetadata"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/oauth/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Register an OAuth client
+         * @description RFC 7591 dynamic client registration. Takes client_name and 1 to 10 redirect_uris (https, loopback http, or an app's own scheme, with no fragment). No client secret is issued. Rate-limited per IP with AUTH_VERIFY_RATE_LIMIT_PER_MINUTE.
+         */
+        post: operations["oauthRegister"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/oauth/authorize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Describe an authorization request
+         * @description Used by the consent page. Checks that client_id is registered with redirect_uri and returns the client's name.
+         */
+        get: operations["oauthAuthorizeInfo"];
+        put?: never;
+        /**
+         * Approve or deny a client
+         * @description The signed-in user's decision. Returns the client's redirect URI with code (or error), state and iss to send the browser to. The code lasts a minute and works once.
+         */
+        post: operations["oauthAuthorize"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/oauth/token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Exchange a code for a token
+         * @description authorization_code grant with the PKCE code_verifier. The access token is a new read key named after the client; it does not expire and is revoked under Settings → Account. Rate-limited per IP with AUTH_VERIFY_RATE_LIMIT_PER_MINUTE.
+         */
+        post: operations["oauthToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/metrics/model-costs": {
         parameters: {
             query?: never;
@@ -868,6 +972,10 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        OAuthError: {
+            error: string;
+            error_description?: string;
+        };
         Credentials: {
             /** Format: email */
             email: string;
@@ -2435,6 +2543,208 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    oauthProtectedResource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description resource, authorization_servers and bearer_methods_supported. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    oauthServerMetadata: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The server's endpoints and supported methods. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    oauthRegister: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    client_name?: string;
+                    redirect_uris: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description The client, with client_id and token_endpoint_auth_method none. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description An RFC 7591 error, invalid_redirect_uri or invalid_client_metadata. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthError"];
+                };
+            };
+        };
+    };
+    oauthAuthorizeInfo: {
+        parameters: {
+            query: {
+                client_id: string;
+                redirect_uri: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The client. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        client_name?: string;
+                        redirect_uri?: string;
+                    };
+                };
+            };
+            /** @description INVALID_CLIENT or INVALID_REDIRECT_URI. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    oauthAuthorize: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    client_id: string;
+                    redirect_uri: string;
+                    /** @enum {string} */
+                    response_type?: "code";
+                    state?: string;
+                    code_challenge?: string;
+                    /** @enum {string} */
+                    code_challenge_method?: "S256";
+                    resource?: string;
+                    approve: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Where to send the browser. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        redirect_to?: string;
+                    };
+                };
+            };
+            /** @description INVALID_CLIENT or INVALID_REDIRECT_URI; nothing to redirect to. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    oauthToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/x-www-form-urlencoded": {
+                    /** @enum {string} */
+                    grant_type: "authorization_code";
+                    code: string;
+                    client_id: string;
+                    redirect_uri: string;
+                    code_verifier: string;
+                    resource?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The access token. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        access_token?: string;
+                        /** @enum {string} */
+                        token_type?: "Bearer";
+                    };
+                };
+            };
+            /** @description invalid_grant, invalid_request or unsupported_grant_type. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthError"];
                 };
             };
         };

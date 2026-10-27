@@ -2,7 +2,7 @@ openapi: "3.1.0"
 
 info:
   title: Tracium API
-  version: 1.2.1
+  version: 1.2.2
   description: >
     REST API for querying traces and spans collected by the Tracium
     OpenTelemetry-native LLM observability platform. All timestamps are
@@ -723,6 +723,230 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+
+  /.well-known/oauth-protected-resource/v1/mcp:
+    get:
+      operationId: oauthProtectedResource
+      summary: MCP OAuth resource metadata
+      description: >
+        RFC 9728 metadata for the MCP endpoint, also served at
+        /.well-known/oauth-protected-resource. Only when the server's
+        public_url (PUBLIC_URL) is set; a 401 from POST /v1/mcp points here in
+        its WWW-Authenticate header.
+      tags:
+        - OAuth
+      security: []
+      responses:
+        "200":
+          description: resource, authorization_servers and bearer_methods_supported.
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /.well-known/oauth-authorization-server:
+    get:
+      operationId: oauthServerMetadata
+      summary: OAuth server metadata
+      description: >
+        RFC 8414 metadata. Authorization code flow with S256 PKCE for public
+        clients only; the authorization endpoint is the dashboard's
+        /oauth/authorize page.
+      tags:
+        - OAuth
+      security: []
+      responses:
+        "200":
+          description: The server's endpoints and supported methods.
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /v1/oauth/register:
+    post:
+      operationId: oauthRegister
+      summary: Register an OAuth client
+      description: >
+        RFC 7591 dynamic client registration. Takes client_name and 1 to 10
+        redirect_uris (https, loopback http, or an app's own scheme, with no
+        fragment). No client secret is issued. Rate-limited per IP with AUTH_VERIFY_RATE_LIMIT_PER_MINUTE.
+      tags:
+        - OAuth
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [redirect_uris]
+              properties:
+                client_name:
+                  type: string
+                redirect_uris:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "201":
+          description: The client, with client_id and token_endpoint_auth_method none.
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: An RFC 7591 error, invalid_redirect_uri or invalid_client_metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OAuthError"
+
+  /v1/oauth/authorize:
+    get:
+      operationId: oauthAuthorizeInfo
+      summary: Describe an authorization request
+      description: >
+        Used by the consent page. Checks that client_id is registered with
+        redirect_uri and returns the client's name.
+      tags:
+        - OAuth
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: client_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: redirect_uri
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The client.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  client_name:
+                    type: string
+                  redirect_uri:
+                    type: string
+        "400":
+          description: INVALID_CLIENT or INVALID_REDIRECT_URI.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: oauthAuthorize
+      summary: Approve or deny a client
+      description: >
+        The signed-in user's decision. Returns the client's redirect URI with
+        code (or error), state and iss to send the browser to. The code lasts a
+        minute and works once.
+      tags:
+        - OAuth
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [client_id, redirect_uri, approve]
+              properties:
+                client_id:
+                  type: string
+                redirect_uri:
+                  type: string
+                response_type:
+                  type: string
+                  enum: [code]
+                state:
+                  type: string
+                code_challenge:
+                  type: string
+                code_challenge_method:
+                  type: string
+                  enum: [S256]
+                resource:
+                  type: string
+                approve:
+                  type: boolean
+      responses:
+        "200":
+          description: Where to send the browser.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  redirect_to:
+                    type: string
+        "400":
+          description: INVALID_CLIENT or INVALID_REDIRECT_URI; nothing to redirect to.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/oauth/token:
+    post:
+      operationId: oauthToken
+      summary: Exchange a code for a token
+      description: >
+        authorization_code grant with the PKCE code_verifier. The access token
+        is a new read key named after the client; it does not expire and is
+        revoked under Settings → Account. Rate-limited per IP with AUTH_VERIFY_RATE_LIMIT_PER_MINUTE.
+      tags:
+        - OAuth
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [grant_type, code, client_id, redirect_uri, code_verifier]
+              properties:
+                grant_type:
+                  type: string
+                  enum: [authorization_code]
+                code:
+                  type: string
+                client_id:
+                  type: string
+                redirect_uri:
+                  type: string
+                code_verifier:
+                  type: string
+                resource:
+                  type: string
+      responses:
+        "200":
+          description: The access token.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token:
+                    type: string
+                  token_type:
+                    type: string
+                    enum: [Bearer]
+        "400":
+          description: invalid_grant, invalid_request or unsupported_grant_type.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OAuthError"
 
   /v1/metrics/model-costs:
     get:
@@ -1717,6 +1941,14 @@ components:
         type: string
 
   schemas:
+    OAuthError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+        error_description:
+          type: string
     Credentials:
       type: object
       required: [email, password]
