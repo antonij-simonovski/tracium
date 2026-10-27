@@ -63,6 +63,10 @@ api:
   jwt:
     existingSecret: "tracium-api-jwt"
     existingSecretKey: "jwt-secret"
+  # The origin users and MCP clients reach Tracium at, e.g.
+  # https://tracium.example.com. Setting it lets MCP clients such as Claude
+  # connect with a sign-in page instead of a pasted read key.
+  publicURL: ""
 
 dashboard:
   replicaCount: 1

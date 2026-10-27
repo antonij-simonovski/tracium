@@ -91,6 +91,7 @@ services:
       # No default: a secret shared by every install would let anyone mint tokens.
       JWT_SECRET: "${JWT_SECRET:?required — add JWT_SECRET to .env, generate one with 'openssl rand -hex 32'}"
       LISTEN_ADDR: ":8090"
+      PUBLIC_URL: "${PUBLIC_URL:-}"
       # Resolve only the dashboard containers, not the whole Docker subnet.
       AUTH_TRUSTED_PROXIES: dns:dashboard
     depends_on:

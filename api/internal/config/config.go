@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -28,6 +29,9 @@ type ServerConfig struct {
 	Addr                string `yaml:"addr"`
 	ReadTimeoutSeconds  int    `yaml:"read_timeout_seconds"`
 	WriteTimeoutSeconds int    `yaml:"write_timeout_seconds"`
+	// PublicURL is the origin MCP clients reach Tracium at, such as
+	// https://tracium.example.com. Setting it turns on OAuth for MCP clients.
+	PublicURL string `yaml:"public_url"`
 }
 
 // StorageConfig holds database connection strings.
@@ -78,6 +82,7 @@ func (c *Config) Default() {
 	if c.Server.WriteTimeoutSeconds == 0 {
 		c.Server.WriteTimeoutSeconds = 30
 	}
+	c.Server.PublicURL = strings.TrimRight(c.Server.PublicURL, "/")
 	if c.Storage.QueryTimeout == 0 {
 		c.Storage.QueryTimeout = 10
 	}
@@ -106,6 +111,12 @@ func (c *ServerConfig) Validate() error {
 	}
 	if c.WriteTimeoutSeconds <= 0 {
 		errs = append(errs, errors.New("config: server.write_timeout_seconds must be positive"))
+	}
+	if c.PublicURL != "" {
+		u, err := url.Parse(c.PublicURL)
+		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
+			errs = append(errs, fmt.Errorf("config: server.public_url must be an origin such as https://tracium.example.com, got %q (set PUBLIC_URL)", c.PublicURL))
+		}
 	}
 	return errors.Join(errs...)
 }
@@ -200,6 +211,9 @@ func (c *Config) ApplyEnv() error {
 			}
 		}
 		c.Auth.TrustedProxies = proxies
+	}
+	if v := os.Getenv("PUBLIC_URL"); v != "" {
+		c.Server.PublicURL = v
 	}
 	if v := os.Getenv("LISTEN_ADDR"); v != "" {
 		c.Server.Addr = v

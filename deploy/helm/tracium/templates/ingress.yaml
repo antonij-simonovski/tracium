@@ -28,6 +28,20 @@ spec:
                 name: {{ include "tracium.fullname" . }}-api
                 port:
                   number: {{ .Values.api.service.port }}
+          - path: /.well-known/oauth-protected-resource
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "tracium.fullname" . }}-api
+                port:
+                  number: {{ .Values.api.service.port }}
+          - path: /.well-known/oauth-authorization-server
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "tracium.fullname" . }}-api
+                port:
+                  number: {{ .Values.api.service.port }}
           - path: /
             pathType: Prefix
             backend:

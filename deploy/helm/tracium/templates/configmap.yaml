@@ -113,6 +113,7 @@ data:
       addr: "0.0.0.0:{{ .Values.api.service.port }}"
       read_timeout_seconds: 30
       write_timeout_seconds: 30
+      public_url: {{ .Values.api.publicURL | quote }}
 
     storage:
       clickhouse_dsn: "${CLICKHOUSE_DSN}"

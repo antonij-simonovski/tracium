@@ -135,3 +135,25 @@ func PrincipalFromContext(ctx context.Context) (*model.Principal, bool) {
 func ContextWithPrincipal(ctx context.Context, p *model.Principal) context.Context {
 	return context.WithValue(ctx, principalKey, p)
 }
+
+// Challenge adds a WWW-Authenticate header with value to every 401, so a client
+// learns where to get a token (RFC 9728).
+func Challenge(value string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			next.ServeHTTP(challengeWriter{w, value}, r)
+		})
+	}
+}
+
+type challengeWriter struct {
+	http.ResponseWriter
+	value string
+}
+
+func (c challengeWriter) WriteHeader(status int) {
+	if status == http.StatusUnauthorized {
+		c.Header().Set("WWW-Authenticate", c.value)
+	}
+	c.ResponseWriter.WriteHeader(status)
+}

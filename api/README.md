@@ -83,6 +83,8 @@ GET  /metrics/model-costs  /usage-users  /usage-workflows
 GET  /metrics/attribute-keys  /usage-by-attribute        (allocate cost by any attribute)
 POST /query   GET /query/schema   POST /mcp                (auth or read key)
 POST /mcp/{key}                                            (read key in the URL, for connectors)
+POST /oauth/register  /oauth/token                         (OAuth for MCP clients; needs PUBLIC_URL)
+GET|POST /oauth/authorize                                  (consent page's calls; auth only)
 ```
 
 `/query` takes a structured query (metrics, dimensions, filters, granularity,
@@ -111,6 +113,30 @@ Helm chart's Ingress sends `/v1` straight to the API, and most ingress
 controllers log full paths by default. Exclude `/v1/mcp/` from those access logs,
 or use clients that can send headers: `POST /v1/mcp` with
 `Authorization: Bearer trc_...`.
+
+### Connecting with OAuth
+
+Set `PUBLIC_URL` (`server.public_url`, Helm `api.publicURL`) to the origin you
+open Tracium at, such as `https://tracium.example.com`. MCP clients that
+support OAuth, Claude among them, then need only `https://your-tracium/v1/mcp`:
+the client registers itself, opens Tracium's `/oauth/authorize` page, and once
+you sign in and click Allow it receives a new read key named after the client.
+Nothing is registered with an outside provider, and the key never appears in a
+URL. Revoke it under Settings → Account to disconnect the client.
+
+```bash
+claude mcp add --transport http tracium https://your-tracium/v1/mcp
+```
+
+A 401 from `POST /v1/mcp` points the client at
+`/.well-known/oauth-protected-resource/v1/mcp`, which names Tracium as its
+authorization server (`/.well-known/oauth-authorization-server`). The bundled
+nginx and the Helm Ingress route both to the API. Only the authorization code
+flow with S256 PKCE is supported, codes last a minute and work once, and
+redirect URIs must be https, loopback http, or an app's own scheme. Claude's
+hosted connectors call Tracium from Anthropic's servers, so they need a
+`PUBLIC_URL` reachable from the internet; Claude Code and other local clients
+work with an internal one.
 
 `/query` and both `/mcp` routes share one rate limit of 120 requests per minute
 per account, since hosted connectors share egress IPs (`AUTH_QUERY_RATE_LIMIT_PER_MINUTE`; negative disables).

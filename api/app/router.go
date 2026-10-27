@@ -8,6 +8,7 @@ import (
 	"github.com/tracium/api/internal/handler"
 	"github.com/tracium/api/internal/middleware"
 	"github.com/tracium/api/internal/model"
+	"github.com/tracium/api/internal/oauth"
 	"github.com/tracium/api/internal/query"
 	"github.com/tracium/api/internal/version"
 	"github.com/tracium/api/internal/workspace"
@@ -16,7 +17,7 @@ import (
 	"time"
 )
 
-func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, inviteStore workspace.InviteStore, userStore *auth.UserStore, authenticator middleware.Authenticator, authService *auth.Service, apiKeyService *apikey.Service, healthChecks []handler.DependencyCheck, opts Options) http.Handler {
+func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, inviteStore workspace.InviteStore, userStore *auth.UserStore, authenticator middleware.Authenticator, authService *auth.Service, apiKeyService *apikey.Service, healthChecks []handler.DependencyCheck, opts Options, oauthService *oauth.Service) http.Handler {
 	authHandler := handler.NewAuthHandler(authService)
 	workspaceHandler := handler.NewWorkspaceHandler(wsStore, userStore, opts.Entitlements)
 	apiKeyHandler := handler.NewAPIKeyHandler(apiKeyService, wsStore)
@@ -28,6 +29,10 @@ func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, invit
 	metricsHandler := handler.NewMetricsHandler(repo, wsStore)
 	queryHandler := handler.NewQueryHandler(repo, repo, wsStore)
 	healthHandler := handler.NewHealthHandler(healthChecks...)
+	var oauthHandler *handler.OAuthHandler
+	if oauthService != nil {
+		oauthHandler = handler.NewOAuthHandler(oauthService, cfg.Server.PublicURL)
+	}
 
 	r := chi.NewRouter()
 
@@ -38,6 +43,12 @@ func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, invit
 	// Health and readiness probes are unauthenticated.
 	r.Get(version.Route(version.V1, "/health"), healthHandler.Health)
 	r.Get(version.Route(version.V1, "/ready"), healthHandler.Ready)
+
+	if oauthHandler != nil {
+		r.Get("/.well-known/oauth-protected-resource", oauthHandler.ProtectedResource)
+		r.Get("/.well-known/oauth-protected-resource/v1/mcp", oauthHandler.ProtectedResource)
+		r.Get("/.well-known/oauth-authorization-server", oauthHandler.AuthorizationServer)
+	}
 
 	// Account registration and login are unauthenticated, so they are the most
 	// exposed surface — throttle them per client IP to blunt brute-force and
@@ -54,6 +65,10 @@ func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, invit
 		r.Post(version.Route(version.V1, "/auth/login"), authHandler.Login)
 		// Session-less, so it shares the auth limiter.
 		r.Get(version.Route(version.V1, "/invites/{token}"), inviteHandler.Preview)
+		if oauthHandler != nil {
+			r.Post(version.Route(version.V1, "/oauth/register"), oauthHandler.Register)
+			r.Post(version.Route(version.V1, "/oauth/token"), oauthHandler.Token)
+		}
 	})
 
 	// Ingest key verification is called by the collector's authenticator, not a
@@ -106,6 +121,11 @@ func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, invit
 		r.Get(version.Route(version.V1, "/account/api-keys"), apiKeyHandler.ListRead)
 		r.Post(version.Route(version.V1, "/account/api-keys"), apiKeyHandler.CreateRead)
 		r.Delete(version.Route(version.V1, "/account/api-keys/{keyId}"), apiKeyHandler.RevokeRead)
+
+		if oauthHandler != nil {
+			r.Get(version.Route(version.V1, "/oauth/authorize"), oauthHandler.AuthorizeInfo)
+			r.Post(version.Route(version.V1, "/oauth/authorize"), oauthHandler.Authorize)
+		}
 	})
 
 	for _, ext := range opts.Extensions {
@@ -168,8 +188,15 @@ func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, invit
 		r.Use(services.Gate("telemetry.read"))
 		r.Post(version.Route(version.V1, "/query"), queryHandler.Query)
 		r.Get(version.Route(version.V1, "/query/schema"), queryHandler.Schema)
-		r.Post(version.Route(version.V1, "/mcp"), queryHandler.MCP)
 	})
+
+	// The challenge has to wrap the auth middleware to see its 401.
+	mcpChallenge := func(next http.Handler) http.Handler { return next }
+	if oauthHandler != nil {
+		mcpChallenge = middleware.Challenge(`Bearer resource_metadata="` + oauthHandler.ResourceMetadataURL() + `"`)
+	}
+	r.With(mcpChallenge, middleware.APIKeyOr(apiKeyService, middleware.Auth(authenticator), model.ScopeRead), queryLimit, services.Gate("telemetry.read")).
+		Post(version.Route(version.V1, "/mcp"), queryHandler.MCP)
 
 	// MCP connectors that take only a URL carry the read key as its last segment.
 	r.With(middleware.BearerFromPath("key"), middleware.APIKeyOr(apiKeyService, middleware.Auth(authenticator), model.ScopeRead), queryLimit, services.Gate("telemetry.read")).
