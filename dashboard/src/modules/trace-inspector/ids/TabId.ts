@@ -1,1 +1,1 @@
-export type TabId = 'timeline' | 'input' | 'output' | 'metadata' | 'raw';
+export type TabId = 'timeline' | 'input' | 'output' | 'metadata' | 'raw' | 'review';

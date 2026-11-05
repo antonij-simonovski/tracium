@@ -17,6 +17,7 @@ import {
   useCopy,
   useMaxWidth,
   BREAKPOINTS,
+  SlicedButton,
 } from '../../../common';
 import { useAPIClient } from '../../../common/providers/APIProvider';
 import { ReadKeysSection } from '../../api-keys';
@@ -137,8 +138,13 @@ interface Btn {
 }
 
 function Btn({ children, variant = 'secondary', onClick, disabled, type = 'button', style, title }: Btn) {
-  const variantStyles: Record<ButtonVariant, React.CSSProperties> = {
-    primary:   { background: 'var(--accent)', color: 'var(--accent-contrast)', border: '1px solid var(--accent)', fontWeight: 600 },
+  if (variant === 'primary') {
+    return (
+      <SlicedButton type={type} title={title} onClick={onClick} disabled={disabled}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 20px 7px 13px', ...style }}>{children}</SlicedButton>
+    );
+  }
+  const variantStyles: Record<Exclude<ButtonVariant, 'primary'>, React.CSSProperties> = {
     secondary: { background: 'transparent', color: 'var(--foreground)', border: '1px solid var(--border-strong)', fontWeight: 500 },
     ghost:     { background: 'transparent', color: 'var(--muted)', border: '1px solid transparent', fontWeight: 500 },
     danger:    { background: 'color-mix(in srgb, var(--error) 12%, transparent)', color: 'var(--error)', border: '1px solid color-mix(in srgb, var(--error) 30%, transparent)', fontWeight: 500 },

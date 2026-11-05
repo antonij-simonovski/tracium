@@ -13,6 +13,8 @@ import (
 type MockTraceRepository struct {
 	Traces   []model.Trace
 	SpansMap map[string][]model.Span
+	// TraceAttributes holds each trace's custom attributes, by trace id, for AttrKey filters.
+	TraceAttributes map[string]map[string]string
 
 	// Configurable errors — set these to simulate failures.
 	ListErr error
@@ -49,9 +51,13 @@ func (m *MockTraceRepository) ListTraces(_ context.Context, filter query.TraceFi
 
 	var result []model.Trace
 	for _, t := range m.Traces {
-		if t.UserID == filter.UserID {
-			result = append(result, t)
+		if t.UserID != filter.UserID || (filter.Workflow != "" && t.Name != filter.Workflow) {
+			continue
 		}
+		if filter.AttrKey != "" && m.TraceAttributes[t.TraceID][filter.AttrKey] != filter.AttrValue {
+			continue
+		}
+		result = append(result, t)
 	}
 	return result, int64(len(result)), nil
 }

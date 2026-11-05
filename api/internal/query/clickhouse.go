@@ -123,6 +123,12 @@ func traceFilterSQL(filter TraceFilter) (string, []any) {
 	wsClause, wsArgs := workspaceScope(filter.WorkspaceIDs)
 	clause += wsClause
 	args = append(args, wsArgs...)
+	// Finding the matching traces first keeps a wide window cheap: only they are grouped.
+	if filter.AttrKey != "" {
+		clause += " AND trace_id IN (SELECT trace_id FROM " + tableCalls + " WHERE start_time_ms >= ? AND attributes[?] = ?" + wsClause + ")"
+		args = append(args, filter.StartAfter.UnixMilli(), filter.AttrKey, filter.AttrValue)
+		args = append(args, wsArgs...)
+	}
 	clause += "\nGROUP BY trace_id"
 
 	var having []string

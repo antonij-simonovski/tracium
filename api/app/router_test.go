@@ -26,7 +26,7 @@ func TestVerifyRateLimitIsSeparateFromLogin(t *testing.T) {
 	cfg.Auth.VerifyRateLimitPerMinute = 2
 
 	repo := repository{mocks.NewMockTraceRepository(), &mocks.MockMetricsRepository{}}
-	router := newRouter(cfg, repo, &mocks.MockWorkspaceStore{}, nil, nil, tokenAuth{}, nil, apikey.NewService(nil), nil, Options{}, nil)
+	router := newRouter(cfg, repo, &mocks.MockWorkspaceStore{}, nil, nil, tokenAuth{}, nil, apikey.NewService(nil), nil, Options{}, nil, nil)
 
 	do := func(path, body string) int {
 		r := httptest.NewRequest("POST", path, strings.NewReader(body))
@@ -87,7 +87,7 @@ func TestExtensionsShareAuthAndCannotReplaceCoreRoutes(t *testing.T) {
 		})
 	}, Webhooks: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(202) })}}}
 	repo := repository{mocks.NewMockTraceRepository(), &mocks.MockMetricsRepository{}}
-	router := newRouter(cfg, repo, &mocks.MockWorkspaceStore{}, nil, nil, tokenAuth{token: "user"}, nil, apikey.NewService(nil), nil, opts, nil)
+	router := newRouter(cfg, repo, &mocks.MockWorkspaceStore{}, nil, nil, tokenAuth{token: "user"}, nil, apikey.NewService(nil), nil, opts, nil, nil)
 	for _, tt := range []struct {
 		path, token string
 		want        int
@@ -144,7 +144,7 @@ func TestIngestKeyReadsOnlySetupChecks(t *testing.T) {
 		t.Fatal(err)
 	}
 	repo := repository{mocks.NewMockTraceRepository(), &mocks.MockMetricsRepository{}}
-	router := newRouter(cfg, repo, &mocks.MockWorkspaceStore{}, nil, nil, tokenAuth{"session": "user"}, nil, keys, nil, Options{}, nil)
+	router := newRouter(cfg, repo, &mocks.MockWorkspaceStore{}, nil, nil, tokenAuth{"session": "user"}, nil, keys, nil, Options{}, nil, nil)
 	for _, tt := range []struct {
 		path, token string
 		want        int
@@ -181,7 +181,7 @@ func TestIngestKeyFollowsCreatorEntitlements(t *testing.T) {
 	lapsed, _ := keys.Create(context.Background(), "ws-1", "lapsed", "agent")
 	paying, _ := keys.Create(context.Background(), "ws-1", "paying", "agent")
 	repo := repository{mocks.NewMockTraceRepository(), &mocks.MockMetricsRepository{}}
-	router := newRouter(cfg, repo, &mocks.MockWorkspaceStore{}, nil, nil, tokenAuth{}, nil, keys, nil, Options{Entitlements: denyReads{"lapsed"}}, nil)
+	router := newRouter(cfg, repo, &mocks.MockWorkspaceStore{}, nil, nil, tokenAuth{}, nil, keys, nil, Options{Entitlements: denyReads{"lapsed"}}, nil, nil)
 	for token, want := range map[string]int{lapsed.Token: 403, paying.Token: 200} {
 		r := httptest.NewRequest("GET", "/v1/metrics/setup-checks", nil)
 		r.Header.Set("Authorization", "Bearer "+token)
@@ -201,7 +201,7 @@ func TestReadKeysActAsTheirOwner(t *testing.T) {
 	ingest, _ := keys.Create(context.Background(), "ws-1", "user", "app")
 	repo := repository{mocks.NewMockTraceRepository(), &mocks.MockMetricsRepository{}}
 	workspaces := &mocks.MockWorkspaceStore{Workspaces: []model.Workspace{{ID: "ws-1", UserID: "user"}, {ID: "ws-2", UserID: "user"}, {ID: "ws-3", UserID: "someone"}}}
-	router := newRouter(cfg, repo, workspaces, nil, nil, tokenAuth{"session": "user"}, nil, keys, nil, Options{}, nil)
+	router := newRouter(cfg, repo, workspaces, nil, nil, tokenAuth{"session": "user"}, nil, keys, nil, Options{}, nil, nil)
 	query := `{"metrics":["cost"],"workspace_id":"ws-2"}`
 	ping := `{"jsonrpc":"2.0","id":1,"method":"ping"}`
 	for _, tt := range []struct {
@@ -227,6 +227,13 @@ func TestReadKeysActAsTheirOwner(t *testing.T) {
 		{"GET", "/v1/account/api-keys", read.Token, "", 401},
 		{"POST", "/v1/account/api-keys", read.Token, `{}`, 401},
 		{"GET", "/v1/account/api-keys", "session", "", 200},
+		{"PUT", "/v1/traces/t1/review", ingest.Token, `{"verdict":"correct"}`, 404},
+		{"PUT", "/v1/traces/t1/spans/s1/review", ingest.Token, `{"verdict":"correct"}`, 404},
+		{"GET", "/v1/traces/t1/review", ingest.Token, "", 401},
+		{"DELETE", "/v1/traces/t1/review", ingest.Token, "", 401},
+		{"PUT", "/v1/traces/t1/review", read.Token, `{"verdict":"correct"}`, 403},
+		{"PUT", "/v1/workflows/w/reviews?key=invoice_id&value=INV-1", ingest.Token, `{"verdict":"correct"}`, 404},
+		{"PUT", "/v1/workflows/w/reviews?key=invoice_id&value=INV-1", read.Token, `{"verdict":"correct"}`, 403},
 		{"POST", "/v1/query", read.Token, query, 200},
 	} {
 		r := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
@@ -251,7 +258,7 @@ func TestQueryAndMCPShareOneRateLimitPerAccount(t *testing.T) {
 	cfg.Auth.QueryRateLimitPerMinute = 2
 	repo := repository{mocks.NewMockTraceRepository(), &mocks.MockMetricsRepository{}}
 	auth := tokenAuth{"a": "u1", "b": "u2"}
-	router := newRouter(cfg, repo, &mocks.MockWorkspaceStore{}, nil, nil, auth, nil, apikey.NewService(keyStore{}), nil, Options{}, nil)
+	router := newRouter(cfg, repo, &mocks.MockWorkspaceStore{}, nil, nil, auth, nil, apikey.NewService(keyStore{}), nil, Options{}, nil, nil)
 	for i, tt := range []struct{ path, token string }{
 		{"/v1/mcp", "a"}, {"/v1/mcp/trc_unknown", "a"}, {"/v1/query", "a"}, {"/v1/query", "b"},
 	} {

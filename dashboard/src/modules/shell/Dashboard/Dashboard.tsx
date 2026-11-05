@@ -12,7 +12,7 @@ import { UsersPage, UsersLivePage, UserDetailPage, UsagePage, UsageLivePage, USE
 import { UserDetailLivePage } from '../../usage/pages/UserDetailLivePage';
 import { ApiKeysPage } from '../../api-keys';
 import { SettingsPage } from '../../settings';
-import { EmptyState, ErrorBoundary, Centered, Spinner, useMaxWidth, BREAKPOINTS } from '../../../common';
+import { EmptyState, ErrorBoundary, Centered, SlicedButton, Spinner, useMaxWidth, BREAKPOINTS } from '../../../common';
 import { readAccount, REDIRECT_KEY, WORKSPACE_KEY, VIEW_KEY, RANGE_KEY } from '../../auth';
 import { createDemoWorkspace } from '../data';
 import { useWorkspaces } from '../hooks/useWorkspaces';
@@ -53,22 +53,9 @@ function WorkspaceEmptyState({ onCreate }: { onCreate: () => void }) {
         Workspaces hold your workflows, traces, and usage. Create one to start
         sending data to Tracium.
       </p>
-      <button
-        onClick={onCreate}
-        style={{
-          marginTop: 4,
-          padding: '9px 18px',
-          borderRadius: 8,
-          background: 'var(--accent)',
-          color: 'var(--accent-contrast)',
-          border: 'none',
-          fontSize: 14,
-          fontWeight: 600,
-          cursor: 'pointer',
-        }}
-      >
+      <SlicedButton onClick={onCreate} style={{ marginTop: 4 }}>
         Create workspace
-      </button>
+      </SlicedButton>
     </div>
   );
 }

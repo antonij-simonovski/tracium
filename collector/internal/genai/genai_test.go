@@ -54,6 +54,26 @@ func TestContent_OpenLLMetryIndexed(t *testing.T) {
 	}
 }
 
+func TestContent_ToolCallArgumentsAsOutput(t *testing.T) {
+	for name, attrs := range map[string]map[string]string{
+		"semconv parts":     {"gen_ai.output.messages": `[{"role":"assistant","parts":[{"type":"tool_call","name":"extract_fields","arguments":{"total":12}}]}]`},
+		"openai tool_calls": {"gen_ai.output.messages": `[{"role":"assistant","content":"","tool_calls":[{"function":{"name":"extract_fields","arguments":"{\"total\":12}"}}]}]`},
+		"indexed": {
+			"gen_ai.completion.0.role":                   "assistant",
+			"gen_ai.completion.0.tool_calls.0.name":      "extract_fields",
+			"gen_ai.completion.0.tool_calls.0.arguments": `{"total":12}`,
+		},
+	} {
+		if _, out := Content(attrs); out != `assistant: {"total":12}` {
+			t.Errorf("%s: output = %q", name, out)
+		}
+	}
+	text := map[string]string{"gen_ai.output.messages": `[{"role":"assistant","content":"Saving.","tool_calls":[{"name":"save","arguments":"{}"}]}]`}
+	if _, out := Content(text); out != "assistant: Saving." {
+		t.Errorf("text wins over arguments: %q", out)
+	}
+}
+
 func TestContent_PrefersOTelOverIndexed(t *testing.T) {
 	// When both shapes are present, the current OTel shape wins for output/input.
 	attrs := map[string]string{

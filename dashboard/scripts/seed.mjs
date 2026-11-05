@@ -132,7 +132,7 @@ function newTrace(traceId, startNs) {
     if (opts.input) a.push(kv("gen_ai.input.messages", sv(JSON.stringify(opts.input))));
     if (opts.output !== undefined || opts.toolCalls) {
       const msg = { role: "assistant", content: opts.output || "" };
-      if (opts.toolCalls) msg.tool_calls = opts.toolCalls.map((n) => ({ name: n }));
+      if (opts.toolCalls) msg.tool_calls = opts.toolCalls.map((n) => (typeof n === "string" ? { name: n } : n));
       a.push(kv("gen_ai.output.messages", sv(JSON.stringify([msg]))));
     }
     if (opts.tools) a.push(kv("gen_ai.tool.definitions", sv(JSON.stringify(opts.tools))));
@@ -279,7 +279,34 @@ function wfSupport(T, root, seq) {
 
 // Invoice extractor: parse (fn-calling, sometimes context-length fail) ->
 // PARALLEL field extractors -> validate tool -> reconcile.
-function wfInvoice(T, root, seq) {
+// How often each release gets an invoice field wrong; 1.9.1 regresses on totals.
+const INVOICE_MISSES = {
+  "1.8.3": { vendor: 0.3, vat_id: 0.08, total: 0.12, tax: 0.06, currency: 0.04, line_items: 0.1 },
+  "1.8.4": { vendor: 0.22, vat_id: 0.06, total: 0.1, tax: 0.05, currency: 0.04, line_items: 0.08 },
+  "1.9.0": { vendor: 0.1, vat_id: 0.04, total: 0.07, tax: 0.04, currency: 0.02, line_items: 0.05 },
+  "1.9.1": { vendor: 0.06, vat_id: 0.03, total: 0.24, tax: 0.12, currency: 0.02, line_items: 0.05 },
+};
+const VENDORS = ["Globex Industrial LLC", "Initech Supplies Ltd", "Umbrella Logistics GmbH", "Acme Office BV", "Hooli Cloud Inc"];
+
+function wfInvoice(T, root, seq, version) {
+  const miss = INVOICE_MISSES[version] || INVOICE_MISSES["1.8.3"];
+  const subtotal = randint(12000, 480000) / 100;
+  const tax = Math.round(subtotal * 20) / 100;
+  const truth = {
+    vendor: { name: choice(VENDORS), vat_id: "GB" + randint(100000000, 999999999) },
+    totals: { subtotal, tax, total: Math.round((subtotal + tax) * 100) / 100, currency: choice(["EUR", "USD", "GBP"]) },
+    line_items: randint(3, 18),
+  };
+  const invoiceId = "INV-" + randint(100000, 999999);
+  root.sp.attributes.push(kv("invoice_id", sv(invoiceId)));
+  const got = structuredClone(truth);
+  if (chance(miss.vendor)) got.vendor.name = choice(VENDORS.filter((v) => v !== truth.vendor.name));
+  if (chance(miss.vat_id)) got.vendor.vat_id = truth.vendor.vat_id.slice(0, -2) + "00";
+  if (chance(miss.tax)) got.totals.tax = Math.round(truth.totals.tax * 50) / 100;
+  if (chance(miss.total)) got.totals.total = got.totals.subtotal;
+  if (chance(miss.currency)) got.totals.currency = truth.totals.currency === "USD" ? "EUR" : "USD";
+  if (chance(miss.line_items)) got.line_items = truth.line_items - 1;
+
   root.opts_in = `Extract structured data from invoice PDF (vendor, line items, totals).`;
   const parseFail = chance(0.07);
   let t = seq();
@@ -304,16 +331,19 @@ function wfInvoice(T, root, seq) {
   const branchStart = t;
   const fields = [
     ["extract-line-items", "12 line items itemized"],
-    ["extract-totals", `subtotal ${money()}, tax ${money()}, total ${money()}`],
-    ["extract-vendor", "vendor: Globex Industrial LLC, VAT GB123456789"],
+    ["extract-totals", JSON.stringify(got.totals)],
+    ["extract-vendor", JSON.stringify(got.vendor)],
   ];
+  const spanIds = {};
   for (const [nm, out] of fields) {
-    T.span(root.id, nm, branchStart + BigInt(randint(0, 60)) * MS, randint(500, 2100), {
+    // The vendor step returns its JSON as tool-call arguments, as structured output often does.
+    const asTool = nm === "extract-vendor";
+    spanIds[nm] = T.span(root.id, nm, branchStart + BigInt(randint(0, 60)) * MS, randint(500, 2100), {
       op: "chat", model: "gpt-4o-mini", inTok: randint(1400, 4200), outTok: randint(220, 640),
       system: "Extract a single field group from the invoice as JSON.",
       input: [{ role: "user", content: "Parsed invoice context ..." }],
-      output: out,
-    });
+      ...(asTool ? { toolCalls: [{ name: "save_vendor", arguments: out }] } : { output: out }),
+    }).id;
   }
   const valStart = T.maxEnd + BigInt(randint(10, 40)) * MS;
   const val = T.span(root.id, "validate-totals", valStart, randint(30, 240), {
@@ -328,7 +358,14 @@ function wfInvoice(T, root, seq) {
     input: [{ role: "user", content: "line items + totals + vendor" }],
     output: rec,
   });
-  root.opts_out = rec;
+  root.opts_out = JSON.stringify(got);
+  // What an evaluator would send back: the right answer for the run and its extract spans.
+  root.review = {
+    invoiceId,
+    run: truth,
+    got,
+    spans: [[spanIds["extract-vendor"], truth.vendor], [spanIds["extract-totals"], truth.totals]],
+  };
   return null;
 }
 
@@ -586,10 +623,9 @@ function makeTrace(startNs, forceWf) {
   const root = T.span("", wf.workflow, startNs, 10, { op: "invoke_agent" });
   let cursor = startNs + BigInt(randint(20, 120)) * MS;
   const seq = () => cursor;
-  wf.build(T, root, seq);
-
   const release = releaseAt(wf, startNs);
   const [version, , tokenFactor = 1] = release || [];
+  wf.build(T, root, seq, version);
 
   // finalize root: envelope + entity content the builder recorded
   T.setEnd(root, T.maxEnd + BigInt(randint(10, 90)) * MS);
@@ -617,6 +653,7 @@ function makeTrace(startNs, forceWf) {
     scopeSpans: [{ scope: { name: "tracium.seed" }, spans: T.spans }],
     _spanCount: T.spans.length,
     _workspaceId: ws.id,
+    _review: root.review && version ? { traceId, version, ...root.review } : undefined,
   };
   if (tokenFactor !== 1) scaleTokens(trace, tokenFactor);
   return trace;
@@ -676,7 +713,7 @@ async function provisionKeys(token) {
 
 async function post(resourceSpans, token) {
   const body = JSON.stringify({
-    resourceSpans: resourceSpans.map(({ _spanCount, _workspaceId, ...r }) => r),
+    resourceSpans: resourceSpans.map(({ _spanCount, _workspaceId, _review, ...r }) => r),
   });
   const res = await fetch(OTLP, {
     method: "POST",
@@ -771,6 +808,7 @@ async function main() {
   const total = tasks.length;
   console.log(`seeding ${total} traces over ${HISTORY_DAYS}d (baseline ${N_TRACES} + injected incidents) -> ${OTLP}`);
   let batch = [], sent = 0, spans = 0;
+  const reviewable = [];
   const flush = async () => {
     if (!batch.length) return;
     // The key decides the workspace, so a request carries one workspace's spans.
@@ -792,6 +830,7 @@ async function main() {
     const t = makeTrace(task.startNs, task.wf);
     if (task.mutate) task.mutate(t);
     spans += t._spanCount;
+    if (t._review) reviewable.push(t);
     batch.push(t);
     if (batch.length >= 30) await flush();
   }
@@ -799,7 +838,71 @@ async function main() {
   console.log(`done: ${sent} traces, ${spans} spans (avg ${(spans / sent).toFixed(1)} spans/trace).`);
   console.log("Injected: cost spike (support-ticket-resolver, 2d ago), error cluster (code-review-bot, 3d ago), volume surge (yesterday).");
   console.log("Versions: support-ticket-resolver v2.3.0 (6d ago) costs more per run than v2.2.0 and carries the cost spike; research-assistant is unversioned before 24d ago.");
+  await seedReviews(reviewable, keys, token);
   console.log("Give the collector a few seconds to flush, then refresh the dashboard.");
+}
+
+// ---- reviews -----------------------------------------------------------------
+// The accounts-payable system reviews a sample of invoice-extractor runs by
+// invoice_id with the workspace's ingest key: the fields its clerk fixed, or {}
+// for an approval so every field counts as correct. An evaluator grades the extract spans by trace id. Every fourth run
+// is corrected by the demo user instead, as from the dashboard.
+const REVIEWS_PER_VERSION = parseInt(process.env.REVIEWS_PER_VERSION || "30", 10);
+
+async function putReview(path, body, token) {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(`${API}${path}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+    });
+    // The collector writes in batches, so a just-sent trace can 404 for a few seconds.
+    // Reviews by invoice_id share the query rate limit, so a 429 waits as told.
+    if ((res.status === 404 || res.status === 429) && attempt < 15) {
+      const wait = res.status === 429 ? (parseInt(res.headers.get("Retry-After") || "", 10) || 5) * 1000 : 2000;
+      await new Promise((r) => setTimeout(r, wait));
+      continue;
+    }
+    if (!res.ok) throw new Error(`review ${path} failed (${res.status}): ${await res.text()}`);
+    return res.json();
+  }
+}
+
+const flatten = (obj, prefix = "") =>
+  Object.entries(obj).flatMap(([k, v]) =>
+    v && typeof v === "object" && !Array.isArray(v) ? flatten(v, `${prefix}${k}.`) : [[prefix + k, v]]);
+
+async function seedReviews(traces, keys, userToken) {
+  const perVersion = new Map();
+  for (const t of traces) {
+    const list = perVersion.get(t._review.version) || [];
+    if (list.length < REVIEWS_PER_VERSION) perVersion.set(t._review.version, [...list, t]);
+  }
+  let runs = 0, spanReviews = 0;
+  for (const list of perVersion.values()) {
+    for (const [i, t] of list.entries()) {
+      const { traceId, run, spans } = t._review;
+      const key = keys.get(t._workspaceId);
+      const byUser = i % 4 === 3;
+      const gotFields = Object.fromEntries(flatten(t._review.got));
+      const corrections = Object.fromEntries(flatten(run).filter(([path, v]) => gotFields[path] !== v));
+      const wrong = Object.keys(corrections);
+      if (byUser) {
+        await putReview(`/v1/traces/${traceId}/review`, {
+          corrected_output: JSON.stringify(run), note: wrong.length ? `fixed ${wrong.join(", ")} by hand` : "",
+        }, userToken);
+      } else {
+        await putReview(`/v1/workflows/invoice-extractor/reviews?key=invoice_id&value=${t._review.invoiceId}`,
+          { corrections, note: wrong.length ? `AP clerk fixed ${wrong.join(", ")}` : "" }, key);
+      }
+      runs++;
+      for (const [spanId, expected] of spans) {
+        await putReview(`/v1/traces/${traceId}/spans/${spanId}/review`, { corrected_output: JSON.stringify(expected) }, key);
+        spanReviews++;
+      }
+    }
+  }
+  console.log(`reviewed ${runs} invoice-extractor runs and ${spanReviews} extract spans across ${perVersion.size} versions.`);
 }
 
 // Run only when invoked directly (`npm run seed`), not when imported for its

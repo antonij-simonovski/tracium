@@ -19,13 +19,14 @@ import {
   useWorkflowTokenSeries,
   useWorkflowVersions,
 } from '../hooks/useWorkflowDetail';
+import { useFieldAccuracy, useReviewedSpans, useWorkflowAccuracy } from '../hooks/useReviews';
 import { TrafficStrip } from '../components/TrafficStrip';
 import { VersionDropdown } from '../components/VersionDropdown';
 import { SECOND_METRIC_COLOR, VersionLineChart } from '../components/VersionLineChart';
 import type { WorkflowVersion } from '../interfaces';
 import { change, deltaColor, fmtPts, fmtRunCost, fmtSeen, overlap, ptsColor, releaseMarkers } from '../utils';
 
-type MetricId = 'runs' | 'cost' | 'cpr' | 'p95' | 'err' | 'tpr';
+type MetricId = 'runs' | 'cost' | 'cpr' | 'p95' | 'err' | 'tpr' | 'acc';
 
 interface Row {
   id: MetricId;
@@ -53,7 +54,14 @@ const Y_FMT: Record<MetricId, (v: number) => string> = {
   p95: fmtMs,
   err: (v) => `${(v * 100).toFixed(1)}%`,
   tpr: (v) => fmtNum(Math.round(v)),
+  acc: (v) => `${Math.round(v * 100)}%`,
 };
+
+// Accuracy is higher-is-better, so the tone flips against error rate's.
+function accDelta(a?: number, b?: number) {
+  if (a == null || b == null) return { delta: '—', color: 'var(--muted)' };
+  return { delta: fmtPts(b, a), color: ptsColor(a, b) };
+}
 
 // Relative change from a to b; a rise is bad when toned. No base value, no change.
 function relDelta(a: number | null, b: number | null, toned = true) {
@@ -147,7 +155,7 @@ export function VersionCompareLivePage({ workflowName, base, candidate, range, o
 
   // Latency isn't tracked over long ranges, so it isn't charted there. The error
   // series doubles as the per-bucket run count.
-  const chartable = (id: MetricId) => !(long && id === 'p95');
+  const chartable = (id: MetricId) => id !== 'acc' && !(long && id === 'p95');
   const shown = picked.filter(chartable);
   const charted: MetricId[] = shown.length ? shown : ['cpr'];
   const needCost = charted.includes('cost') || charted.includes('cpr');
@@ -162,6 +170,17 @@ export function VersionCompareLivePage({ workflowName, base, candidate, range, o
   const latB = useWorkflowLatencySeries(workflowName, range, needLatency, candidate);
   const tokA = useWorkflowTokenSeries(workflowName, range, needTokens, base);
   const tokB = useWorkflowTokenSeries(workflowName, range, needTokens, candidate);
+  const [pickedSpan, setPickedSpan] = useState<string | null>();
+  const runAccuracy = useWorkflowAccuracy(workflowName).data?.filter((a) => a.version === base || a.version === candidate) ?? [];
+  const spansA = useReviewedSpans(workflowName, base).data ?? [];
+  const spansB = useReviewedSpans(workflowName, candidate).data ?? [];
+  const spanCounts = new Map<string, number>();
+  for (const s of [...spansA, ...spansB]) spanCounts.set(s.name, (spanCounts.get(s.name) ?? 0) + s.reviewed);
+  const spans = [...spanCounts].sort((x, y) => y[1] - x[1]);
+  const span = pickedSpan !== undefined ? pickedSpan : runAccuracy.length ? null : spans[0]?.[0] ?? null;
+  const accuracy = useWorkflowAccuracy(workflowName, span ?? '');
+  const fieldsA = useFieldAccuracy(workflowName, base, span ?? '');
+  const fieldsB = useFieldAccuracy(workflowName, candidate, span ?? '');
 
   if (versionsQuery.isLoading) {
     return (
@@ -192,6 +211,16 @@ export function VersionCompareLivePage({ workflowName, base, candidate, range, o
     { id: 'err', label: 'Error rate', title: 'Error rate', a: A.error_rate, b: B.error_rate, fmt: Y_FMT.err, delta: fmtPts(B.error_rate, A.error_rate), color: ptsColor(B.error_rate, A.error_rate) },
     { id: 'tpr', label: 'Tokens / run', title: 'Tokens per run', a: A.tokens_per_run, b: B.tokens_per_run, fmt: Y_FMT.tpr, ...relDelta(A.tokens_per_run, B.tokens_per_run) },
   ];
+  const accA = accuracy.data?.find((a) => a.version === base);
+  const accB = accuracy.data?.find((a) => a.version === candidate);
+  if (accA || accB) {
+    rows.push({ id: 'acc', label: span ? `Accuracy · ${span}` : 'Accuracy (reviewed)', title: 'Accuracy', a: accA?.accuracy ?? null, b: accB?.accuracy ?? null, fmt: Y_FMT.acc, ...accDelta(accA?.accuracy, accB?.accuracy) });
+  }
+  const fieldRows = [...new Set([...(fieldsA.data ?? []), ...(fieldsB.data ?? [])].map((f) => f.path))].sort().map((path) => {
+    const a = fieldsA.data?.find((f) => f.path === path)?.accuracy;
+    const b = fieldsB.data?.find((f) => f.path === path)?.accuracy;
+    return { path, a, b, ...accDelta(a, b) };
+  });
   const active = charted.map((id) => rows.find((r) => r.id === id)!);
   // A second pick shares the chart on the right axis; a third replaces the oldest.
   const toggle = (id: MetricId) =>
@@ -218,6 +247,7 @@ export function VersionCompareLivePage({ workflowName, base, candidate, range, o
         case 'cpr': { const c = costs.get(ms); return c ? c.value / e.total : null; }
         case 'p95': return lats.get(ms)?.p95 ?? null;
         case 'tpr': { const t = toks.get(ms); return t ? (t.input_tokens + t.output_tokens) / e.total : null; }
+        case 'acc': return null;
       }
     });
   };
@@ -363,7 +393,42 @@ export function VersionCompareLivePage({ workflowName, base, candidate, range, o
               );
             })}
           </div>
-          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '12px 10px 0' }}>Totals over the {rangeLabel(range)}. Click up to two rows to chart them.</p>
+          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '12px 10px 0' }}>Totals over the {rangeLabel(range)}{rows.some((r) => r.id === 'acc') && `; accuracy is over all reviewed ${span ? 'spans' : 'runs'}`}. Click up to two rows to chart them.</p>
+          {spans.length > 0 && (
+            <div style={{ margin: '14px 10px 0' }}>
+              <VersionDropdown
+                label="Accuracy of"
+                value={span}
+                options={[
+                  ...(runAccuracy.length ? [{ id: null, label: 'Whole run', calls: runAccuracy.reduce((n, a) => n + a.reviewed_runs, 0) }] : []),
+                  ...spans.map(([name, reviewed]) => ({ id: name, label: name, calls: reviewed })),
+                ]}
+                onChange={setPickedSpan}
+                trigger={
+                  <>
+                    <span>Accuracy of</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5, color: 'var(--foreground)' }}>{span ?? 'Whole run'}</span>
+                  </>
+                }
+                triggerLabel={`Accuracy of: ${span ?? 'Whole run'}`}
+                triggerStyle={{ gap: 8, padding: '6px 10px', background: 'var(--surface-alt)', border: '1px solid var(--border)', fontSize: 13 }}
+                popoverStyle={{ top: 'calc(100% + 6px)', left: 0 }}
+              />
+            </div>
+          )}
+          {fieldRows.length > 0 && (
+            <div role="table" aria-label="Field accuracy by version" style={{ marginTop: 28 }}>
+              <div style={{ ...eyebrow, margin: '0 10px 8px' }}>Field accuracy</div>
+              {fieldRows.map((f) => (
+                <div role="row" key={f.path} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.35fr) 70px 70px 70px', columnGap: 12, padding: '8px 10px', borderBottom: '1px solid color-mix(in srgb, var(--border) 50%, transparent)', fontSize: 13.5, fontVariantNumeric: 'tabular-nums' }}>
+                  <span role="cell" style={{ fontFamily: 'var(--font-mono)', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.path}</span>
+                  <span role="cell" style={{ textAlign: 'right', color: 'var(--muted)' }}>{f.a == null ? '—' : Y_FMT.acc(f.a)}</span>
+                  <span role="cell" style={{ textAlign: 'right', fontWeight: 500 }}>{f.b == null ? '—' : Y_FMT.acc(f.b)}</span>
+                  <span role="cell" style={{ textAlign: 'right', fontSize: 12.5, fontWeight: 600, color: f.color }}>{f.delta}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div style={{ flex: '3 1 440px', minWidth: 0 }}>

@@ -64,6 +64,157 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/traces/{id}/review": {
+        parameters: {
+            query?: {
+                /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
+                workspace_id?: components["parameters"]["WorkspaceFilter"];
+            };
+            header?: never;
+            path: {
+                /** @description The trace_id of the reviewed run. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        /** Get a run's review */
+        get: operations["getReview"];
+        /**
+         * Review a run
+         * @description Creates or replaces the run's review. With corrected_output the verdict is derived: when the run output and the correction are both JSON objects every field is graded and the run is correct only if all fields are; otherwise the run is correct only if the texts match. A run with no output is missing. Without corrected_output, verdict is required, and a JSON object output can only be marked incorrect with a correction (400), so field accuracy sees the wrong fields. The run's workflow, version and output are copied from the trace.
+         *     Accepts the workspace's ingest key, so evaluators can send reviews automatically; a key cannot replace a review a person made (409). An ingest key never reads telemetry back: it gets 204 with no body, not even the derived verdict. A trace that is still being ingested answers 404; retry after a few seconds.
+         */
+        put: operations["putReview"];
+        post?: never;
+        /** Remove a run's review */
+        delete: operations["deleteReview"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/traces/{id}/spans/{spanId}/review": {
+        parameters: {
+            query?: {
+                /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
+                workspace_id?: components["parameters"]["WorkspaceFilter"];
+            };
+            header?: never;
+            path: {
+                /** @description The trace_id of the run. */
+                id: string;
+                /** @description The span_id of the reviewed span. */
+                spanId: string;
+            };
+            cookie?: never;
+        };
+        /** Get a span's review */
+        get: operations["getSpanReview"];
+        /**
+         * Review a span
+         * @description Like PUT /v1/traces/{id}/review, but grades the span's own output. Span reviews are kept apart from the run's review and count toward accuracy only when queried with the span parameter.
+         */
+        put: operations["putSpanReview"];
+        post?: never;
+        /** Remove a span's review */
+        delete: operations["deleteSpanReview"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workflows/{name}/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a workflow's reviews
+         * @description Reviews of the workflow's runs, most recently updated first.
+         */
+        get: operations["listReviews"];
+        /**
+         * Review a run found by a business key
+         * @description Reviews the newest run of this workflow in the last 90 days that has a
+         *     span whose custom attribute `key` equals `value`, such as an
+         *     `invoice_id` you set on the run. Use it when corrections arrive from
+         *     another system that never saw Tracium's trace id. With `span`, reviews
+         *     that span of the run (the latest one with that name) instead.
+         *
+         *     Accepts the workspace's ingest key; as with PUT /v1/traces/{id}/review,
+         *     it gets 204 with no body. A run that is still being
+         *     ingested answers 404; retry after a few seconds.
+         */
+        put: operations["putReviewByKey"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workflows/{name}/accuracy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Run accuracy per version
+         * @description Share of reviewed runs marked correct, per version, over all reviews. Unreviewed runs are not counted. With all_spans=true, returns the whole run and every reviewed span at once, each row tagged with its span.
+         */
+        get: operations["getWorkflowAccuracy"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workflows/{name}/review-spans": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Span names with reviews
+         * @description The span names that have span reviews, most reviewed first. Pass one as the span parameter of the accuracy, fields and reviews routes.
+         */
+        get: operations["listReviewedSpans"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workflows/{name}/fields": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Field accuracy for a version
+         * @description For runs whose output and correction are JSON objects, the share of reviews in which each field was correct. Worst fields first.
+         */
+        get: operations["getFieldAccuracy"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/metrics/kpis": {
         parameters: {
             query?: never;
@@ -1206,6 +1357,92 @@ export interface components {
             /** @description All spans belonging to this trace, ordered by start_time_ms ascending. */
             spans: components["schemas"]["Span"][];
         };
+        ReviewInput: {
+            /**
+             * @description Required without corrected_output or corrections; ignored with them. missing means the run gave no usable output.
+             * @enum {string}
+             */
+            verdict?: "correct" | "incorrect" | "missing";
+            /** @description The whole right output. A field missing from it is graded wrong. */
+            corrected_output?: string;
+            /**
+             * @description Only the fields that were wrong, by dot-joined path, e.g.
+             *     {"totals.total": 1240.5}. They are set on the captured output and
+             *     every other field grades as correct; {} marks the output correct.
+             *     Needs a JSON object output; not allowed with corrected_output.
+             */
+            corrections?: {
+                [key: string]: unknown;
+            };
+            note?: string;
+        };
+        ReviewField: {
+            /** @description Dot-joined path to a leaf; nested objects are flattened, arrays are one field. */
+            path: string;
+            /** @description The model's value as JSON; empty when the field is missing. */
+            output: string;
+            /** @description The corrected value as JSON; empty when the correction removed the field. */
+            corrected: string;
+            correct: boolean;
+            /** @description The output left out a field the correction has. */
+            missing: boolean;
+        };
+        Review: {
+            trace_id: string;
+            /** @description The reviewed span; empty for a review of the whole run. */
+            span_id: string;
+            span_name: string;
+            workspace_id: string;
+            workflow_name: string;
+            workflow_version: string;
+            /** @enum {string} */
+            verdict: "correct" | "incorrect" | "missing";
+            /** @description The run's (or span's) output when it was reviewed. */
+            output: string;
+            corrected_output: string | null;
+            note: string;
+            /** @description User id of the reviewer, or of the ingest key's creator. */
+            reviewed_by: string;
+            /**
+             * @description api when an ingest key sent the review.
+             * @enum {string}
+             */
+            source: "user" | "api";
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** @description Graded fields; empty unless output and correction are both JSON objects. */
+            fields: components["schemas"]["ReviewField"][];
+        };
+        ReviewedSpan: {
+            name: string;
+            /** Format: int64 */
+            reviewed: number;
+        };
+        PaginatedReviewResponse: {
+            items: components["schemas"]["Review"][];
+            total: number;
+            page: number;
+            page_size: number;
+        };
+        VersionAccuracy: {
+            /** @description The span name; empty for the whole run. */
+            span: string;
+            version: string;
+            reviewed_runs: number;
+            correct_runs: number;
+            /** @description correct_runs / reviewed_runs. */
+            accuracy: number;
+        };
+        FieldAccuracy: {
+            path: string;
+            reviewed: number;
+            wrong: number;
+            /** @description Of the wrong ones, how many the output left out. */
+            missing: number;
+            accuracy: number;
+        };
         ErrorResponse: {
             /** @description Machine-readable error code (e.g. NOT_FOUND, UNAUTHORIZED, INVALID_REQUEST). */
             code: string;
@@ -1903,6 +2140,626 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    getReview: {
+        parameters: {
+            query?: {
+                /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
+                workspace_id?: components["parameters"]["WorkspaceFilter"];
+            };
+            header?: never;
+            path: {
+                /** @description The trace_id of the reviewed run. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The run's review, with graded fields when its output is a JSON object. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Review"];
+                };
+            };
+            /** @description Missing or invalid bearer token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The run has no review in the caller's workspace scope. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    putReview: {
+        parameters: {
+            query?: {
+                /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
+                workspace_id?: components["parameters"]["WorkspaceFilter"];
+            };
+            header?: never;
+            path: {
+                /** @description The trace_id of the reviewed run. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewInput"];
+            };
+        };
+        responses: {
+            /** @description The saved review, for a signed-in person. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Review"];
+                };
+            };
+            /** @description Saved, for an ingest key. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing verdict, or invalid JSON body. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Missing or invalid bearer token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description A read key, or workspace_id outside the ingest key's workspace. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Trace not found in the caller's workspace scope. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description A person already reviewed this; an ingest key cannot replace that review. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Body larger than 1 MiB. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    deleteReview: {
+        parameters: {
+            query?: {
+                /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
+                workspace_id?: components["parameters"]["WorkspaceFilter"];
+            };
+            header?: never;
+            path: {
+                /** @description The trace_id of the reviewed run. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Review removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing or invalid bearer token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The run has no review in the caller's workspace scope. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getSpanReview: {
+        parameters: {
+            query?: {
+                /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
+                workspace_id?: components["parameters"]["WorkspaceFilter"];
+            };
+            header?: never;
+            path: {
+                /** @description The trace_id of the run. */
+                id: string;
+                /** @description The span_id of the reviewed span. */
+                spanId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The span's review. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Review"];
+                };
+            };
+            /** @description Missing or invalid bearer token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The span has no review in the caller's workspace scope. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    putSpanReview: {
+        parameters: {
+            query?: {
+                /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
+                workspace_id?: components["parameters"]["WorkspaceFilter"];
+            };
+            header?: never;
+            path: {
+                /** @description The trace_id of the run. */
+                id: string;
+                /** @description The span_id of the reviewed span. */
+                spanId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewInput"];
+            };
+        };
+        responses: {
+            /** @description The saved review, for a signed-in person. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Review"];
+                };
+            };
+            /** @description Saved, for an ingest key. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing verdict, or invalid JSON body. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Missing or invalid bearer token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description A read key, or workspace_id outside the ingest key's workspace. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Trace or span not found in the caller's workspace scope. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description A person already reviewed this; an ingest key cannot replace that review. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Body larger than 1 MiB. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    deleteSpanReview: {
+        parameters: {
+            query?: {
+                /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
+                workspace_id?: components["parameters"]["WorkspaceFilter"];
+            };
+            header?: never;
+            path: {
+                /** @description The trace_id of the run. */
+                id: string;
+                /** @description The span_id of the reviewed span. */
+                spanId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Review removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing or invalid bearer token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The span has no review in the caller's workspace scope. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listReviews: {
+        parameters: {
+            query?: {
+                /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
+                workspace_id?: components["parameters"]["WorkspaceFilter"];
+                /** @description Only reviews of runs on this version. */
+                version?: string;
+                /** @description A span name; selects reviews of spans with that name instead of run reviews. */
+                span?: string;
+                /** @description Comma-separated verdicts, e.g. incorrect,missing. */
+                verdict?: string;
+                /** @description Only reviews in which this JSON field was graded wrong. */
+                field?: string;
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated reviews. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedReviewResponse"];
+                };
+            };
+            /** @description Invalid verdict or paging parameter. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Missing or invalid bearer token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    putReviewByKey: {
+        parameters: {
+            query: {
+                /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
+                workspace_id?: components["parameters"]["WorkspaceFilter"];
+                /** @description A custom span or resource attribute the run carries. */
+                key: string;
+                value: string;
+                /** @description A span name; reviews that span of the run instead of the run. */
+                span?: string;
+            };
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewInput"];
+            };
+        };
+        responses: {
+            /** @description The saved review, for a signed-in person. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Review"];
+                };
+            };
+            /** @description Saved, for an ingest key. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing key or value, missing verdict, corrections on a non-JSON output, or invalid JSON body. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Missing or invalid bearer token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description A read key, or workspace_id outside the ingest key's workspace. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description No matching run, or the run has no span with that name. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description A person already reviewed this; an ingest key cannot replace that review. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Body larger than 1 MiB. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getWorkflowAccuracy: {
+        parameters: {
+            query?: {
+                /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
+                workspace_id?: components["parameters"]["WorkspaceFilter"];
+                /** @description A span name; selects reviews of spans with that name instead of run reviews. */
+                span?: string;
+                /** @description When true, ignores span and returns rows for the whole run and every span name. */
+                all_spans?: boolean;
+            };
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accuracy per reviewed version, most recently reviewed first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionAccuracy"][];
+                };
+            };
+            /** @description Missing or invalid bearer token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listReviewedSpans: {
+        parameters: {
+            query?: {
+                /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
+                workspace_id?: components["parameters"]["WorkspaceFilter"];
+                /** @description The version; empty selects unversioned runs. Omit it for every version. */
+                version?: string;
+            };
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Reviewed span names. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewedSpan"][];
+                };
+            };
+            /** @description Missing or invalid bearer token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getFieldAccuracy: {
+        parameters: {
+            query?: {
+                /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
+                workspace_id?: components["parameters"]["WorkspaceFilter"];
+                /** @description The version; empty selects unversioned runs. */
+                version?: string;
+                /** @description A span name; selects reviews of spans with that name instead of run reviews. */
+                span?: string;
+            };
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accuracy per field. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FieldAccuracy"][];
+                };
+            };
+            /** @description Missing or invalid bearer token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
         };
     };

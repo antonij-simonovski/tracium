@@ -3,6 +3,7 @@ import { useTrace } from '../hooks/useTrace';
 import { toTraceView } from '../utils/toTraceView';
 import { TraceView } from '../../trace-inspector';
 import { Spinner, EmptyState } from '../../../common';
+import { ReviewPanel } from '../components/ReviewPanel';
 
 export interface TraceDetailViewProps {
   traceId: string;
@@ -43,5 +44,14 @@ export function TraceDetailView({ traceId, setView, setSelected }: TraceDetailVi
     setView(v);
   };
   // Remount per trace so the selected span, collapsed set and tab don't carry over.
-  return <TraceView key={view.id} trace={view} setView={navigate} onOpenUser={openUser} />;
+  return (
+    <TraceView
+      key={view.id}
+      trace={view}
+      setView={navigate}
+      onOpenUser={openUser}
+      review={<ReviewPanel traceId={view.id} output={view.output} />}
+      spanReview={span => <ReviewPanel key={span.id} traceId={view.id} spanId={span.id} output={span.output ?? null} />}
+    />
+  );
 }
