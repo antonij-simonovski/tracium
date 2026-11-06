@@ -34,7 +34,9 @@ func NewReviewHandler(traces query.TraceRepository, store review.Store, access W
 }
 
 type reviewRequest struct {
-	Verdict         string  `json:"verdict"`
+	Verdict string `json:"verdict"`
+	// Output replaces the traced output, for apps that post-process it after the trace.
+	Output          *string `json:"output"`
 	CorrectedOutput *string `json:"corrected_output"`
 	// Corrections sets only these dotted field paths on the output; the rest grade as correct.
 	Corrections map[string]json.RawMessage `json:"corrections"`
@@ -172,6 +174,9 @@ func (h *ReviewHandler) save(w http.ResponseWriter, r *http.Request, principal *
 			return
 		}
 		rev.SpanID, rev.SpanName, rev.Output = spans[i].SpanID, spans[i].Name, spans[i].Output
+	}
+	if req.Output != nil {
+		rev.Output = *req.Output
 	}
 	if req.Corrections != nil {
 		patched, err := review.Patch(rev.Output, req.Corrections)

@@ -221,7 +221,7 @@ paths:
         corrected_output, verdict is required, and a JSON object output can only
         be marked incorrect with a correction (400), so field accuracy sees the
         wrong fields. The run's workflow, version and output are copied from the
-        trace.
+        trace, unless output is sent.
 
         Accepts the workspace's ingest key, so evaluators can send reviews
         automatically; a key cannot replace a review a person made (409). An
@@ -2874,6 +2874,12 @@ components:
           type: string
           enum: [correct, incorrect, missing]
           description: Required without corrected_output or corrections; ignored with them. missing means the run gave no usable output.
+        output:
+          type: string
+          description: |
+            The output to grade, in place of the traced one, for apps that
+            post-process the output after the trace. It is stored as the
+            review's output; corrections are applied to it.
         corrected_output:
           type: string
           description: The whole right output. A field missing from it is graded wrong.

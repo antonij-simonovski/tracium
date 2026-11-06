@@ -130,6 +130,12 @@ func TestReviewPut(t *testing.T) {
 	if code, _ := byKey("key=invoice_id&value=INV-1&span=parse", `{"verdict": "correct"}`); code != 204 || saved("run", "llm").Verdict != model.VerdictCorrect {
 		t.Errorf("span by name: %d", code)
 	}
+	if code, _ := byKey("key=invoice_id&value=INV-1", `{"output": "{\"total\": 12, \"due\": \"2026-01-01\"}", "corrections": {"total": 12}}`); code != 204 {
+		t.Errorf("uploaded output: %d", code)
+	}
+	if rev := saved("run", ""); rev.Verdict != model.VerdictCorrect || rev.Output != `{"total": 12, "due": "2026-01-01"}` {
+		t.Errorf("uploaded output saved %+v", rev)
+	}
 	if byKey("key=invoice_id&value=INV-1", `{"corrections": {}}`); saved("run", "").Verdict != model.VerdictCorrect {
 		t.Errorf("empty corrections verdict = %s", saved("run", "").Verdict)
 	}

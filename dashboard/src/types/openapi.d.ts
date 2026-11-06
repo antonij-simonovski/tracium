@@ -81,7 +81,7 @@ export interface paths {
         get: operations["getReview"];
         /**
          * Review a run
-         * @description Creates or replaces the run's review. With corrected_output the verdict is derived: when the run output and the correction are both JSON objects every field is graded and the run is correct only if all fields are; otherwise the run is correct only if the texts match. A run with no output is missing. Without corrected_output, verdict is required, and a JSON object output can only be marked incorrect with a correction (400), so field accuracy sees the wrong fields. The run's workflow, version and output are copied from the trace.
+         * @description Creates or replaces the run's review. With corrected_output the verdict is derived: when the run output and the correction are both JSON objects every field is graded and the run is correct only if all fields are; otherwise the run is correct only if the texts match. A run with no output is missing. Without corrected_output, verdict is required, and a JSON object output can only be marked incorrect with a correction (400), so field accuracy sees the wrong fields. The run's workflow, version and output are copied from the trace, unless output is sent.
          *     Accepts the workspace's ingest key, so evaluators can send reviews automatically; a key cannot replace a review a person made (409). An ingest key never reads telemetry back: it gets 204 with no body, not even the derived verdict. A trace that is still being ingested answers 404; retry after a few seconds.
          */
         put: operations["putReview"];
@@ -1363,6 +1363,12 @@ export interface components {
              * @enum {string}
              */
             verdict?: "correct" | "incorrect" | "missing";
+            /**
+             * @description The output to grade, in place of the traced one, for apps that
+             *     post-process the output after the trace. It is stored as the
+             *     review's output; corrections are applied to it.
+             */
+            output?: string;
             /** @description The whole right output. A field missing from it is graded wrong. */
             corrected_output?: string;
             /**
