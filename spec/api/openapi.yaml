@@ -216,7 +216,8 @@ paths:
         Creates or replaces the run's review. With corrected_output the verdict
         is derived: when the run output and the correction are both JSON objects
         every field is graded and the run is correct only if all fields are;
-        otherwise the run is correct only if the texts match. A run with no
+        otherwise the run is correct only if the texts match, and a JSON object
+        output needs a JSON object correction (400). A run with no
         output is missing. Without
         corrected_output, verdict is required, and a JSON object output can only
         be marked incorrect with a correction (400), so field accuracy sees the

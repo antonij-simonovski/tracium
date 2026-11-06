@@ -78,6 +78,13 @@ func TestReviewPut(t *testing.T) {
 		t.Errorf("verdict only = %+v", rev)
 	}
 
+	if rev := saved("run", ""); len(rev.Fields) != 2 || !rev.Fields[0].Correct {
+		t.Errorf("approved review read back = %+v", rev.Fields)
+	}
+	if code, _ := put([]string{"ws"}, `{"corrected_output": "{\"total\": 10,}"}`); code != 400 {
+		t.Errorf("invalid JSON correction of a JSON output: %d", code)
+	}
+
 	if _, rev := put([]string{"ws"}, `{"verdict": "missing"}`); rev.Verdict != model.VerdictMissing || len(rev.Fields) != 0 {
 		t.Errorf("missing verdict = %+v", rev)
 	}

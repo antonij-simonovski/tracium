@@ -108,8 +108,11 @@ func scanReview(row pgx.Row) (model.Review, error) {
 	var r model.Review
 	err := row.Scan(&r.TraceID, &r.SpanID, &r.SpanName, &r.WorkspaceID, &r.WorkflowName, &r.WorkflowVersion, &r.Verdict,
 		&r.Output, &r.CorrectedOutput, &r.Note, &r.ReviewedBy, &r.Source, &r.CreatedAt, &r.UpdatedAt)
-	if r.CorrectedOutput != nil {
-		r.Fields, _ = Grade(r.Output, *r.CorrectedOutput)
+	// An approved output was graded against itself when saved.
+	if c := r.CorrectedOutput; c != nil {
+		r.Fields, _ = Grade(r.Output, *c)
+	} else if r.Verdict == model.VerdictCorrect {
+		r.Fields, _ = Grade(r.Output, r.Output)
 	}
 	if r.Fields == nil {
 		r.Fields = []model.ReviewField{}

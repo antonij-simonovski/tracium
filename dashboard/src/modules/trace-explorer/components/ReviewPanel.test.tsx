@@ -100,6 +100,21 @@ describe('review panel', () => {
     expect(screen.getByLabelText('Corrected output')).toHaveValue('{"total": 10}');
   });
 
+  it('keeps grading an output the API sent', async () => {
+    api.getReview.mockResolvedValue({
+      trace_id: 'run-1', verdict: 'correct', output: '{"total": 12}', corrected_output: null, note: '',
+      source: 'api', updated_at: '2026-10-31T10:00:00Z', fields: [],
+    });
+    show('{"total": 10}');
+    expect(await screen.findByText(/output sent by API/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Correct output' }));
+    expect(screen.getByLabelText('total')).toHaveValue('12');
+    fireEvent.change(screen.getByLabelText('total'), { target: { value: '13' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save correction' }));
+    await waitFor(() => expect(api.saveReview).toHaveBeenCalled());
+    expect(api.saveReview.mock.calls[0][1]).toEqual({ output: '{"total": 12}', corrections: { total: 13 }, note: '' });
+  });
+
   it('reviews a single span and labels reviews sent by API', async () => {
     api.getReview.mockResolvedValue({
       trace_id: 'run-1', span_id: 'llm', verdict: 'correct', output: 'hi', corrected_output: null, note: '',

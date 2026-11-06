@@ -44,6 +44,9 @@ export interface ReviewPanelProps {
 export function ReviewPanel({ traceId, spanId, output: traceOutput }: ReviewPanelProps) {
   const { review, isLoading, error, save, remove } = useReview(traceId, spanId);
   const output = review?.output ?? traceOutput ?? '';
+  // An API review may have sent its own output; saves must keep grading that one.
+  const uploaded = review != null && review.output !== (traceOutput ?? '');
+  const kept = uploaded ? { output } : {};
   const obj = useMemo(() => parseJsonObject(output), [output]);
   const fields = useMemo(() => (obj ? flattenFields(obj) : []), [obj]);
 
@@ -70,15 +73,15 @@ export function ReviewPanel({ traceId, spanId, output: traceOutput }: ReviewPane
 
   const submit = () => {
     const done = { onSuccess: () => setEditing(false) };
-    if (raw || !obj) return save.mutate({ corrected_output: text, note }, done);
+    if (raw || !obj) return save.mutate({ ...kept, corrected_output: text, note }, done);
     // Only changed fields go up, so untouched ones keep the output's exact JSON (big numbers survive).
     const changed = fields.filter(f => f.path in edits && edits[f.path] !== fieldText(f.value));
     // The API splits paths on dots, so a key with a dot in it needs the whole object.
     // shortcut: that object is re-serialized from JSON.parse, so integers past 2^53 lose digits; send the raw text if that matters.
     if (changed.some(f => f.keys.some(k => k.includes('.')))) {
-      return save.mutate({ corrected_output: JSON.stringify(applyEdits(obj, fields, edits), null, 2), note }, done);
+      return save.mutate({ ...kept, corrected_output: JSON.stringify(applyEdits(obj, fields, edits), null, 2), note }, done);
     }
-    save.mutate({ corrections: Object.fromEntries(changed.map(f => [f.path, parseFieldText(edits[f.path], f.value)])), note }, done);
+    save.mutate({ ...kept, corrections: Object.fromEntries(changed.map(f => [f.path, parseFieldText(edits[f.path], f.value)])), note }, done);
   };
 
   const busy = save.isPending || remove.isPending;
@@ -93,6 +96,7 @@ export function ReviewPanel({ traceId, spanId, output: traceOutput }: ReviewPane
               Reviewed {formatDateTime(Date.parse(review.updated_at))}{review.source === 'api' && ' · sent by API'}
             </span>
           </div>
+          {uploaded && <div style={{ fontSize: 13, color: 'var(--muted)' }}>Graded against an output sent by API, not the traced output.</div>}
           {review.note && <div style={{ fontSize: 14, color: 'var(--foreground)' }}>{review.note}</div>}
           {review.fields.length > 0 && <ReviewFieldList fields={review.fields} />}
           {review.fields.length === 0 && review.corrected_output !== null && (
@@ -146,11 +150,11 @@ export function ReviewPanel({ traceId, spanId, output: traceOutput }: ReviewPane
 
       {!editing && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <Button primary onClick={() => save.mutate({ verdict: 'correct' })} disabled={busy}>Mark correct</Button>
+          <Button primary onClick={() => save.mutate({ ...kept, verdict: 'correct' })} disabled={busy}>Mark correct</Button>
           {output
             ? <Button onClick={startEditing} disabled={busy}>{review?.corrected_output != null ? 'Edit correction' : 'Correct output'}</Button>
-            : <Button onClick={() => save.mutate({ verdict: 'incorrect' })} disabled={busy}>Mark incorrect</Button>}
-          <Button onClick={() => save.mutate({ verdict: 'missing' })} disabled={busy}>Mark missing</Button>
+            : <Button onClick={() => save.mutate({ ...kept, verdict: 'incorrect' })} disabled={busy}>Mark incorrect</Button>}
+          <Button onClick={() => save.mutate({ ...kept, verdict: 'missing' })} disabled={busy}>Mark missing</Button>
           {review && <Button onClick={() => remove.mutate()} disabled={busy}>Remove review</Button>}
         </div>
       )}

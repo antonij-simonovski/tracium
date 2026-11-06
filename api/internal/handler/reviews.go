@@ -191,6 +191,10 @@ func (h *ReviewHandler) save(w http.ResponseWriter, r *http.Request, principal *
 	} else if c != nil {
 		if fields, graded := review.Grade(rev.Output, *c); graded {
 			rev.Fields, rev.Verdict = fields, review.Verdict(fields)
+		} else if _, isObject := review.Grade(rev.Output, rev.Output); isObject {
+			// Otherwise a typo in the JSON would count as a wrong run with no wrong field.
+			respondError(w, http.StatusBadRequest, "BAD_REQUEST", "corrected_output must be a JSON object, like the output")
+			return
 		} else if strings.TrimSpace(*c) == strings.TrimSpace(rev.Output) {
 			rev.Verdict = model.VerdictCorrect
 		} else {

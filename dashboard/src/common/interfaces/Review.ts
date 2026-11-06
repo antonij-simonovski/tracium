@@ -33,6 +33,8 @@ export interface RunReview {
 
 export interface ReviewInput {
   verdict?: Verdict;
+  /** Grades this output instead of the traced one. */
+  output?: string;
   corrected_output?: string;
   /** Dotted field paths to set on the output; the rest grade as correct. */
   corrections?: Record<string, unknown>;
