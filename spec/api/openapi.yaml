@@ -176,6 +176,528 @@ paths:
         "500":
           description: Internal error or incompatible span schema.
 
+  /v1/traces/{id}/review:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceFilter"
+      - name: id
+        in: path
+        required: true
+        description: The trace_id of the reviewed run.
+        schema:
+          type: string
+    get:
+      operationId: getReview
+      summary: Get a run's review
+      tags:
+        - Reviews
+      responses:
+        "200":
+          description: The run's review, with graded fields when its output is a JSON object.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Review"
+        "404":
+          description: The run has no review in the caller's workspace scope.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Missing or invalid bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    put:
+      operationId: putReview
+      summary: Review a run
+      description: >
+        Creates or replaces the run's review. With corrected_output the verdict
+        is derived: when the run output and the correction are both JSON objects
+        every field is graded and the run is correct only if all fields are;
+        otherwise the run is correct only if the texts match, and a JSON object
+        output needs a JSON object correction (400). A run with no
+        output is missing. Without
+        corrected_output, verdict is required, and a JSON object output can only
+        be marked incorrect with a correction (400), so field accuracy sees the
+        wrong fields. The run's workflow, version and output are copied from the
+        trace, unless output is sent.
+
+        Accepts the workspace's ingest key, so evaluators can send reviews
+        automatically; a key cannot replace a review a person made (409). An
+        ingest key never reads telemetry back: it gets 204 with no body, not
+        even the derived verdict. A
+        trace that is still being ingested answers 404; retry after a few
+        seconds.
+      security:
+        - bearerAuth: []
+        - ingestKey: []
+      tags:
+        - Reviews
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewInput"
+      responses:
+        "200":
+          description: The saved review, for a signed-in person.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Review"
+        "204":
+          description: Saved, for an ingest key.
+        "400":
+          description: Missing verdict, or invalid JSON body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: A read key, or workspace_id outside the ingest key's workspace.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Trace not found in the caller's workspace scope.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: A person already reviewed this; an ingest key cannot replace that review.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "413":
+          description: Body larger than 1 MiB.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Missing or invalid bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteReview
+      summary: Remove a run's review
+      tags:
+        - Reviews
+      responses:
+        "204":
+          description: Review removed.
+        "404":
+          description: The run has no review in the caller's workspace scope.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Missing or invalid bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /v1/traces/{id}/spans/{spanId}/review:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceFilter"
+      - name: id
+        in: path
+        required: true
+        description: The trace_id of the run.
+        schema:
+          type: string
+      - name: spanId
+        in: path
+        required: true
+        description: The span_id of the reviewed span.
+        schema:
+          type: string
+    get:
+      operationId: getSpanReview
+      summary: Get a span's review
+      tags:
+        - Reviews
+      responses:
+        "200":
+          description: The span's review.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Review"
+        "404":
+          description: The span has no review in the caller's workspace scope.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Missing or invalid bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    put:
+      operationId: putSpanReview
+      summary: Review a span
+      description: >
+        Like PUT /v1/traces/{id}/review, but grades the span's own output. Span
+        reviews are kept apart from the run's review and count toward accuracy
+        only when queried with the span parameter.
+      security:
+        - bearerAuth: []
+        - ingestKey: []
+      tags:
+        - Reviews
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewInput"
+      responses:
+        "200":
+          description: The saved review, for a signed-in person.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Review"
+        "204":
+          description: Saved, for an ingest key.
+        "400":
+          description: Missing verdict, or invalid JSON body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: A read key, or workspace_id outside the ingest key's workspace.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Trace or span not found in the caller's workspace scope.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: A person already reviewed this; an ingest key cannot replace that review.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "413":
+          description: Body larger than 1 MiB.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Missing or invalid bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteSpanReview
+      summary: Remove a span's review
+      tags:
+        - Reviews
+      responses:
+        "204":
+          description: Review removed.
+        "404":
+          description: The span has no review in the caller's workspace scope.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Missing or invalid bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /v1/workflows/{name}/reviews:
+    get:
+      operationId: listReviews
+      summary: List a workflow's reviews
+      description: Reviews of the workflow's runs, most recently updated first.
+      tags:
+        - Reviews
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceFilter"
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          in: query
+          description: Only reviews of runs on this version.
+          schema:
+            type: string
+        - name: span
+          in: query
+          description: A span name; selects reviews of spans with that name instead of run reviews.
+          schema:
+            type: string
+        - name: verdict
+          in: query
+          description: Comma-separated verdicts, e.g. incorrect,missing.
+          schema:
+            type: string
+        - name: field
+          in: query
+          description: Only reviews in which this JSON field was graded wrong.
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: Paginated reviews.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedReviewResponse"
+        "400":
+          description: Invalid verdict or paging parameter.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Missing or invalid bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    put:
+      operationId: putReviewByKey
+      summary: Review a run found by a business key
+      description: |
+        Reviews the newest run of this workflow in the last 90 days that has a
+        span whose custom attribute `key` equals `value`, such as an
+        `invoice_id` you set on the run. Use it when corrections arrive from
+        another system that never saw Tracium's trace id. With `span`, reviews
+        that span of the run (the latest one with that name) instead.
+
+        Accepts the workspace's ingest key; as with PUT /v1/traces/{id}/review,
+        it gets 204 with no body. A run that is still being
+        ingested answers 404; retry after a few seconds.
+      security:
+        - bearerAuth: []
+        - ingestKey: []
+      tags:
+        - Reviews
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceFilter"
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: key
+          in: query
+          required: true
+          description: A custom span or resource attribute the run carries.
+          schema:
+            type: string
+        - name: value
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: span
+          in: query
+          description: A span name; reviews that span of the run instead of the run.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewInput"
+      responses:
+        "200":
+          description: The saved review, for a signed-in person.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Review"
+        "204":
+          description: Saved, for an ingest key.
+        "400":
+          description: Missing key or value, missing verdict, corrections on a non-JSON output, or invalid JSON body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Missing or invalid bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: A read key, or workspace_id outside the ingest key's workspace.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: No matching run, or the run has no span with that name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: A person already reviewed this; an ingest key cannot replace that review.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "413":
+          description: Body larger than 1 MiB.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /v1/workflows/{name}/accuracy:
+    get:
+      operationId: getWorkflowAccuracy
+      summary: Run accuracy per version
+      description: Share of reviewed runs marked correct, per version, over all reviews. Unreviewed runs are not counted. With all_spans=true, returns the whole run and every reviewed span at once, each row tagged with its span.
+      tags:
+        - Reviews
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceFilter"
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: span
+          in: query
+          description: A span name; selects reviews of spans with that name instead of run reviews.
+          schema:
+            type: string
+        - name: all_spans
+          in: query
+          description: When true, ignores span and returns rows for the whole run and every span name.
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Accuracy per reviewed version, most recently reviewed first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/VersionAccuracy"
+        "401":
+          description: Missing or invalid bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /v1/workflows/{name}/review-spans:
+    get:
+      operationId: listReviewedSpans
+      summary: Span names with reviews
+      description: The span names that have span reviews, most reviewed first. Pass one as the span parameter of the accuracy, fields and reviews routes.
+      tags:
+        - Reviews
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceFilter"
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          in: query
+          description: The version; empty selects unversioned runs. Omit it for every version.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Reviewed span names.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ReviewedSpan"
+        "401":
+          description: Missing or invalid bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /v1/workflows/{name}/fields:
+    get:
+      operationId: getFieldAccuracy
+      summary: Field accuracy for a version
+      description: For runs whose output and correction are JSON objects, the share of reviews in which each field was correct. Worst fields first.
+      tags:
+        - Reviews
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceFilter"
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          in: query
+          description: The version; empty selects unversioned runs.
+          schema:
+            type: string
+        - name: span
+          in: query
+          description: A span name; selects reviews of spans with that name instead of run reviews.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Accuracy per field.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FieldAccuracy"
+        "401":
+          description: Missing or invalid bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /v1/metrics/kpis:
     get:
       operationId: getOverviewKpis
@@ -1874,7 +2396,7 @@ components:
     ingestKey:
       type: http
       scheme: bearer
-      description: Workspace ingest key (`trc_...`), accepted only by GET /v1/metrics/setup-checks.
+      description: Workspace ingest key (`trc_...`), accepted only by GET /v1/metrics/setup-checks and the PUT review routes.
     readKey:
       type: http
       scheme: bearer
@@ -2345,6 +2867,156 @@ components:
               description: All spans belonging to this trace, ordered by start_time_ms ascending.
               items:
                 $ref: "#/components/schemas/Span"
+
+    ReviewInput:
+      type: object
+      properties:
+        verdict:
+          type: string
+          enum: [correct, incorrect, missing]
+          description: Required without corrected_output or corrections; ignored with them. missing means the run gave no usable output.
+        output:
+          type: string
+          description: |
+            The output to grade, in place of the traced one, for apps that
+            post-process the output after the trace. It is stored as the
+            review's output; corrections are applied to it.
+        corrected_output:
+          type: string
+          description: The whole right output. A field missing from it is graded wrong.
+        corrections:
+          type: object
+          additionalProperties: true
+          description: |
+            Only the fields that were wrong, by dot-joined path, e.g.
+            {"totals.total": 1240.5}. They are set on the captured output and
+            every other field grades as correct; {} marks the output correct.
+            Needs a JSON object output; not allowed with corrected_output.
+        note:
+          type: string
+
+    ReviewField:
+      type: object
+      required: [path, output, corrected, correct, missing]
+      properties:
+        path:
+          type: string
+          description: Dot-joined path to a leaf; nested objects are flattened, arrays are one field.
+        output:
+          type: string
+          description: The model's value as JSON; empty when the field is missing.
+        corrected:
+          type: string
+          description: The corrected value as JSON; empty when the correction removed the field.
+        correct:
+          type: boolean
+        missing:
+          type: boolean
+          description: The output left out a field the correction has.
+
+    Review:
+      type: object
+      required: [trace_id, span_id, span_name, workspace_id, workflow_name, workflow_version, verdict, output, corrected_output, note, reviewed_by, source, created_at, updated_at, fields]
+      properties:
+        trace_id:
+          type: string
+        span_id:
+          type: string
+          description: The reviewed span; empty for a review of the whole run.
+        span_name:
+          type: string
+        workspace_id:
+          type: string
+        workflow_name:
+          type: string
+        workflow_version:
+          type: string
+        verdict:
+          type: string
+          enum: [correct, incorrect, missing]
+        output:
+          type: string
+          description: The run's (or span's) output when it was reviewed.
+        corrected_output:
+          type: [string, "null"]
+        note:
+          type: string
+        reviewed_by:
+          type: string
+          description: User id of the reviewer, or of the ingest key's creator.
+        source:
+          type: string
+          enum: [user, api]
+          description: api when an ingest key sent the review.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        fields:
+          type: array
+          description: Graded fields; empty unless output and correction are both JSON objects.
+          items:
+            $ref: "#/components/schemas/ReviewField"
+
+    ReviewedSpan:
+      type: object
+      required: [name, reviewed]
+      properties:
+        name:
+          type: string
+        reviewed:
+          type: integer
+          format: int64
+
+    PaginatedReviewResponse:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Review"
+        total:
+          type: integer
+        page:
+          type: integer
+        page_size:
+          type: integer
+
+    VersionAccuracy:
+      type: object
+      required: [span, version, reviewed_runs, correct_runs, accuracy]
+      properties:
+        span:
+          type: string
+          description: The span name; empty for the whole run.
+        version:
+          type: string
+        reviewed_runs:
+          type: integer
+        correct_runs:
+          type: integer
+        accuracy:
+          type: number
+          description: correct_runs / reviewed_runs.
+
+    FieldAccuracy:
+      type: object
+      required: [path, reviewed, wrong, missing, accuracy]
+      properties:
+        path:
+          type: string
+        reviewed:
+          type: integer
+        wrong:
+          type: integer
+        missing:
+          type: integer
+          description: Of the wrong ones, how many the output left out.
+        accuracy:
+          type: number
 
     ErrorResponse:
       type: object

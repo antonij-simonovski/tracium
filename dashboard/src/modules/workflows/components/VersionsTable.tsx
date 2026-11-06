@@ -1,4 +1,5 @@
 import { fmtDelta, fmtMs, fmtNum, relativeTime } from '../../../common';
+import type { VersionAccuracy } from '../../../common/interfaces';
 import type { WorkflowVersion } from '../interfaces';
 import { change, comparable, currentVersion, deltaColor, fmtPts, fmtRunCost, fmtSeen, previousVersion, ptsColor, versionLabel } from '../utils';
 
@@ -6,11 +7,13 @@ interface VersionsTableProps {
   versions: WorkflowVersion[];
   rangeLabel: string;
   onCompare: (base: string, candidate: string) => void;
+  // All-time accuracy of reviewed runs, per version.
+  accuracy?: VersionAccuracy[];
 }
 
-// [Version, First seen, Runs, Cost / run, p95, Error, Tokens / run, compare]
-const GRID = 'minmax(150px,1.3fr) minmax(130px,1fr) 80px 110px 80px 80px 110px 110px';
-const MIN_WIDTH = 940;
+// [Version, First seen, Runs, Cost / run, p95, Error, Tokens / run, Accuracy, compare]
+const GRID = 'minmax(150px,1.3fr) minmax(130px,1fr) 80px 110px 80px 80px 110px 100px 110px';
+const MIN_WIDTH = 1052;
 
 const numCell = { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, fontVariantNumeric: 'tabular-nums' } as const;
 
@@ -18,8 +21,9 @@ function Delta({ text, color }: { text: string; color: string }) {
   return <span style={{ fontSize: 12, color }}>{text}</span>;
 }
 
-export function VersionsTable({ versions, rangeLabel, onCompare }: VersionsTableProps) {
+export function VersionsTable({ versions, rangeLabel, onCompare, accuracy = [] }: VersionsTableProps) {
   const current = currentVersion(versions)?.version;
+  const accuracyOf = (version?: string) => accuracy.find((a) => a.version === version);
 
   return (
     <div style={{ marginBottom: 44 }}>
@@ -64,6 +68,7 @@ export function VersionsTable({ versions, rangeLabel, onCompare }: VersionsTable
           <span style={{ textAlign: 'right' }}>p95</span>
           <span style={{ textAlign: 'right' }}>Error</span>
           <span style={{ textAlign: 'right' }}>Tokens / run</span>
+          <span style={{ textAlign: 'right' }}>Accuracy</span>
           <span />
         </div>
 
@@ -72,6 +77,8 @@ export function VersionsTable({ versions, rangeLabel, onCompare }: VersionsTable
           const prev = named ? previousVersion(versions, v) : undefined;
           const p95 = v.p95_latency_ms;
           const prevP95 = prev?.p95_latency_ms;
+          const acc = accuracyOf(v.version);
+          const prevAcc = accuracyOf(prev?.version);
           return (
             <div
               key={v.version}
@@ -111,6 +118,11 @@ export function VersionsTable({ versions, rangeLabel, onCompare }: VersionsTable
               <span style={numCell}>
                 <span style={{ fontSize: 13.5, color: 'var(--foreground)' }}>{fmtNum(Math.round(v.tokens_per_run))}</span>
                 {prev && <Delta text={fmtDelta(change(v.tokens_per_run, prev.tokens_per_run))} color={deltaColor(change(v.tokens_per_run, prev.tokens_per_run))} />}
+              </span>
+              <span style={numCell}>
+                <span style={{ fontSize: 13.5, color: acc ? 'var(--foreground)' : 'var(--muted)' }}>{acc ? `${Math.round(acc.accuracy * 100)}%` : '—'}</span>
+                {acc && <span style={{ fontSize: 12, color: 'var(--muted)' }}>{fmtNum(acc.reviewed_runs)} reviewed</span>}
+                {acc && prevAcc && <Delta text={fmtPts(acc.accuracy, prevAcc.accuracy)} color={ptsColor(prevAcc.accuracy, acc.accuracy)} />}
               </span>
               {prev ? (
                 <button

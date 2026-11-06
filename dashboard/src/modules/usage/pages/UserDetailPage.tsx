@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { USERS } from './UsersPage';
+import { SlicedButton } from '../../../common';
 
 export interface UserDetailPageProps {
   selected: Record<string, string>;
@@ -156,12 +157,7 @@ function TdHeader({ user, setView }: TdHeaderProps) {
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-          <button style={{
-            padding: "7px 12px", background: "var(--accent)",
-            border: "1px solid var(--accent)",
-            borderRadius: 7, color: "var(--accent-contrast)",
-            fontSize: 14, fontWeight: 600, fontFamily: "inherit", cursor: "pointer",
-          }}>Configure</button>
+          <SlicedButton style={{ padding: "7px 20px 7px 12px" }}>Configure</SlicedButton>
         </div>
       </div>
     </div>

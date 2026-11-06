@@ -10,6 +10,7 @@ import (
 	"github.com/tracium/api/internal/model"
 	"github.com/tracium/api/internal/oauth"
 	"github.com/tracium/api/internal/query"
+	"github.com/tracium/api/internal/review"
 	"github.com/tracium/api/internal/version"
 	"github.com/tracium/api/internal/workspace"
 	"log"
@@ -17,7 +18,7 @@ import (
 	"time"
 )
 
-func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, inviteStore workspace.InviteStore, userStore *auth.UserStore, authenticator middleware.Authenticator, authService *auth.Service, apiKeyService *apikey.Service, healthChecks []handler.DependencyCheck, opts Options, oauthService *oauth.Service) http.Handler {
+func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, inviteStore workspace.InviteStore, userStore *auth.UserStore, authenticator middleware.Authenticator, authService *auth.Service, apiKeyService *apikey.Service, healthChecks []handler.DependencyCheck, opts Options, oauthService *oauth.Service, reviews review.Store) http.Handler {
 	authHandler := handler.NewAuthHandler(authService)
 	workspaceHandler := handler.NewWorkspaceHandler(wsStore, userStore, opts.Entitlements)
 	apiKeyHandler := handler.NewAPIKeyHandler(apiKeyService, wsStore)
@@ -26,6 +27,7 @@ func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, invit
 
 	traceHandler := handler.NewTraceHandler(repo, wsStore)
 	spanHandler := handler.NewSpanHandler(repo, wsStore)
+	reviewHandler := handler.NewReviewHandler(repo, reviews, wsStore)
 	metricsHandler := handler.NewMetricsHandler(repo, wsStore)
 	queryHandler := handler.NewQueryHandler(repo, repo, wsStore)
 	healthHandler := handler.NewHealthHandler(healthChecks...)
@@ -159,6 +161,15 @@ func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, invit
 		r.Get(version.Route(version.V1, "/traces/{id}"), traceHandler.GetTrace)
 		r.Get(version.Route(version.V1, "/traces/{traceId}/spans"), spanHandler.ListSpans)
 
+		for _, p := range []string{"/traces/{id}/review", "/traces/{id}/spans/{spanId}/review"} {
+			r.Get(version.Route(version.V1, p), reviewHandler.Get)
+			r.Delete(version.Route(version.V1, p), reviewHandler.Delete)
+		}
+		r.Get(version.Route(version.V1, "/workflows/{name}/reviews"), reviewHandler.List)
+		r.Get(version.Route(version.V1, "/workflows/{name}/accuracy"), reviewHandler.Accuracy)
+		r.Get(version.Route(version.V1, "/workflows/{name}/fields"), reviewHandler.Fields)
+		r.Get(version.Route(version.V1, "/workflows/{name}/review-spans"), reviewHandler.Spans)
+
 		r.Get(version.Route(version.V1, "/metrics/kpis"), metricsHandler.KPIs)
 		r.Get(version.Route(version.V1, "/metrics/cost-series"), metricsHandler.CostSeries)
 		r.Get(version.Route(version.V1, "/metrics/latency-series"), metricsHandler.LatencySeries)
@@ -209,6 +220,16 @@ func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, invit
 	// MCP connectors that take only a URL carry the read key as its last segment.
 	r.With(middleware.BearerFromPath("key"), middleware.APIKeyOr(apiKeyService, middleware.Auth(authenticator), model.ScopeRead), queryLimit, services.Gate("telemetry.read")).
 		Post(version.Route(version.V1, "/mcp/{key}"), queryHandler.MCP)
+
+	// Ingest keys can send reviews, so evaluators score runs and spans of their
+	// workspace. Read keys cannot: they only read.
+	for _, p := range []string{"/traces/{id}/review", "/traces/{id}/spans/{spanId}/review"} {
+		r.With(middleware.APIKeyOr(apiKeyService, middleware.Auth(authenticator), model.ScopeIngest), services.Gate("telemetry.read")).
+			Put(version.Route(version.V1, p), reviewHandler.Put)
+	}
+	// Finding the run scans 90 days of attributes, so it shares the query limit.
+	r.With(middleware.APIKeyOr(apiKeyService, middleware.Auth(authenticator), model.ScopeIngest), queryLimit, services.Gate("telemetry.read")).
+		Put(version.Route(version.V1, "/workflows/{name}/reviews"), reviewHandler.PutByKey)
 
 	// Setup checks also accept the workspace's api keys, so a coding agent can
 	// verify instrumentation without a dashboard login.

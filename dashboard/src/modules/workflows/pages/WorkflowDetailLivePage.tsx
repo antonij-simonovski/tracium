@@ -18,6 +18,8 @@ import {
   useWorkflowRuns,
   useWorkflowVersions,
 } from '../hooks/useWorkflowDetail';
+import { useWorkflowAccuracy } from '../hooks/useReviews';
+import { AccuracySection } from '../components/AccuracySection';
 import { change, comparable, currentVersion, defaultPair, deriveRunOutcomes, fmtSeen, previousVersion, releaseMarkers } from '../utils';
 import { WorkflowDetailPage } from './WorkflowDetailPage';
 import type { MetaRowProps } from '../../../common';
@@ -46,6 +48,7 @@ export function WorkflowDetailLivePage({ workflowName, range, setView, setSelect
   const latency = useWorkflowLatencySeries(workflowName, range, raw, version);
   const errors = useWorkflowErrorSeries(workflowName, range, true, version);
   const runs = useWorkflowRuns(workflowName, range, true, version);
+  const accuracy = useWorkflowAccuracy(workflowName);
 
   if (detail.isLoading) {
     return (
@@ -80,6 +83,12 @@ export function WorkflowDetailLivePage({ workflowName, range, setView, setSelect
     if (prev) compare(prev.version, v.version);
   });
 
+  const inView = (filtered ?? current)?.version ?? '';
+  const openTrace = (id: string) => {
+    setSelected((s) => ({ ...s, traceId: id }));
+    setView('trace');
+  };
+
   const configRows: MetaRowProps[] = [
     { label: 'model', value: d.model || '—', mono: true },
     ...(d.provider ? [{ label: 'provider', value: d.provider }] : []),
@@ -112,6 +121,8 @@ export function WorkflowDetailLivePage({ workflowName, range, setView, setSelect
       onVersionFilter={setFilter}
       onCompare={compare}
       defaultCompare={pair}
+      accuracy={accuracy.data}
+      quality={<AccuracySection key={inView} workflow={workflowName} version={inView} versions={versions} onOpenTrace={openTrace} />}
       costAlert={
         current && replaced && cprChange > COST_ALERT
           ? { version: current.version, from: replaced.cost_per_run, to: current.cost_per_run, change: fmtDelta(cprChange) }

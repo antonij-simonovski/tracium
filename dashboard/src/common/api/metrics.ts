@@ -1,5 +1,5 @@
 import { BaseAPIClient } from './client';
-import type { PaginatedResponse } from '../interfaces';
+import type { FieldAccuracy, PaginatedResponse, ReviewedSpan, RunReview, Verdict, VersionAccuracy } from '../interfaces';
 import type {
   KpiSet,
   CostBucket,
@@ -59,6 +59,33 @@ export class MetricsAPI extends BaseAPIClient {
 
   getWorkflowVersions(name: string, range: string): Promise<PaginatedResponse<WorkflowVersion>> {
     return this.get(`/metrics/workflows/${encodeURIComponent(name)}/versions`, { range });
+  }
+
+  /** span is a span name; omitted means run reviews. */
+  getWorkflowAccuracy(name: string, span?: string): Promise<VersionAccuracy[]> {
+    return this.get(`/workflows/${encodeURIComponent(name)}/accuracy`, { span: span || undefined });
+  }
+
+  /** The whole run (span '') and every reviewed span. */
+  getStepAccuracy(name: string): Promise<VersionAccuracy[]> {
+    return this.get(`/workflows/${encodeURIComponent(name)}/accuracy`, { all_spans: 'true' });
+  }
+
+  getFieldAccuracy(name: string, version: string, span?: string): Promise<FieldAccuracy[]> {
+    return this.get(`/workflows/${encodeURIComponent(name)}/fields`, { version, span: span || undefined });
+  }
+
+  /** version omitted means every version. */
+  getReviewedSpans(name: string, version?: string): Promise<ReviewedSpan[]> {
+    return this.get(`/workflows/${encodeURIComponent(name)}/review-spans`, { version });
+  }
+
+  getReviews(
+    name: string,
+    filter: { version?: string; verdicts?: Verdict[]; field?: string; span?: string; page?: number },
+  ): Promise<PaginatedResponse<RunReview>> {
+    const { verdicts, ...rest } = filter;
+    return this.get(`/workflows/${encodeURIComponent(name)}/reviews`, { ...rest, verdict: verdicts?.join(',') });
   }
 
   getFailures(range: string): Promise<PaginatedResponse<FailureRow>> {

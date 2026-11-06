@@ -62,6 +62,16 @@ func TestTraceFilterSQLVersion(t *testing.T) {
 	}
 }
 
+func TestTraceFilterSQLAttribute(t *testing.T) {
+	clause, args := traceFilterSQL(TraceFilter{StartAfter: time.UnixMilli(100), Workflow: "extract", AttrKey: "invoice_id", AttrValue: "INV-1"})
+	if !strings.Contains(clause, "trace_id IN (SELECT trace_id FROM "+tableCalls+" WHERE start_time_ms >= ? AND attributes[?] = ?") || !strings.Contains(clause, "HAVING "+workflowExpr+" = ?") {
+		t.Errorf("clause = %q", clause)
+	}
+	if n := len(args); args[n-4] != int64(100) || args[n-3] != "invoice_id" || args[n-2] != "INV-1" || args[n-1] != "extract" {
+		t.Errorf("args = %v", args)
+	}
+}
+
 func TestTraceDetailScopeHasNoSourcePredicate(t *testing.T) {
 	clause, _ := traceDetailScope("trace", []string{"workspace"})
 	if strings.Contains(clause, "source") {

@@ -1,6 +1,9 @@
 import { BaseAPIClient } from './client';
-import type { PaginatedResponse } from '../interfaces';
+import type { PaginatedResponse, ReviewInput, RunReview } from '../interfaces';
 import type { Trace, TraceDetail, TraceFilter } from '../../modules/trace-explorer/interfaces';
+
+const reviewPath = (id: string, spanId?: string) =>
+  `/traces/${encodeURIComponent(id)}${spanId ? `/spans/${encodeURIComponent(spanId)}` : ''}/review`;
 
 export class TracesAPI extends BaseAPIClient {
   async listTraces(filter: TraceFilter): Promise<PaginatedResponse<Trace>> {
@@ -9,5 +12,17 @@ export class TracesAPI extends BaseAPIClient {
 
   async getTrace(id: string): Promise<TraceDetail> {
     return this.get(`/traces/${encodeURIComponent(id)}`);
+  }
+
+  getReview(id: string, spanId?: string): Promise<RunReview> {
+    return this.get(reviewPath(id, spanId));
+  }
+
+  saveReview(id: string, input: ReviewInput, spanId?: string): Promise<RunReview> {
+    return this.put(reviewPath(id, spanId), input);
+  }
+
+  deleteReview(id: string, spanId?: string): Promise<void> {
+    return this.delete(reviewPath(id, spanId));
   }
 }

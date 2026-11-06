@@ -14,6 +14,7 @@ import (
 	"github.com/tracium/api/internal/handler"
 	"github.com/tracium/api/internal/oauth"
 	"github.com/tracium/api/internal/query"
+	"github.com/tracium/api/internal/review"
 	"github.com/tracium/api/internal/workspace"
 	"github.com/tracium/api/migrations"
 	"net/http"
@@ -104,7 +105,7 @@ func New(ctx context.Context, cfg Config, opts Options) (*Application, error) {
 		oauthService = oauth.NewService(oauth.NewStore(pool), apiKeyService, cfg.Server.PublicURL+"/v1/mcp")
 	}
 	health := []handler.DependencyCheck{{Name: "clickhouse", Check: repo.Ping}, {Name: "postgres", Check: pool.Ping}}
-	return &Application{cfg: cfg, sessions: service, Handler: newRouter(cfg, repo, workspaces, workspaces, users, service, service, apiKeyService, health, opts, oauthService), close: func() { pool.Close(); repo.Close() }}, nil
+	return &Application{cfg: cfg, sessions: service, Handler: newRouter(cfg, repo, workspaces, workspaces, users, service, service, apiKeyService, health, opts, oauthService, review.NewStore(pool)), close: func() { pool.Close(); repo.Close() }}, nil
 }
 
 var extensionName = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
