@@ -16,6 +16,20 @@ Breaking changes require a `schema_version` bump. Additive changes do not.
 
 ---
 
+## [1.2.4] - 2026-11-05
+
+### Changed
+- `pricing.json` refreshed from LiteLLM (`308fe0792080`): 3,927 models, up from 2,490. Newly priced models include Typesafe AI's jev (`typesafe/jev-1.13.0`, `typesafe/jev-1.14.0`, `typesafe/jev-latest`), which were recorded at $0. Spans already stored keep their old cost
+
+---
+
+## [1.2.3] - 2026-10-27
+
+### Fixed
+- The bundled dashboard nginx answered `POST /v1/mcp` with a 301 to `/v1/mcp/` that named its internal port (e.g. `http://host:3000/v1/mcp/`), so MCP clients connecting with OAuth (1.2.2) never reached the API. `/v1/mcp` is now proxied as is. The Helm Ingress was not affected
+
+---
+
 ## [1.2.2] - 2026-10-27
 
 ### Added
