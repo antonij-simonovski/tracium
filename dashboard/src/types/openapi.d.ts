@@ -424,7 +424,7 @@ export interface paths {
         };
         /**
          * Statistical anomalies
-         * @description Buckets that deviated significantly from their own recent history, for cost, error rate, and run volume, workspace-wide and per busy workflow. Detection is daily and robust (median + MAD over a trailing 28-day baseline), served entirely from the daily rollup, so a range of 7d or longer is required (24h is rejected with a 400). Results are ordered most severe first.
+         * @description Buckets that deviated significantly from their own recent history. Cost, error rate, run volume and p95 latency are detected daily and robustly (median + MAD over a trailing 28-day baseline) from the daily rollups, workspace-wide and per busy workflow, so a range of 7d or longer is required (24h is rejected with a 400). Silent failures are checked hourly per workflow over the last 7 days of the range, each hour against the 24 before it, and clients that went quiet are checked as of the end of the range. Results are ordered most severe first.
          */
         get: operations["getAnomalies"];
         put?: never;
@@ -1669,26 +1669,28 @@ export interface components {
         };
         Anomaly: {
             /**
-             * @description The metric that deviated.
+             * @description The metric that deviated. cost, error_rate, runs and latency_p95 (p95 root-span duration in ms) are daily robust-z outliers. The rest are hourly checks against the prior 24 hours: truncation_rate, refusal_rate and tool_error_rate (share of LLM or tool calls flagged at ingest), llm_calls_per_run and tool_repeat (the worst run's LLM calls, or calls of one tool, against the workflow's typical run), cache_hit_ratio (cache-read over input tokens) and heartbeat (hours a regular client has been silent).
              * @enum {string}
              */
-            metric: "cost" | "error_rate" | "runs";
+            metric: "cost" | "error_rate" | "runs" | "latency_p95" | "truncation_rate" | "refusal_rate" | "tool_error_rate" | "llm_calls_per_run" | "tool_repeat" | "cache_hit_ratio" | "heartbeat";
             /**
-             * @description Whether this anomaly is workspace-wide or for one workflow.
+             * @description Whether this anomaly is workspace-wide, for one workflow, or for one client (heartbeat).
              * @enum {string}
              */
-            scope: "workspace" | "workflow";
+            scope: "workspace" | "workflow" | "client";
             /** @description The workflow name when scope is "workflow"; empty otherwise. */
             workflow: string;
-            /** @description Anomalous day bucket, Unix epoch milliseconds (UTC midnight). */
+            /** @description The client (user_id) when scope is "client"; empty otherwise. */
+            client: string;
+            /** @description Anomalous bucket, Unix epoch milliseconds: a UTC day for daily metrics, an hour for hourly ones, and the hour a heartbeat became overdue. */
             bucket_ms: number;
-            /** @description The bucket's value (USD, error rate 0–1, or run count). */
+            /** @description The bucket's value: USD, a 0–1 rate or ratio, a count, latency in ms, or silent hours. */
             observed: number;
-            /** @description Baseline median the value was compared against. */
+            /** @description Baseline the value was compared against (median, prior-24h rate, or usual interval in hours). */
             expected: number;
             /** @description observed − expected. */
             deviation: number;
-            /** @description Signed robust z-score (0.6745·deviation/MAD); its sign matches direction. */
+            /** @description Signed robust z-score (0.6745·deviation/MAD) for daily metrics; for hourly metrics the signed multiple of the baseline. Its sign matches direction. */
             score: number;
             /**
              * @description Whether the value rose above or fell below the baseline.
@@ -3178,8 +3180,8 @@ export interface operations {
                 user_id?: components["parameters"]["UserFilter"];
                 /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
                 workspace_id?: components["parameters"]["WorkspaceFilter"];
-                /** @description Restrict to one metric. Omitted, all three are detected. */
-                metric?: "cost" | "error_rate" | "runs";
+                /** @description Restrict to one metric. Omitted, all are detected. */
+                metric?: "cost" | "error_rate" | "runs" | "latency_p95" | "truncation_rate" | "refusal_rate" | "tool_error_rate" | "llm_calls_per_run" | "tool_repeat" | "cache_hit_ratio" | "heartbeat";
                 /** @description Drop anomalies below this severity. Omitted, all severities are returned. */
                 min_severity?: "info" | "warning" | "critical";
             };

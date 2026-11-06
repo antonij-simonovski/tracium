@@ -5,7 +5,9 @@ import {
   METRIC_META,
   anomalyValue,
   anomalyKey,
-  zLabel,
+  scoreLabel,
+  anomalyTarget,
+  anomalyTime,
   ratioLabel,
   versionChangeLabel,
   bySeverity,
@@ -236,7 +238,7 @@ function OutlierRow({
   const rowRef = useScrollIntoView<HTMLDivElement>(expanded);
   const meta = SEVERITY_META[a.severity];
   const m = METRIC_META[a.metric];
-  const target = a.scope === 'workflow' ? a.workflow : 'Workspace-wide';
+  const target = anomalyTarget(a);
   const ratio = ratioLabel(a.observed, a.expected);
 
   return (
@@ -274,7 +276,7 @@ function OutlierRow({
             {m.kind} {a.direction}
           </span>
           <span style={{ fontFamily: MONO, fontSize: 13, color: 'var(--muted)' }}>
-            {target} · {bucketLabel(a.bucket_ms, range)}
+            {target} · {anomalyTime(a, range)}
           </span>
           <VersionChangeNote anomaly={a} range={range} />
         </div>
@@ -292,7 +294,7 @@ function OutlierRow({
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: narrow ? '1 1 100%' : '0 0 auto', minWidth: narrow ? 0 : 150 }}>
           <MagnitudeBar score={a.score} color={meta.color} />
           <span style={{ fontFamily: MONO, fontSize: 13, fontWeight: 600, color: meta.color, fontVariantNumeric: 'tabular-nums', width: 44, textAlign: 'right' }}>
-            {zLabel(a.score)}
+            {scoreLabel(a)}
           </span>
           <Chevron open={expanded} />
         </div>
@@ -332,7 +334,7 @@ function IncidentCard({
 }) {
   const cardRef = useScrollIntoView<HTMLDivElement>(expanded);
   const meta = SEVERITY_META[incident.severity];
-  const target = incident.scope === 'workflow' ? incident.workflow : 'Workspace-wide';
+  const target = anomalyTarget(incident);
   const n = incident.anomalies.length;
   const workflowAnom = incident.anomalies.find((a) => a.scope === 'workflow');
   const versionAnom = incident.anomalies.find((a) => a.version_change);
@@ -367,7 +369,7 @@ function IncidentCard({
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: '1 1 auto', minWidth: 160 }}>
           <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--foreground)' }}>{target}</span>
-          <span style={{ fontFamily: MONO, fontSize: 13, color: 'var(--muted)' }}>{bucketLabel(incident.bucket_ms, range)}</span>
+          <span style={{ fontFamily: MONO, fontSize: 13, color: 'var(--muted)' }}>{anomalyTime(incident.anomalies[0], range)}</span>
           {versionAnom && <VersionChangeNote anomaly={versionAnom} range={range} />}
         </div>
 
@@ -504,7 +506,7 @@ function WhyFlagged({ anomaly: a }: { anomaly: Anomaly }) {
       <DetailStat k="observed" v={anomalyValue(a.metric, a.observed)} color={meta.color} />
       <DetailStat k="baseline" v={anomalyValue(a.metric, a.expected)} />
       <DetailStat k="deviation" v={signedDev} />
-      <DetailStat k="z-score" v={zLabel(a.score)} />
+      <DetailStat k={METRIC_META[a.metric].hourly ? 'multiple' : 'z-score'} v={scoreLabel(a)} />
     </div>
   );
 }

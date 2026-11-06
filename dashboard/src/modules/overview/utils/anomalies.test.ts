@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { SEVERITY_META } from '../../../common';
 import type { Anomaly } from '../interfaces';
-import { anomalyChips, anomalyValue, bySeverity, groupIncidents, ratioLabel, toChartMarkers, versionChangeLabel } from './anomalies';
+import { anomalyChips, anomalyTarget, anomalyTime, anomalyValue, bySeverity, groupIncidents, ratioLabel, scoreLabel, toChartMarkers, versionChangeLabel } from './anomalies';
 
 const DAY = 86_400_000;
 
@@ -10,6 +10,7 @@ function anom(over: Partial<Anomaly>): Anomaly {
     metric: 'cost',
     scope: 'workflow',
     workflow: 'a',
+    client: '',
     bucket_ms: 0,
     observed: 2,
     expected: 1,
@@ -28,6 +29,25 @@ describe('anomalyValue', () => {
     expect(anomalyValue('cost', 4.12)).toBe('$4.12');
     expect(anomalyValue('error_rate', 0.19)).toBe('19.0%');
     expect(anomalyValue('runs', 512)).toBe('512');
+    expect(anomalyValue('latency_p95', 1500)).toBe('1.50s');
+    expect(anomalyValue('truncation_rate', 0.3)).toBe('30.0%');
+    expect(anomalyValue('llm_calls_per_run', 48)).toBe('48');
+    expect(anomalyValue('heartbeat', 31.4)).toBe('31h');
+  });
+});
+
+describe('hourly anomalies', () => {
+  it('label their score as a multiple, their hour in UTC and their client', () => {
+    const a = anom({ metric: 'heartbeat', scope: 'client', workflow: '', client: 'acme', score: -4.2, bucket_ms: Date.UTC(2026, 10, 6, 14) });
+    expect(scoreLabel(a)).toBe('4.2×');
+    expect(scoreLabel(anom({ score: 5 }))).toBe('5.0σ');
+    expect(anomalyTime(a, '7d')).toBe('11/6 14:00 UTC');
+    expect(anomalyTarget(a)).toBe('Client acme');
+  });
+
+  it('keep two silent clients in the same hour apart', () => {
+    const a = anom({ metric: 'heartbeat', scope: 'client', workflow: '', client: 'a' });
+    expect(groupIncidents([a, { ...a, client: 'b' }])).toHaveLength(2);
   });
 });
 

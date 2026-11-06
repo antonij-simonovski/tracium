@@ -101,3 +101,23 @@ func TestStampAvailableToolsNoToolsIsNoOp(t *testing.T) {
 		t.Error("available_tools must be absent when no tools were offered")
 	}
 }
+
+// The verdict is read from content before stripping, and a sender cannot forge it.
+func TestStampSilentFailure(t *testing.T) {
+	span := ptrace.NewSpan()
+	attrs := span.Attributes()
+	attrs.PutStr(attrModelRequest, "gpt-4o")
+	attrs.PutStr("gen_ai.completion.0.content", "I'm sorry, but I can't help with that.")
+	stampSilentFailure(span, attrMap(attrs), toSpanModel(span, pcommon.NewMap(), attrMap(attrs)))
+	if v, _ := attrs.Get(attrSilentFailure); v.AsString() != "refused" {
+		t.Errorf("silent_failure = %q, want refused", v.AsString())
+	}
+
+	healthy := ptrace.NewSpan()
+	healthy.Attributes().PutStr(attrModelRequest, "gpt-4o")
+	healthy.Attributes().PutStr(attrSilentFailure, "truncated")
+	stampSilentFailure(healthy, attrMap(healthy.Attributes()), toSpanModel(healthy, pcommon.NewMap(), attrMap(healthy.Attributes())))
+	if _, ok := healthy.Attributes().Get(attrSilentFailure); ok {
+		t.Error("sender-supplied silent_failure must be removed")
+	}
+}

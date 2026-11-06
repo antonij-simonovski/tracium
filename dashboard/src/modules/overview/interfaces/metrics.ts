@@ -53,11 +53,23 @@ export interface FailureRow {
 }
 
 // Anomaly is one bucket of one series that deviated significantly from its own
-// recent history — the /metrics/anomalies payload. Detection is daily and
-// rollup-backed; metric is the series that moved, scope/workflow locate it, and
+// recent history — the /metrics/anomalies payload. Daily metrics are robust-z
+// outliers; hourly ones compare an hour with the 24 before it. metric is the
+// series that moved, scope/workflow/client locate it, and
 // observed/expected/deviation/score carry the math the UI explains.
-export type AnomalyMetric = 'cost' | 'error_rate' | 'runs';
-export type AnomalyScope = 'workspace' | 'workflow';
+export type AnomalyMetric =
+  | 'cost'
+  | 'error_rate'
+  | 'runs'
+  | 'latency_p95'
+  | 'truncation_rate'
+  | 'refusal_rate'
+  | 'tool_error_rate'
+  | 'llm_calls_per_run'
+  | 'tool_repeat'
+  | 'cache_hit_ratio'
+  | 'heartbeat';
+export type AnomalyScope = 'workspace' | 'workflow' | 'client';
 export type AnomalyDirection = 'spike' | 'drop';
 export type AnomalySeverity = Severity;
 
@@ -65,11 +77,12 @@ export interface Anomaly {
   metric: AnomalyMetric;
   scope: AnomalyScope;
   workflow: string; // set when scope === 'workflow', else ''
-  bucket_ms: number; // anomalous day bucket, UTC midnight
-  observed: number; // the bucket's value (USD, error rate 0–1, or run count)
-  expected: number; // baseline median
+  client: string; // set when scope === 'client', else ''
+  bucket_ms: number; // UTC day for daily metrics, hour for hourly ones
+  observed: number; // the bucket's value, in the metric's unit
+  expected: number; // baseline
   deviation: number; // observed − expected
-  score: number; // signed robust z-score
+  score: number; // signed robust z-score (daily) or multiple of baseline (hourly)
   direction: AnomalyDirection;
   severity: AnomalySeverity;
   summary: string; // ready-to-read description

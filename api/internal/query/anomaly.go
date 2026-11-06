@@ -59,20 +59,23 @@ type anomalyMetric struct {
 	spike, drop bool
 }
 
-// anomalyMetrics is the v1 detection set: cost (spikes), error rate (spikes),
-// and run volume (spikes and drops — a drop toward zero is the silent-failure
-// signal). Latency and per-model/user slices are deferred (see the design).
+// anomalyMetrics is the daily detection set: cost (spikes), error rate (spikes),
+// run volume (spikes and drops — a drop toward zero is the silent-failure
+// signal) and p95 run latency in ms (spikes). The hourly checks live in hourly.go.
 var anomalyMetrics = []anomalyMetric{
 	{name: "cost", absFloor: 1.0, volumeFloor: 1.0, spike: true},
 	{name: "error_rate", absFloor: 0.05, volumeFloor: 20, spike: true},
 	{name: "runs", absFloor: 5, volumeFloor: 10, spike: true, drop: true},
+	{name: "latency_p95", absFloor: 500, volumeFloor: 20, spike: true},
 }
 
 // dailyAgg is one bucket's rollup aggregates for one series (overall or one workflow).
 type dailyAgg struct {
-	cost    float64
-	runs    int64
-	errRuns int64
+	cost      float64
+	runs      int64
+	errRuns   int64
+	p95       float64
+	timedRuns int64
 }
 
 // Anomalies detects statistical anomalies over the window in f, workspace-scoped.
@@ -106,7 +109,6 @@ func (r *ClickHouseRepository) Anomalies(ctx context.Context, f MetricsFilter) (
 	if err != nil {
 		return nil, err
 	}
-	out = append(out, detectSeries(f, "workspace", "", axis, overall, detectFrom, minSev)...)
 
 	workflows, err := r.anomalyTopWorkflows(ctx, f)
 	if err != nil {
@@ -118,10 +120,20 @@ func (r *ClickHouseRepository) Anomalies(ctx context.Context, f MetricsFilter) (
 		if err != nil {
 			return nil, err
 		}
-		for _, name := range workflows {
-			out = append(out, detectSeries(f, "workflow", name, axis, byWorkflow[name], detectFrom, minSev)...)
-		}
 	}
+	if err := r.anomalyLatency(ctx, f, baseStart, workflows, overall, byWorkflow); err != nil {
+		return nil, err
+	}
+	out = append(out, detectSeries(f, "workspace", "", axis, overall, detectFrom, minSev)...)
+	for _, name := range workflows {
+		out = append(out, detectSeries(f, "workflow", name, axis, byWorkflow[name], detectFrom, minSev)...)
+	}
+
+	hourly, err := r.hourlyAnomalies(ctx, f, minSev)
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, hourly...)
 
 	if len(out) > 0 {
 		changes, err := r.versionChanges(ctx, f, baseStart, detectFrom-versionLeadMs)
@@ -210,8 +222,57 @@ func metricValue(d dailyAgg, metric string) (v, sup float64) {
 		if d.runs > 0 {
 			v = float64(d.errRuns) / float64(d.runs)
 		}
+	case "latency_p95":
+		v, sup = d.p95, float64(d.timedRuns)
 	}
 	return v, sup
+}
+
+// anomalyLatency merges p95 run latency from the latency rollup into the
+// workspace-wide and per-workflow series.
+func (r *ClickHouseRepository) anomalyLatency(ctx context.Context, f MetricsFilter, baseStart time.Time, workflows []string, overall map[int64]dailyAgg, byWorkflow map[string]map[int64]dailyAgg) error {
+	clause, args := rollupWindow(f.UserID, f.WorkspaceIDs, baseStart, f.End, true)
+	in := "1 = 0"
+	all := append(append([]any{}, args...), args...)
+	if len(workflows) > 0 {
+		in = "workflow_name IN (" + strings.TrimSuffix(strings.Repeat("?,", len(workflows)), ",") + ")"
+		for _, w := range workflows {
+			all = append(all, w)
+		}
+	}
+	q := fmt.Sprintf(`SELECT '' AS workflow_name, %[1]s AS bucket_ms,
+    quantileTDigestMerge(0.95)(latency) AS p95, toInt64(sum(runs)) AS runs
+FROM tracium.metrics_daily_latency WHERE %[2]s GROUP BY bucket_ms
+UNION ALL
+SELECT workflow_name, %[1]s AS bucket_ms,
+    quantileTDigestMerge(0.95)(latency) AS p95, toInt64(sum(runs)) AS runs
+FROM tracium.metrics_daily_latency WHERE %[2]s AND %[3]s
+GROUP BY workflow_name, bucket_ms`, bucketMsExpr, clause, in)
+
+	rows, err := r.db.QueryContext(ctx, q, all...)
+	if err != nil {
+		return fmt.Errorf("clickhouse: anomaly latency: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		var bm, runs int64
+		var p95 float64
+		if err := rows.Scan(&name, &bm, &p95, &runs); err != nil {
+			return fmt.Errorf("clickhouse: scan anomaly latency: %w", err)
+		}
+		target := overall
+		if name != "" {
+			if byWorkflow[name] == nil {
+				byWorkflow[name] = make(map[int64]dailyAgg)
+			}
+			target = byWorkflow[name]
+		}
+		d := target[bm]
+		d.p95, d.timedRuns = sanitize(p95), runs
+		target[bm] = d
+	}
+	return rows.Err()
 }
 
 // anomalyDailySeries loads the workspace-wide daily aggregates over [baseStart, End].
@@ -421,7 +482,7 @@ func anomalySummary(a model.Anomaly) string {
 		subject = fmt.Sprintf("Workflow %q", a.Workflow)
 	}
 	date := time.UnixMilli(a.BucketMs).UTC().Format(dateFmt)
-	noun := map[string]string{"cost": "cost", "runs": "run volume", "error_rate": "error rate"}[a.Metric]
+	noun := map[string]string{"cost": "cost", "runs": "run volume", "error_rate": "error rate", "latency_p95": "p95 run latency"}[a.Metric]
 	obs := formatAnomalyValue(a.Metric, a.Observed)
 	exp := formatAnomalyValue(a.Metric, a.Expected)
 	if a.Direction == "drop" {
@@ -437,8 +498,15 @@ func formatAnomalyValue(metric string, v float64) string {
 	switch metric {
 	case "cost":
 		return fmt.Sprintf("$%.2f", v)
-	case "error_rate":
+	case "error_rate", "truncation_rate", "refusal_rate", "tool_error_rate", "cache_hit_ratio":
 		return fmt.Sprintf("%.1f%%", v*100)
+	case "latency_p95":
+		if v >= 1000 {
+			return fmt.Sprintf("%.1fs", v/1000)
+		}
+		return fmt.Sprintf("%.0fms", v)
+	case "heartbeat":
+		return fmt.Sprintf("%.0fh", v)
 	default:
 		return fmt.Sprintf("%.0f", v)
 	}

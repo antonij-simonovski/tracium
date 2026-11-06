@@ -121,11 +121,18 @@ func withLimit[T any](load func(context.Context, query.MetricsFilter, int) ([]T,
 	}
 }
 
-var validAnomalyMetrics = map[string]bool{"cost": true, "error_rate": true, "runs": true}
+var validAnomalyMetrics = map[string]bool{
+	"cost": true, "error_rate": true, "runs": true, "latency_p95": true,
+	"truncation_rate": true, "refusal_rate": true, "tool_error_rate": true,
+	"llm_calls_per_run": true, "tool_repeat": true, "cache_hit_ratio": true, "heartbeat": true,
+}
+
+const anomalyMetricList = "cost, error_rate, runs, latency_p95, truncation_rate, refusal_rate, tool_error_rate, llm_calls_per_run, tool_repeat, cache_hit_ratio, heartbeat"
+
 var validAnomalySeverities = map[string]bool{"info": true, "warning": true, "critical": true}
 
-// Anomalies handles GET /v1/metrics/anomalies. Detection is daily, so ranges
-// shorter than 7d are rejected. Optional `metric` and `min_severity` narrow the results.
+// Anomalies handles GET /v1/metrics/anomalies. Daily detection needs a baseline,
+// so ranges shorter than 7d are rejected. Optional `metric` and `min_severity` narrow the results.
 func (h *MetricsHandler) Anomalies(w http.ResponseWriter, r *http.Request) {
 	f, ok := h.filter(w, r)
 	if !ok {
@@ -137,7 +144,7 @@ func (h *MetricsHandler) Anomalies(w http.ResponseWriter, r *http.Request) {
 	}
 	if m := r.URL.Query().Get("metric"); m != "" {
 		if !validAnomalyMetrics[m] {
-			respondError(w, http.StatusBadRequest, "BAD_REQUEST", "metric must be one of cost, error_rate, runs")
+			respondError(w, http.StatusBadRequest, "BAD_REQUEST", "metric must be one of "+anomalyMetricList)
 			return
 		}
 		f.AnomalyMetric = m

@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tracium/collector/internal/genai"
+
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 )
@@ -95,8 +97,8 @@ func TestSpanKind_DerivationPriority(t *testing.T) {
 			for k, v := range tt.attrs {
 				attrs.PutStr(k, v)
 			}
-			if got := spanKind(attrs, tt.model, tt.inputTokens, tt.outputTokens); got != tt.want {
-				t.Errorf("spanKind(%v, %q, %d, %d) = %q, want %q", tt.attrs, tt.model, tt.inputTokens, tt.outputTokens, got, tt.want)
+			if got := genai.Kind(attrMap(attrs), tt.model, tt.inputTokens, tt.outputTokens); got != tt.want {
+				t.Errorf("Kind(%v, %q, %d, %d) = %q, want %q", tt.attrs, tt.model, tt.inputTokens, tt.outputTokens, got, tt.want)
 			}
 		})
 	}

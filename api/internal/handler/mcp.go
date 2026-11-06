@@ -177,12 +177,12 @@ var mcpTools = []mcpTool{
 		Name:        "detect_anomalies",
 		Title:       "Detect anomalies",
 		Annotations: readOnly,
-		Description: "Finds statistically significant daily changes in cost, error rate or run volume, workspace-wide and per busy workflow, with the workflow versions that shipped around them.",
+		Description: "Finds daily outliers in cost, error rate, run volume and p95 latency, and hourly silent failures (truncated, refused or failing tool calls, runaway LLM or tool calls per run, cache hit ratio drops, clients gone quiet), with the workflow versions that shipped around them.",
 		InputSchema: json.RawMessage(`{
   "type": "object",
   "properties": {
     "range": {"type": "string", "enum": ["7d", "30d", "90d"], "description": "Defaults to 30d."},
-    "metric": {"type": "string", "enum": ["cost", "error_rate", "runs"]},
+    "metric": {"type": "string", "enum": ["cost", "error_rate", "runs", "latency_p95", "truncation_rate", "refusal_rate", "tool_error_rate", "llm_calls_per_run", "tool_repeat", "cache_hit_ratio", "heartbeat"]},
     "min_severity": {"type": "string", "enum": ["info", "warning", "critical"]},
     ` + workspaceProp + `
   }
@@ -517,7 +517,7 @@ func (h *QueryHandler) anomalies(ctx context.Context, scope []string, raw json.R
 		return nil, toolError{"range must be one of 7d, 30d, 90d"}
 	}
 	if a.Metric != "" && !validAnomalyMetrics[a.Metric] {
-		return nil, toolError{"metric must be one of cost, error_rate, runs"}
+		return nil, toolError{"metric must be one of " + anomalyMetricList}
 	}
 	if a.MinSeverity != "" && !validAnomalySeverities[a.MinSeverity] {
 		return nil, toolError{"min_severity must be one of info, warning, critical"}

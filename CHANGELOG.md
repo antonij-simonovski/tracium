@@ -13,6 +13,9 @@ Breaking changes require a `schema_version` bump. Additive changes do not.
 - Ingest keys can send reviews with `PUT /v1/traces/{id}/review`, `PUT /v1/traces/{id}/spans/{spanId}/review`, or by a custom attribute with `PUT /v1/workflows/{name}/reviews?key=&value=[&span=]`, and get 204. A review can send `output` to grade in place of the traced one, for apps that post-process it. An API review never replaces one a person made (409)
 - New read routes: `GET|DELETE /v1/traces/{id}[/spans/{spanId}]/review`, `GET /v1/workflows/{name}/reviews`, `/accuracy`, `/fields` and `/review-spans`. Postgres migration `007` adds `run_reviews` and `run_review_fields`
 - The collector reads structured output sent as tool call arguments when a message has no text
+- Silent-failure detection. The collector flags spans that did not error but went wrong in a new `silent_failure` column: `truncated` (finish reason length / max_tokens), `refused` (content filter finish reason or refusal text at the start of the output) and `tool_error` (an OK tool span returning an error JSON payload). Cache-read tokens are now stored in `cache_read_tokens`
+- New anomaly metrics on `GET /v1/metrics/anomalies`: `latency_p95` (daily, per workflow, from the new `metrics_daily_latency` rollup), and hourly `truncation_rate`, `refusal_rate`, `tool_error_rate`, `llm_calls_per_run`, `tool_repeat`, `cache_hit_ratio` and `heartbeat` (a regular client gone quiet, scope `client`). Anomalies carry a new `client` field
+- Migrations 016–019 add the columns and backfill the latency rollup from stored spans. Stop ingestion while they run
 
 ---
 
