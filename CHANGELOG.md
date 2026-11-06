@@ -5,6 +5,17 @@ Breaking changes require a `schema_version` bump. Additive changes do not.
 
 ---
 
+## Unreleased
+
+### Added
+- Run reviews: mark a run or one of its spans correct, incorrect or missing, or correct its output, from the new Review tab in the trace view. JSON outputs are graded field by field
+- Workflow pages show accuracy per version and per span, and the fields that are wrong most often; the versions table and version compare show accuracy too
+- Ingest keys can send reviews with `PUT /v1/traces/{id}/review`, `PUT /v1/traces/{id}/spans/{spanId}/review`, or by a custom attribute with `PUT /v1/workflows/{name}/reviews?key=&value=[&span=]`, and get 204. A review can send `output` to grade in place of the traced one, for apps that post-process it. An API review never replaces one a person made (409)
+- New read routes: `GET|DELETE /v1/traces/{id}[/spans/{spanId}]/review`, `GET /v1/workflows/{name}/reviews`, `/accuracy`, `/fields` and `/review-spans`. Postgres migration `007` adds `run_reviews` and `run_review_fields`
+- The collector reads structured output sent as tool call arguments when a message has no text
+
+---
+
 ## [1.2.2] - 2026-10-27
 
 ### Added
