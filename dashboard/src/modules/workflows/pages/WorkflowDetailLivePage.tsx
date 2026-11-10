@@ -20,6 +20,7 @@ import {
 } from '../hooks/useWorkflowDetail';
 import { useWorkflowAccuracy } from '../hooks/useReviews';
 import { AccuracySection } from '../components/AccuracySection';
+import { ReviewQueue } from '../components/ReviewQueue';
 import { change, comparable, currentVersion, defaultPair, deriveRunOutcomes, fmtSeen, previousVersion, releaseMarkers } from '../utils';
 import { WorkflowDetailPage } from './WorkflowDetailPage';
 import type { MetaRowProps } from '../../../common';
@@ -122,7 +123,13 @@ export function WorkflowDetailLivePage({ workflowName, range, setView, setSelect
       onCompare={compare}
       defaultCompare={pair}
       accuracy={accuracy.data}
-      quality={<AccuracySection key={inView} workflow={workflowName} version={inView} versions={versions} onOpenTrace={openTrace} />}
+      quality={<>
+        <ReviewQueue workflow={workflowName} onOpen={(it) => {
+          setSelected((s) => ({ ...s, traceId: it.trace_id, queueTrace: it.trace_id, queue: workflowName, queueReason: it.reason }));
+          setView('trace');
+        }} />
+        <AccuracySection key={inView} workflow={workflowName} version={inView} versions={versions} onOpenTrace={openTrace} />
+      </>}
       costAlert={
         current && replaced && cprChange > COST_ALERT
           ? { version: current.version, from: replaced.cost_per_run, to: current.cost_per_run, change: fmtDelta(cprChange) }

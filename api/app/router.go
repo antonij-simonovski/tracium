@@ -32,6 +32,7 @@ func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, invit
 	reviewHandler := handler.NewReviewHandler(repo, reviews, wsStore)
 	metricsHandler := handler.NewMetricsHandler(repo, wsStore, reports)
 	incidentHandler := handler.NewIncidentHandler(incidents, wsStore, opts.Notifier)
+	queueHandler := handler.NewReviewQueueHandler(repo, reviews, incidents, wsStore)
 	queryHandler := handler.NewQueryHandler(repo, repo, wsStore)
 	healthHandler := handler.NewHealthHandler(healthChecks...)
 	var oauthHandler *handler.OAuthHandler
@@ -172,6 +173,7 @@ func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, invit
 		r.Get(version.Route(version.V1, "/workflows/{name}/accuracy"), reviewHandler.Accuracy)
 		r.Get(version.Route(version.V1, "/workflows/{name}/fields"), reviewHandler.Fields)
 		r.Get(version.Route(version.V1, "/workflows/{name}/review-spans"), reviewHandler.Spans)
+		r.Get(version.Route(version.V1, "/reviews/queue"), queueHandler.Queue)
 
 		r.Get(version.Route(version.V1, "/metrics/kpis"), metricsHandler.KPIs)
 		r.Get(version.Route(version.V1, "/metrics/cost-series"), metricsHandler.CostSeries)

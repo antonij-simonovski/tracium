@@ -175,6 +175,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/reviews/queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Runs to review next
+         * @description Unreviewed runs worth a reviewer's time: example runs of open incidents,
+         *     then runs with a silent-failure flag in the last 7 days. Every fifth item
+         *     is a random unflagged run from the last 24 hours, so accuracy is not
+         *     measured only on suspicious runs; either kind fills the list when the
+         *     other runs out.
+         */
+        get: operations["getReviewQueue"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/workflows/{name}/review-spans": {
         parameters: {
             query?: never;
@@ -1471,6 +1495,11 @@ export interface components {
             /** @description Added in schema v2. Human-readable error message if the span failed. */
             error_message?: string;
             /**
+             * @description The silent failure the collector flagged on this span. Omitted when none.
+             * @enum {string}
+             */
+            silent_failure?: "truncated" | "refused" | "tool_error";
+            /**
              * @description Normalized span role, derived by the collector from instrumentation attributes (OpenInference openinference.span.kind, Traceloop traceloop.span.kind, or the OTel GenAI gen_ai.operation.name). Optional: omitted when the collector could not classify the span, in which case consumers infer the role from the span's context.
              * @enum {string}
              */
@@ -1501,6 +1530,8 @@ export interface components {
             has_error?: boolean;
             /** @description Sum of cost_usd across all spans in this trace. */
             total_cost_usd?: number;
+            /** @description The distinct silent-failure flags on the trace's spans, sorted. Empty when none. */
+            silent_failures?: ("truncated" | "refused" | "tool_error")[];
             /** @description Schema version of this trace record. */
             schema_version?: number;
         };
@@ -1532,6 +1563,11 @@ export interface components {
                 [key: string]: unknown;
             };
             note?: string;
+            /**
+             * @description The review queue item's reason, when the run is reviewed from the queue. Omitted, it is the run's silent-failure flag, if any.
+             * @enum {string}
+             */
+            reason?: "incident" | "truncated" | "refused" | "tool_error" | "sample";
         };
         ReviewField: {
             /** @description Dot-joined path to a leaf; nested objects are flattened, arrays are one field. */
@@ -1565,12 +1601,23 @@ export interface components {
              * @enum {string}
              */
             source: "user" | "api";
+            /**
+             * @description Why the run was reviewed. Accuracy alerts compare reviews with "" or sample, the unflagged runs, between versions.
+             * @enum {string}
+             */
+            reason: "" | "incident" | "truncated" | "refused" | "tool_error" | "sample";
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
             updated_at: string;
             /** @description Graded fields; empty unless output and correction are both JSON objects. */
             fields: components["schemas"]["ReviewField"][];
+        };
+        ReviewQueueItem: components["schemas"]["Trace"] & {
+            /** @enum {string} */
+            reason: "incident" | "truncated" | "refused" | "tool_error" | "sample";
+            /** @description The open incident the run is an example of; set when reason is incident. */
+            incident_id?: string;
         };
         ReviewedSpan: {
             name: string;
@@ -2978,6 +3025,49 @@ export interface operations {
             };
         };
     };
+    getReviewQueue: {
+        parameters: {
+            query?: {
+                /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
+                workspace_id?: components["parameters"]["WorkspaceFilter"];
+                workflow?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The queue, in review order. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewQueueItem"][];
+                };
+            };
+            /** @description limit is out of range. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Missing or invalid bearer token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     listReviewedSpans: {
         parameters: {
             query?: {
@@ -3701,7 +3791,7 @@ export interface operations {
                     /** @enum {string} */
                     duration: "24h" | "7d" | "forever";
                     /**
-                     * @description Mute only this metric: an anomaly metric, one release report finding such as release_regression:truncation_rate, or release_regression for every release finding. Empty mutes every metric of the subject.
+                     * @description Mute only this metric: an anomaly metric, review_accuracy, one release report finding such as release_regression:truncation_rate, or release_regression for every release finding. Empty mutes every metric of the subject.
                      * @default
                      */
                     metric?: string;

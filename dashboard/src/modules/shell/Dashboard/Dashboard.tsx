@@ -19,6 +19,7 @@ import { useWorkspaces } from '../hooks/useWorkspaces';
 import type { Workspace, BreadcrumbItem, CommandAction } from '../interfaces';
 import { VIEW_IDS, type ViewId } from '../ids';
 import { stateToPath, pathToState, type NavState } from '../routing';
+import type { QueueReason } from '../../../common/interfaces';
 
 export interface DashboardProps {
   extensions?: DashboardExtensions;
@@ -320,7 +321,8 @@ export function Dashboard({ embedded = false, onLogout, onSessionRenewed, extens
           {view === 'trace'       && (embedded
             ? <TraceDetailDashPage setView={setView} />
             : selected.traceId
-              ? <TraceDetailView traceId={selected.traceId} setView={setView} setSelected={setSelected} />
+              ? <TraceDetailView traceId={selected.traceId} setView={setView} setSelected={setSelected}
+                  queue={selected.queueTrace === selected.traceId && selected.queue ? { workflow: selected.queue, reason: selected.queueReason as QueueReason } : undefined} />
               : <EmptyState message="No trace selected" description="Open a trace from a workflow or the overview to see its detail." />)}
           {view === 'usage'       && (embedded
             ? <UsagePage />

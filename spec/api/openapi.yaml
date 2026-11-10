@@ -625,6 +625,52 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /v1/reviews/queue:
+    get:
+      operationId: getReviewQueue
+      summary: Runs to review next
+      description: |
+        Unreviewed runs worth a reviewer's time: example runs of open incidents,
+        then runs with a silent-failure flag in the last 7 days. Every fifth item
+        is a random unflagged run from the last 24 hours, so accuracy is not
+        measured only on suspicious runs; either kind fills the list when the
+        other runs out.
+      tags:
+        - Reviews
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceFilter"
+        - name: workflow
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: The queue, in review order.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ReviewQueueItem"
+        "400":
+          description: limit is out of range.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Missing or invalid bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /v1/workflows/{name}/review-spans:
     get:
       operationId: listReviewedSpans
@@ -1236,7 +1282,7 @@ paths:
                   type: string
                   pattern: "^([a-z0-9_]+|release_regression:(error_rate|truncation_rate|refusal_rate|tool_error_rate|cost_per_run|latency_p95|llm_calls_per_run|output_tokens_per_run|cache_hit_ratio))?$"
                   description: >
-                    Mute only this metric: an anomaly metric, one release report finding such as
+                    Mute only this metric: an anomaly metric, review_accuracy, one release report finding such as
                     release_regression:truncation_rate, or release_regression for every release
                     finding. Empty mutes every metric of the subject.
                   default: ""
@@ -3077,6 +3123,10 @@ components:
         error_message:
           type: string
           description: "Added in schema v2. Human-readable error message if the span failed."
+        silent_failure:
+          type: string
+          enum: [truncated, refused, tool_error]
+          description: The silent failure the collector flagged on this span. Omitted when none.
         kind:
           type: string
           enum: ["agent", "llm", "tool", "chain", "retriever", "embedding"]
@@ -3136,6 +3186,12 @@ components:
           type: number
           minimum: 0
           description: Sum of cost_usd across all spans in this trace.
+        silent_failures:
+          type: array
+          items:
+            type: string
+            enum: [truncated, refused, tool_error]
+          description: The distinct silent-failure flags on the trace's spans, sorted. Empty when none.
         schema_version:
           type: integer
           minimum: 1
@@ -3180,6 +3236,10 @@ components:
             Needs a JSON object output; not allowed with corrected_output.
         note:
           type: string
+        reason:
+          type: string
+          enum: [incident, truncated, refused, tool_error, sample]
+          description: The review queue item's reason, when the run is reviewed from the queue. Omitted, it is the run's silent-failure flag, if any.
 
     ReviewField:
       type: object
@@ -3202,7 +3262,7 @@ components:
 
     Review:
       type: object
-      required: [trace_id, span_id, span_name, workspace_id, workflow_name, workflow_version, verdict, output, corrected_output, note, reviewed_by, source, created_at, updated_at, fields]
+      required: [trace_id, span_id, span_name, workspace_id, workflow_name, workflow_version, verdict, output, corrected_output, note, reviewed_by, source, reason, created_at, updated_at, fields]
       properties:
         trace_id:
           type: string
@@ -3234,6 +3294,10 @@ components:
           type: string
           enum: [user, api]
           description: api when an ingest key sent the review.
+        reason:
+          type: string
+          enum: ["", incident, truncated, refused, tool_error, sample]
+          description: Why the run was reviewed. Accuracy alerts compare reviews with "" or sample, the unflagged runs, between versions.
         created_at:
           type: string
           format: date-time
@@ -3245,6 +3309,19 @@ components:
           description: Graded fields; empty unless output and correction are both JSON objects.
           items:
             $ref: "#/components/schemas/ReviewField"
+
+    ReviewQueueItem:
+      allOf:
+        - $ref: "#/components/schemas/Trace"
+        - type: object
+          required: [reason]
+          properties:
+            reason:
+              type: string
+              enum: [incident, truncated, refused, tool_error, sample]
+            incident_id:
+              type: string
+              description: The open incident the run is an example of; set when reason is incident.
 
     ReviewedSpan:
       type: object

@@ -183,7 +183,8 @@ var findingNouns = map[string]string{
 func Signals(r Report) []model.Anomaly {
 	var out []model.Anomaly
 	for _, f := range r.Findings {
-		if f.Verdict != anomaly.Regressed {
+		// A review_accuracy finding raises its own signal.
+		if f.Verdict != anomaly.Regressed || !anomaly.FindingMetrics[f.Metric] {
 			continue
 		}
 		direction := "up"

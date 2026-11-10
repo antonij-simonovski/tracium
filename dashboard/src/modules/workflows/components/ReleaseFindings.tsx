@@ -3,7 +3,7 @@ import type { ReleaseReport } from '../interfaces';
 import { change, fmtPts, fmtRunCost } from '../utils';
 import { VerdictBadge } from './VerdictBadge';
 
-const RATES = new Set(['error_rate', 'truncation_rate', 'refusal_rate', 'tool_error_rate', 'cache_hit_ratio']);
+const RATES = new Set(['error_rate', 'truncation_rate', 'refusal_rate', 'tool_error_rate', 'cache_hit_ratio', 'review_accuracy']);
 
 const LABELS: Record<string, string> = {
   error_rate: 'Error rate',
@@ -15,6 +15,7 @@ const LABELS: Record<string, string> = {
   llm_calls_per_run: 'LLM calls / run (median)',
   output_tokens_per_run: 'Output tokens / run (median)',
   cache_hit_ratio: 'Cache hit ratio',
+  review_accuracy: 'Reviewed accuracy',
 };
 
 // Names an incident signal metric from a release report, e.g.

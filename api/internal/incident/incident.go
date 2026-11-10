@@ -28,6 +28,9 @@ const (
 
 var ErrNotFound = errors.New("incident not found")
 
+// AccuracyMetric is a drop in reviewed accuracy between two workflow versions.
+const AccuracyMetric = "review_accuracy"
+
 type Incident struct {
 	ID            string               `json:"id"`
 	WorkspaceID   string               `json:"workspace_id"`

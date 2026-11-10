@@ -115,6 +115,7 @@ func New(ctx context.Context, cfg Config, opts Options) (*Application, error) {
 	health := []handler.DependencyCheck{{Name: "clickhouse", Check: repo.Ping}, {Name: "postgres", Check: pool.Ping}}
 	incidents := incident.NewStore(pool)
 	reports := release.NewStore(pool)
+	reviews := review.NewStore(pool)
 	var evaluator *incident.Evaluator
 	if *cfg.Detection.Enabled {
 		fold := incident.DefaultOptions()
@@ -123,10 +124,10 @@ func New(ctx context.Context, cfg Config, opts Options) (*Application, error) {
 			Interval: time.Duration(cfg.Detection.IntervalSeconds) * time.Second,
 			Timeout:  time.Duration(cfg.Storage.QueryTimeout) * time.Second,
 			Fold:     fold,
-		}, release.NewTracker(repo, reports, release.DefaultOptions()))
+		}, release.NewTracker(repo, reports, release.DefaultOptions()), review.NewAccuracyWatch(reviews, reports, review.DefaultAccuracyOptions()))
 	}
 	return &Application{cfg: cfg, sessions: service, evaluator: evaluator,
-		Handler: newRouter(cfg, repo, workspaces, workspaces, users, service, service, apiKeyService, health, opts, oauthService, review.NewStore(pool), incidents, reports),
+		Handler: newRouter(cfg, repo, workspaces, workspaces, users, service, service, apiKeyService, health, opts, oauthService, reviews, incidents, reports),
 		close:   func() { pool.Close(); repo.Close() }}, nil
 }
 

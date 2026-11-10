@@ -95,12 +95,10 @@ func CompareVersions(prev, next model.VersionStats, o CompareOptions) []Finding 
 func compareRate(metric string, pHits, pN, nHits, nN int64, o CompareOptions) Finding {
 	p, n := float64(pHits)/float64(pN), float64(nHits)/float64(nN)
 	f := Finding{Metric: metric, Prev: p, Next: n, Verdict: Same}
-	pooled := float64(pHits+nHits) / float64(pN+nN)
-	se := math.Sqrt(pooled * (1 - pooled) * (1/float64(pN) + 1/float64(nN)))
-	if se == 0 {
+	z, diff := TwoProportionZ(pHits, pN, nHits, nN), n-p
+	if math.IsNaN(z) {
 		return f
 	}
-	z, diff := (n-p)/se, n-p
 	switch {
 	case z >= o.RateZ && diff >= o.RateDiff && nHits >= o.RateMinHits:
 		f.Verdict = Regressed
@@ -157,4 +155,16 @@ func Verdict(findings []Finding) string {
 		}
 	}
 	return verdict
+}
+
+// TwoProportionZ is the pooled z statistic of the new rate against the
+// previous one; NaN when the pooled rate is 0 or 1.
+func TwoProportionZ(pHits, pN, nHits, nN int64) float64 {
+	p, n := float64(pHits)/float64(pN), float64(nHits)/float64(nN)
+	pooled := float64(pHits+nHits) / float64(pN+nN)
+	se := math.Sqrt(pooled * (1 - pooled) * (1/float64(pN) + 1/float64(nN)))
+	if se == 0 {
+		return math.NaN()
+	}
+	return (n - p) / se
 }

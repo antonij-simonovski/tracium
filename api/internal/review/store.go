@@ -41,6 +41,9 @@ type Store interface {
 	Accuracy(ctx context.Context, workspaceIDs []string, workflow string, span *string) ([]model.VersionAccuracy, error)
 	FieldAccuracy(ctx context.Context, workspaceIDs []string, workflow, span, version string) ([]model.FieldAccuracy, error)
 	Spans(ctx context.Context, workspaceIDs []string, workflow string, version *string) ([]model.ReviewedSpan, error)
+	// Reviewed is the subset of traceIDs whose run has a review.
+	Reviewed(ctx context.Context, workspaceIDs, traceIDs []string) (map[string]bool, error)
+	RunAccuracy(ctx context.Context, workspaceID string) ([]VersionReviews, error)
 }
 
 // spanMatch keeps run reviews when $n is empty, else reviews of spans named $n.
@@ -67,14 +70,15 @@ func (s *PostgresStore) Upsert(ctx context.Context, r *model.Review) error {
 	defer tx.Rollback(context.Background())
 
 	err = tx.QueryRow(ctx,
-		`INSERT INTO run_reviews (workspace_id, trace_id, span_id, span_name, workflow_name, workflow_version, verdict, output, corrected_output, note, reviewed_by, source)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		`INSERT INTO run_reviews (workspace_id, trace_id, span_id, span_name, workflow_name, workflow_version, verdict, output, corrected_output, note, reviewed_by, source, reason)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		 ON CONFLICT (workspace_id, trace_id, span_id) DO UPDATE SET
 		   verdict = EXCLUDED.verdict, output = EXCLUDED.output, corrected_output = EXCLUDED.corrected_output,
-		   note = EXCLUDED.note, reviewed_by = EXCLUDED.reviewed_by, source = EXCLUDED.source, updated_at = NOW()
+		   note = EXCLUDED.note, reviewed_by = EXCLUDED.reviewed_by, source = EXCLUDED.source, updated_at = NOW(),
+		   reason = COALESCE(NULLIF(EXCLUDED.reason, ''), run_reviews.reason)
 		 WHERE run_reviews.source = 'api' OR EXCLUDED.source = 'user'
 		 RETURNING created_at, updated_at`,
-		r.WorkspaceID, r.TraceID, r.SpanID, r.SpanName, r.WorkflowName, r.WorkflowVersion, r.Verdict, r.Output, r.CorrectedOutput, r.Note, r.ReviewedBy, r.Source,
+		r.WorkspaceID, r.TraceID, r.SpanID, r.SpanName, r.WorkflowName, r.WorkflowVersion, r.Verdict, r.Output, r.CorrectedOutput, r.Note, r.ReviewedBy, r.Source, r.Reason,
 	).Scan(&r.CreatedAt, &r.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrUserReview
@@ -102,12 +106,12 @@ func (s *PostgresStore) Upsert(ctx context.Context, r *model.Review) error {
 	return nil
 }
 
-const reviewColumns = `trace_id, span_id, span_name, workspace_id, workflow_name, workflow_version, verdict, output, corrected_output, note, reviewed_by, source, created_at, updated_at`
+const reviewColumns = `trace_id, span_id, span_name, workspace_id, workflow_name, workflow_version, verdict, output, corrected_output, note, reviewed_by, source, reason, created_at, updated_at`
 
 func scanReview(row pgx.Row) (model.Review, error) {
 	var r model.Review
 	err := row.Scan(&r.TraceID, &r.SpanID, &r.SpanName, &r.WorkspaceID, &r.WorkflowName, &r.WorkflowVersion, &r.Verdict,
-		&r.Output, &r.CorrectedOutput, &r.Note, &r.ReviewedBy, &r.Source, &r.CreatedAt, &r.UpdatedAt)
+		&r.Output, &r.CorrectedOutput, &r.Note, &r.ReviewedBy, &r.Source, &r.Reason, &r.CreatedAt, &r.UpdatedAt)
 	// An approved output was graded against itself when saved.
 	if c := r.CorrectedOutput; c != nil {
 		r.Fields, _ = Grade(r.Output, *c)
@@ -240,4 +244,42 @@ func (s *PostgresStore) FieldAccuracy(ctx context.Context, workspaceIDs []string
 		out = append(out, a)
 	}
 	return out, rows.Err()
+}
+
+func (s *PostgresStore) Reviewed(ctx context.Context, workspaceIDs, traceIDs []string) (map[string]bool, error) {
+	rows, err := s.pool.Query(ctx, `SELECT trace_id FROM run_reviews WHERE workspace_id = ANY($1) AND trace_id = ANY($2) AND span_id = ''`, workspaceIDs, traceIDs)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: reviewed runs: %w", err)
+	}
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, fmt.Errorf("postgres: scan reviewed runs: %w", err)
+	}
+	out := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		out[id] = true
+	}
+	return out, nil
+}
+
+// RunAccuracy counts the workspace's run reviews per workflow version, each
+// workflow's versions in the order they were first reviewed.
+func (s *PostgresStore) RunAccuracy(ctx context.Context, workspaceID string) ([]VersionReviews, error) {
+	rows, err := s.pool.Query(ctx, `SELECT workflow_name, workflow_version, count(*), count(*) FILTER (WHERE verdict = 'correct'),
+		  count(*) FILTER (WHERE reason IN ('', 'sample')), count(*) FILTER (WHERE reason IN ('', 'sample') AND verdict = 'correct'),
+		  min(created_at), max(updated_at)
+		 FROM run_reviews WHERE workspace_id = $1 AND span_id = ''
+		GROUP BY 1, 2 ORDER BY 1, min(created_at), 2`, workspaceID)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: run accuracy: %w", err)
+	}
+	out, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (VersionReviews, error) {
+		var v VersionReviews
+		err := row.Scan(&v.Workflow, &v.Version, &v.Reviews, &v.Correct, &v.Unflagged, &v.UnflaggedCorrect, &v.FirstAt, &v.LastAt)
+		return v, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("postgres: scan run accuracy: %w", err)
+	}
+	return out, nil
 }

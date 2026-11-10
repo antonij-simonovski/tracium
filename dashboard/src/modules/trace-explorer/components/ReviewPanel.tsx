@@ -4,6 +4,7 @@ import { SlicedButton, Spinner, StatusPill, formatDateTime } from '../../../comm
 import { ReviewFieldList } from '../../trace-inspector';
 import { applyEdits, fieldText, flattenFields, parseFieldText, parseJsonObject } from '../../trace-inspector/utils/reviewFields';
 import { useReview } from '../hooks/useReview';
+import type { QueueReason } from '../../../common/interfaces';
 
 const label: React.CSSProperties = {
   fontSize: 12, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)', marginBottom: 8,
@@ -38,15 +39,18 @@ export interface ReviewPanelProps {
   /** Reviews this span instead of the whole run. */
   spanId?: string;
   output: string | null;
+  /** Sent with every save when the run was opened from the review queue. */
+  reason?: QueueReason;
+  onSaved?: () => void;
 }
 
 /** Mark a run or span correct, or correct its output; JSON outputs are corrected field by field. */
-export function ReviewPanel({ traceId, spanId, output: traceOutput }: ReviewPanelProps) {
-  const { review, isLoading, error, save, remove } = useReview(traceId, spanId);
+export function ReviewPanel({ traceId, spanId, output: traceOutput, reason, onSaved }: ReviewPanelProps) {
+  const { review, isLoading, error, save, remove } = useReview(traceId, spanId, onSaved);
   const output = review?.output ?? traceOutput ?? '';
   // An API review may have sent its own output; saves must keep grading that one.
   const uploaded = review != null && review.output !== (traceOutput ?? '');
-  const kept = uploaded ? { output } : {};
+  const kept = { ...(uploaded ? { output } : {}), ...(reason ? { reason } : {}) };
   const obj = useMemo(() => parseJsonObject(output), [output]);
   const fields = useMemo(() => (obj ? flattenFields(obj) : []), [obj]);
 

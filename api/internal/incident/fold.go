@@ -43,7 +43,7 @@ func IsReleaseMetric(metric string) bool { return strings.HasPrefix(metric, Rele
 
 // alwaysCurrent metrics describe now, and resolve as soon as they stop.
 func alwaysCurrent(metric string) bool {
-	return metric == "heartbeat" || metric == "ingest_silence" || IsReleaseMetric(metric)
+	return metric == "heartbeat" || metric == "ingest_silence" || IsReleaseMetric(metric) || metric == AccuracyMetric
 }
 
 // Current reports whether an anomaly describes the present, so it may open or
@@ -243,6 +243,7 @@ var metricNouns = map[string]string{
 	"cost": "cost", "error_rate": "error rate", "runs": "run volume", "latency_p95": "p95 run latency",
 	"truncation_rate": "truncated LLM calls", "refusal_rate": "refused LLM calls", "tool_error_rate": "tool errors",
 	"llm_calls_per_run": "LLM calls per run", "tool_repeat": "repeated tool calls", "cache_hit_ratio": "cache hit ratio",
+	AccuracyMetric: "reviewed accuracy",
 }
 
 // Title names the subject and its most severe signal, e.g.

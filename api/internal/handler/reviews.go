@@ -41,6 +41,8 @@ type reviewRequest struct {
 	// Corrections sets only these dotted field paths on the output; the rest grade as correct.
 	Corrections map[string]json.RawMessage `json:"corrections"`
 	Note        string                     `json:"note"`
+	// Reason is the review queue's reason when the run was reviewed from it.
+	Reason string `json:"reason"`
 }
 
 // decodeReview reads and checks a review body; it answers the request itself on failure.
@@ -58,6 +60,10 @@ func decodeReview(w http.ResponseWriter, r *http.Request) (*model.Principal, rev
 	}
 	if req.CorrectedOutput != nil && req.Corrections != nil {
 		respondError(w, http.StatusBadRequest, "BAD_REQUEST", "send corrected_output or corrections, not both")
+		return principal, req, false
+	}
+	if req.Reason != "" && !queueReasons[req.Reason] {
+		respondError(w, http.StatusBadRequest, "BAD_REQUEST", "reason must be incident, truncated, refused, tool_error or sample")
 		return principal, req, false
 	}
 	if req.CorrectedOutput == nil && req.Corrections == nil && !validVerdict(req.Verdict) {
@@ -154,6 +160,12 @@ func (h *ReviewHandler) save(w http.ResponseWriter, r *http.Request, principal *
 		ReviewedBy:      principal.UserID,
 		Source:          model.ReviewSourceUser,
 		Fields:          []model.ReviewField{},
+		Reason:          req.Reason,
+	}
+	for _, sp := range spans {
+		if rev.Reason == "" && sp.SilentFailure != "" {
+			rev.Reason = sp.SilentFailure
+		}
 	}
 	if principal.WorkspaceID != "" {
 		rev.Source = model.ReviewSourceAPI

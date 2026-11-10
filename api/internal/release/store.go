@@ -103,3 +103,14 @@ func (s *PostgresStore) reports(ctx context.Context, sql string, args ...any) ([
 	}
 	return out, nil
 }
+
+// AddFinding sets the report's finding for f.Metric, replacing an earlier one; a version without a report is left alone.
+func (s *PostgresStore) AddFinding(ctx context.Context, workspaceID, workflow, version string, f anomaly.Finding) error {
+	_, err := s.pool.Exec(ctx, `UPDATE release_reports SET findings = coalesce((SELECT jsonb_agg(x) FROM jsonb_array_elements(findings) x
+ WHERE x->>'metric' <> $4), '[]'::jsonb) || jsonb_build_array($5::jsonb) WHERE workspace_id = $1 AND workflow = $2 AND version = $3`,
+		workspaceID, workflow, version, f.Metric, f)
+	if err != nil {
+		return fmt.Errorf("postgres: add release finding: %w", err)
+	}
+	return nil
+}
