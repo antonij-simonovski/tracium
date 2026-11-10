@@ -17,6 +17,7 @@ const (
 	runFallbackHours    = 7 * 24
 	hourlyLookback      = 7 * 24 * time.Hour
 	heartbeatHistory    = 28 * 24 * time.Hour
+	stuckAfter          = 30 * time.Minute
 )
 
 var (
@@ -43,6 +44,25 @@ var (
 		MissedBands: anomaly.Bands{Info: 3, Warning: 6, Critical: 12},
 		Bands:       anomaly.Bands{Info: 2, Warning: 4, Critical: 8},
 	}
+	serviceSilenceOpts = func() anomaly.SilenceOptions {
+		o := silenceOpts
+		o.BusyHours, o.BusyMinSilenceMs = 20, anomaly.HourMs
+		o.BusyMissedBands = anomaly.Bands{Info: 1, Warning: 3, Critical: 6}
+		return o
+	}()
+	rejectedOpts = anomaly.VolumeOptions{
+		BaselineHours: hourlyBaselineHours, MinCount: 20,
+		Bands: anomaly.Bands{Info: 5, Warning: 5, Critical: 20},
+	}
+	stuckOpts = anomaly.RateOptions{
+		BaselineHours: hourlyBaselineHours, MinHits: 3, MinRate: 0.05, RateFloor: 0.01,
+		MinBaseTotal: 20, MaxBaseRate: 0.05,
+		Bands: anomaly.Bands{Info: 3, Warning: 5, Critical: 10},
+	}
+	presenceOpts = anomaly.PresenceOptions{
+		BaselineHours: hourlyBaselineHours, FallbackBaselineHours: runFallbackHours,
+		MinBaseRuns: 20, MinRuns: 5, Expected: 0.9, TopSteps: 30, Warning: 0.5, Critical: 0.1,
+	}
 )
 
 type hourAgg struct {
@@ -56,6 +76,12 @@ type runAgg struct {
 	repP95, repMax       float64
 	callsWorst, repWorst string
 	repTool              string
+	// Runs with a root span, and how many of them ran each step.
+	doneRuns int64
+	steps    map[string]int64
+	// Traces whose newest span is older than stuckAfter, and those with no root.
+	settled, stuck int64
+	stuckIDs       []string
 }
 
 func wants(f MetricsFilter, metrics ...string) bool {
@@ -128,7 +154,7 @@ func (r *ClickHouseRepository) hourlyAnomalies(ctx context.Context, f MetricsFil
 		}
 	}
 
-	if wants(f, "llm_calls_per_run", "tool_repeat") {
+	if wants(f, "llm_calls_per_run", "tool_repeat", "missing_step", "stuck_runs") {
 		runLo := from - runFallbackHours*anomaly.HourMs
 		runAxis := hourAxis(runLo, end)
 		byWorkflow, err := r.hourlyRuns(ctx, f, runLo, end)
@@ -154,6 +180,69 @@ func (r *ClickHouseRepository) hourlyAnomalies(ctx context.Context, f MetricsFil
 			for _, res := range anomaly.RunOutlier(reps, o) {
 				keep(hourlyAnomaly("tool_repeat", name, res), hours[res.BucketMs].repWorst, hours[res.BucketMs].repTool)
 			}
+
+			presence := make([]anomaly.Presence, len(runAxis))
+			stuck := make([]anomaly.Count, len(runAxis))
+			for i, h := range runAxis {
+				a := hours[h]
+				presence[i] = anomaly.Presence{BucketMs: h, Runs: a.doneRuns, Steps: a.steps}
+				stuck[i] = anomaly.Count{BucketMs: h, Hits: a.stuck, Total: a.settled}
+			}
+			po := presenceOpts
+			po.DetectFromMs = from
+			for _, res := range anomaly.PresenceDrop(presence, po) {
+				a := hourlyAnomaly("missing_step", name, res.Result)
+				a.Summary = missingStepSummary(a, res.Step, res.Others)
+				keep(a, "", "")
+			}
+			so := stuckOpts
+			so.DetectFromMs = from
+			for _, res := range anomaly.RateSpike(stuck, so) {
+				a := hourlyAnomaly("stuck_runs", name, res)
+				a.TraceIDs = hours[res.BucketMs].stuckIDs
+				keep(a, "", "")
+			}
+		}
+	}
+
+	if f.UserID == "" && wants(f, "ingest_silence") {
+		services, err := r.serviceActivity(ctx, f)
+		if err != nil {
+			return nil, err
+		}
+		o := serviceSilenceOpts
+		o.NowMs = end
+		silent := anomaly.Silence([]anomaly.Activity{workspaceActivity(services)}, o)
+		if len(silent) == 0 {
+			silent = anomaly.Silence(services, o)
+		}
+		for _, res := range silent {
+			a := hourlyAnomaly("ingest_silence", "", res.Result)
+			a.Scope, a.Service = "workspace", res.Client
+			if res.Client != "" {
+				a.Scope = "service"
+			}
+			a.Summary = ingestSilenceSummary(a, res)
+			keep(a, "", "")
+		}
+	}
+
+	if f.UserID == "" && wants(f, "ingest_rejected") {
+		counts, codes, err := r.rejectedHourly(ctx, f, lo, end)
+		if err != nil {
+			return nil, err
+		}
+		series := make([]anomaly.Volume, len(axis))
+		for i, h := range axis {
+			series[i] = anomaly.Volume{BucketMs: h, N: counts[h]}
+		}
+		o := rejectedOpts
+		o.DetectFromMs = from
+		for _, res := range anomaly.VolumeSpike(series, o) {
+			a := hourlyAnomaly("ingest_rejected", "", res)
+			a.Scope = "workspace"
+			a.Summary = rejectedSummary(a, codes[res.BucketMs])
+			keep(a, "", "")
 		}
 	}
 
@@ -250,7 +339,13 @@ func (r *ClickHouseRepository) hourlyRuns(ctx context.Context, f MetricsFilter, 
     toFloat64(quantileExactIf(0.95)(rep, rep > 0)) AS rep_p95,
     toFloat64(max(rep))                            AS rep_max,
     argMax(trace_id, rep)                          AS rep_worst,
-    argMax(tool, rep)                              AS rep_tool
+    argMax(tool, rep)                              AS rep_tool,
+    toInt64(countIf(has_root))                     AS done_runs,
+    sumMap(steps, arrayMap(x -> toUInt64(1), steps)).1 AS step_names,
+    arrayMap(x -> toInt64(x), sumMap(steps, arrayMap(x -> toUInt64(1), steps)).2) AS step_runs,
+    toInt64(countIf(settled))                      AS settled_runs,
+    toInt64(countIf(settled AND NOT has_root))     AS stuck_runs,
+    groupArrayIf(3)(trace_id, settled AND NOT has_root) AS stuck_ids
 FROM (
     SELECT trace_id,
         argMin(workflow_name, start_time_ms)          AS wf,
@@ -260,14 +355,17 @@ FROM (
         arrayDistinct(tools)                          AS names,
         arrayMap(n -> countEqual(tools, n), names)    AS counts,
         if(empty(counts), 0, arrayMax(counts))        AS rep,
-        if(empty(counts), '', names[indexOf(counts, rep)]) AS tool
+        if(empty(counts), '', names[indexOf(counts, rep)]) AS tool,
+        countIf(parent_span_id = '') > 0              AS has_root,
+        max(end_time_ms) < ?                          AS settled,
+        if(has_root, arrayFilter(n -> NOT match(n, '[0-9]{6}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-'), groupUniqArray(name)), []) AS steps
     FROM tracium.spans WHERE source = 'span' AND %s
     GROUP BY trace_id
 )
 WHERE wf != ''
 GROUP BY wf, h`, clause)
 
-	rows, err := r.db.QueryContext(ctx, q, args...)
+	rows, err := r.db.QueryContext(ctx, q, append([]any{hi - stuckAfter.Milliseconds()}, args...)...)
 	if err != nil {
 		return nil, fmt.Errorf("clickhouse: hourly runs: %w", err)
 	}
@@ -277,9 +375,16 @@ GROUP BY wf, h`, clause)
 		var name string
 		var h int64
 		var a runAgg
+		var stepNames []string
+		var stepRuns []int64
 		if err := rows.Scan(&name, &h, &a.runs, &a.callsP50, &a.callsMax, &a.callsWorst,
-			&a.toolRuns, &a.repP95, &a.repMax, &a.repWorst, &a.repTool); err != nil {
+			&a.toolRuns, &a.repP95, &a.repMax, &a.repWorst, &a.repTool,
+			&a.doneRuns, &stepNames, &stepRuns, &a.settled, &a.stuck, &a.stuckIDs); err != nil {
 			return nil, fmt.Errorf("clickhouse: scan hourly runs: %w", err)
+		}
+		a.steps = make(map[string]int64, len(stepNames))
+		for i, n := range stepNames {
+			a.steps[n] = stepRuns[i]
 		}
 		a.callsP50, a.repP95 = sanitize(a.callsP50), sanitize(a.repP95)
 		if out[name] == nil {
@@ -309,6 +414,60 @@ WHERE ` + clause + wsClause + ` GROUP BY key ORDER BY key`
 		return nil, fmt.Errorf("clickhouse: client activity: %w", err)
 	}
 	return out, nil
+}
+
+// serviceActivity loads each service's active hours over the last four weeks.
+func (r *ClickHouseRepository) serviceActivity(ctx context.Context, f MetricsFilter) ([]anomaly.Activity, error) {
+	wsClause, wsArgs := workspaceScope(f.WorkspaceIDs)
+	q := `SELECT key, groupUniqArray(toInt64(toUnixTimestamp(hour)) * 1000) FROM tracium.activity_hourly
+WHERE dim = 'service' AND hour >= toDateTime(?) AND hour < toDateTime(?)` + wsClause + ` GROUP BY key ORDER BY key`
+	var out []anomaly.Activity
+	if err := r.scanBuckets(ctx, q, append([]any{f.End.Add(-heartbeatHistory).Unix(), f.End.Unix()}, wsArgs...), func(c string, b []int64) {
+		out = append(out, anomaly.Activity{Client: c, Hours: b})
+	}); err != nil {
+		return nil, fmt.Errorf("clickhouse: service activity: %w", err)
+	}
+	return out, nil
+}
+
+// workspaceActivity is the hours any service was active, keyed "".
+func workspaceActivity(services []anomaly.Activity) anomaly.Activity {
+	seen := map[int64]bool{}
+	var hours []int64
+	for _, s := range services {
+		for _, h := range s.Hours {
+			if !seen[h] {
+				seen[h] = true
+				hours = append(hours, h)
+			}
+		}
+	}
+	return anomaly.Activity{Hours: hours}
+}
+
+// rejectedHourly sums rejected spans per hour, with the most rejected code of each hour.
+func (r *ClickHouseRepository) rejectedHourly(ctx context.Context, f MetricsFilter, lo, hi int64) (map[int64]int64, map[int64]string, error) {
+	wsClause, wsArgs := workspaceScope(f.WorkspaceIDs)
+	q := `SELECT h, toInt64(sum(n)), argMax(code, n) FROM (
+    SELECT toInt64(toUnixTimestamp(hour)) * 1000 AS h, code, sum(spans) AS n FROM tracium.rejected_spans
+    WHERE hour >= toDateTime(?) AND hour < toDateTime(?)` + wsClause + `
+    GROUP BY h, code
+) GROUP BY h`
+	rows, err := r.db.QueryContext(ctx, q, append([]any{lo / 1000, hi / 1000}, wsArgs...)...)
+	if err != nil {
+		return nil, nil, fmt.Errorf("clickhouse: rejected hourly: %w", err)
+	}
+	defer rows.Close()
+	counts, codes := map[int64]int64{}, map[int64]string{}
+	for rows.Next() {
+		var h, n int64
+		var code string
+		if err := rows.Scan(&h, &n, &code); err != nil {
+			return nil, nil, fmt.Errorf("clickhouse: scan rejected hourly: %w", err)
+		}
+		counts[h], codes[h] = n, code
+	}
+	return counts, codes, rows.Err()
 }
 
 func (r *ClickHouseRepository) scanBuckets(ctx context.Context, q string, args []any, set func(string, []int64)) error {
@@ -347,7 +506,41 @@ func hourlySummary(a model.Anomaly, run, tool string) string {
 		return fmt.Sprintf("%s cache hit ratio fell to %s in the hour from %s, from %s over the prior 24h.", subject, obs, at, exp)
 	case "heartbeat":
 		return fmt.Sprintf("Client %q has been silent for %s; it usually runs every %s.", a.Client, obs, exp)
+	case "stuck_runs":
+		return fmt.Sprintf("%s runs that started and never finished rose to %s in the hour from %s, from %s over the prior 24h.", subject, obs, at, exp)
 	}
 	noun := map[string]string{"truncation_rate": "truncated LLM calls", "refusal_rate": "refused LLM calls", "tool_error_rate": "tool calls that returned an error"}[a.Metric]
 	return fmt.Sprintf("%s %s rose to %s in the hour from %s, from %s over the prior 24h.", subject, noun, obs, at, exp)
+}
+
+func missingStepSummary(a model.Anomaly, step string, others int) string {
+	more := ""
+	if others == 1 {
+		more = " One more step dropped too."
+	} else if others > 1 {
+		more = fmt.Sprintf(" %d more steps dropped too.", others)
+	}
+	return fmt.Sprintf("Workflow %q: step %q ran in %.0f%% of runs in the hour from %s; it normally runs in %.0f%%.%s",
+		a.Workflow, step, a.Observed*100, time.UnixMilli(a.BucketMs).UTC().Format("2006-01-02 15:04 UTC"), a.Expected*100, more)
+}
+
+func ingestSilenceSummary(a model.Anomaly, res anomaly.SilenceResult) string {
+	subject := "The workspace"
+	if a.Service != "" {
+		subject = fmt.Sprintf("Service %q", a.Service)
+	}
+	last := time.UnixMilli(res.LastSeenMs).UTC().Format("2006-01-02 15:04 UTC")
+	if res.Missed > 0 {
+		return fmt.Sprintf("%s has sent no spans in %d hours it usually sends in; last seen %s.", subject, res.Missed, last)
+	}
+	return fmt.Sprintf("%s has sent no spans for %.0fh; it usually sends every %.0fh.", subject, a.Observed, a.Expected)
+}
+
+func rejectedSummary(a model.Anomaly, code string) string {
+	msg, ok := rejectedMessages[code]
+	if !ok {
+		msg = fmt.Sprintf("Spans were rejected at ingest (%s).", code)
+	}
+	at := time.UnixMilli(a.BucketMs).UTC().Format("2006-01-02 15:04 UTC")
+	return fmt.Sprintf("The collector rejected %.0f spans in the hour from %s, against %.1f an hour over the prior 24h. %s", a.Observed, at, a.Expected, msg)
 }

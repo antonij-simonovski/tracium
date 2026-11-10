@@ -167,3 +167,14 @@ func TestUncoveredWorkspace(t *testing.T) {
 		t.Errorf("uncoveredWorkspace = %+v, want latency_p95 (other day) and cost (workflow carries 30%%)", got)
 	}
 }
+
+func TestNewDetectorSummaries(t *testing.T) {
+	a := model.Anomaly{Metric: "missing_step", Workflow: "rag", BucketMs: 0, Observed: 0.08, Expected: 0.99}
+	if got := missingStepSummary(a, "retrieve", 2); got != `Workflow "rag": step "retrieve" ran in 8% of runs in the hour from 1970-01-01 00:00 UTC; it normally runs in 99%. 2 more steps dropped too.` {
+		t.Errorf("missing_step summary = %q", got)
+	}
+	r := model.Anomaly{Metric: "ingest_rejected", Observed: 25, Expected: 0}
+	if got := rejectedSummary(r, "invalid_timestamp"); !strings.Contains(got, "rejected 25 spans") || !strings.Contains(got, "timestamps are invalid") {
+		t.Errorf("ingest_rejected summary = %q", got)
+	}
+}

@@ -1669,20 +1669,22 @@ export interface components {
         };
         Anomaly: {
             /**
-             * @description The metric that deviated. cost, error_rate, runs and latency_p95 (p95 root-span duration in ms) are daily robust-z outliers. The rest are hourly checks against the prior 24 hours: truncation_rate, refusal_rate and tool_error_rate (share of LLM or tool calls flagged at ingest), llm_calls_per_run and tool_repeat (the worst run's LLM calls against the workflow's median run, or calls of one tool against its p95 run; a workflow with under 20 runs in 24 hours is compared with the last 7 days, and with under 5 runs there only a run of 50 LLM calls or 30 calls of one tool is flagged, with expected 0), cache_hit_ratio (cache-read over input tokens) and heartbeat (hours a regular client has been silent, raised once it misses 3 hours of the week it is usually active in).
+             * @description The metric that deviated. cost, error_rate, runs and latency_p95 (p95 root-span duration in ms) are daily robust-z outliers. The rest are hourly checks against the prior 24 hours: truncation_rate, refusal_rate and tool_error_rate (share of LLM or tool calls flagged at ingest), llm_calls_per_run and tool_repeat (the worst run's LLM calls against the workflow's median run, or calls of one tool against its p95 run; a workflow with under 20 runs in 24 hours is compared with the last 7 days, and with under 5 runs there only a run of 50 LLM calls or 30 calls of one tool is flagged, with expected 0), cache_hit_ratio (cache-read over input tokens) and heartbeat (hours a regular client has been silent, raised once it misses 3 hours of the week it is usually active in), ingest_silence (the same for a service, or the whole workspace when every service stopped, from 1 missed hour for a service active in 20 of the 24 hours before), ingest_rejected (spans the collector rejected in the hour against the prior 24-hour average, from 20 spans and 5×), missing_step (share of runs that ran a step present in 90% of baseline runs, raised below 50%) and stuck_runs (share of runs with spans but no root span 30 minutes after their newest span, for workflows whose baseline runs have a root span 95% of the time).
              * @enum {string}
              */
-            metric: "cost" | "error_rate" | "runs" | "latency_p95" | "truncation_rate" | "refusal_rate" | "tool_error_rate" | "llm_calls_per_run" | "tool_repeat" | "cache_hit_ratio" | "heartbeat";
+            metric: "cost" | "error_rate" | "runs" | "latency_p95" | "truncation_rate" | "refusal_rate" | "tool_error_rate" | "llm_calls_per_run" | "tool_repeat" | "cache_hit_ratio" | "heartbeat" | "ingest_silence" | "ingest_rejected" | "missing_step" | "stuck_runs";
             /**
-             * @description Whether this anomaly is workspace-wide, for one workflow, or for one client (heartbeat).
+             * @description Whether this anomaly is workspace-wide, for one workflow, for one client (heartbeat), or for one service (ingest_silence).
              * @enum {string}
              */
-            scope: "workspace" | "workflow" | "client";
+            scope: "workspace" | "workflow" | "client" | "service";
             /** @description The workflow name when scope is "workflow"; empty otherwise. */
             workflow: string;
             /** @description The client (user_id) when scope is "client"; empty otherwise. */
             client: string;
-            /** @description Anomalous bucket, Unix epoch milliseconds: a UTC day for daily metrics, an hour for hourly ones, and the hour a heartbeat became overdue. */
+            /** @description The service (service_name) when scope is "service"; empty otherwise. */
+            service: string;
+            /** @description Anomalous bucket, Unix epoch milliseconds: a UTC day for daily metrics, an hour for hourly ones, and the hour a heartbeat or ingest silence became overdue. */
             bucket_ms: number;
             /** @description The bucket's value: USD, a 0–1 rate or ratio, a count, latency in ms, or silent hours. */
             observed: number;
@@ -3183,7 +3185,7 @@ export interface operations {
                 /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
                 workspace_id?: components["parameters"]["WorkspaceFilter"];
                 /** @description Restrict to one metric. Omitted, all are detected. */
-                metric?: "cost" | "error_rate" | "runs" | "latency_p95" | "truncation_rate" | "refusal_rate" | "tool_error_rate" | "llm_calls_per_run" | "tool_repeat" | "cache_hit_ratio" | "heartbeat";
+                metric?: "cost" | "error_rate" | "runs" | "latency_p95" | "truncation_rate" | "refusal_rate" | "tool_error_rate" | "llm_calls_per_run" | "tool_repeat" | "cache_hit_ratio" | "heartbeat" | "ingest_silence" | "ingest_rejected" | "missing_step" | "stuck_runs";
                 /** @description Drop anomalies below this severity. Omitted, all severities are returned. */
                 min_severity?: "info" | "warning" | "critical";
             };

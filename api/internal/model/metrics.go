@@ -8,9 +8,11 @@ package model
 // are rollup-backed robust-z outliers with day buckets; Score is the signed
 // robust z-score. Hourly metrics ("truncation_rate" | "refusal_rate" |
 // "tool_error_rate" | "llm_calls_per_run" | "tool_repeat" | "cache_hit_ratio" |
-// "heartbeat") compare an hour with the hours before it; Score is the signed
+// "heartbeat" | "ingest_silence" | "ingest_rejected" | "missing_step" |
+// "stuck_runs") compare an hour with the hours before it; Score is the signed
 // multiple of the baseline. Scope is "workspace", "workflow" (Workflow names
-// which one) or "client" (heartbeat; Client names the user_id). Direction is
+// which one), "client" (heartbeat; Client names the user_id) or "service"
+// (ingest_silence; Service names the service_name). Direction is
 // "spike" | "drop"; Severity is "info" | "warning" | "critical". Observed is the
 // bucket's value, Expected the baseline, Deviation their difference. Summary is a ready-to-read sentence; the dashboard
 // may reformat from the raw fields instead. VersionChange is a workflow version
@@ -20,6 +22,7 @@ type Anomaly struct {
 	Scope     string  `json:"scope"`
 	Workflow  string  `json:"workflow"` // set when Scope == "workflow", else ""
 	Client    string  `json:"client"`   // set when Scope == "client", else ""
+	Service   string  `json:"service"`  // set when Scope == "service", else ""
 	BucketMs  int64   `json:"bucket_ms"`
 	Observed  float64 `json:"observed"`
 	Expected  float64 `json:"expected"`

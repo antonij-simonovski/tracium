@@ -125,9 +125,10 @@ var validAnomalyMetrics = map[string]bool{
 	"cost": true, "error_rate": true, "runs": true, "latency_p95": true,
 	"truncation_rate": true, "refusal_rate": true, "tool_error_rate": true,
 	"llm_calls_per_run": true, "tool_repeat": true, "cache_hit_ratio": true, "heartbeat": true,
+	"ingest_silence": true, "ingest_rejected": true, "missing_step": true, "stuck_runs": true,
 }
 
-const anomalyMetricList = "cost, error_rate, runs, latency_p95, truncation_rate, refusal_rate, tool_error_rate, llm_calls_per_run, tool_repeat, cache_hit_ratio, heartbeat"
+const anomalyMetricList = "cost, error_rate, runs, latency_p95, truncation_rate, refusal_rate, tool_error_rate, llm_calls_per_run, tool_repeat, cache_hit_ratio, heartbeat, ingest_silence, ingest_rejected, missing_step, stuck_runs"
 
 var validAnomalySeverities = map[string]bool{"info": true, "warning": true, "critical": true}
 

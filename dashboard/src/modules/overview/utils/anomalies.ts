@@ -14,6 +14,10 @@ export const METRIC_META: Record<AnomalyMetric, { noun: string; kind: string; ho
   tool_repeat: { noun: 'Repeated tool calls', kind: 'Tool loop', hourly: true },
   cache_hit_ratio: { noun: 'Cache hit ratio', kind: 'Cache hits', hourly: true },
   heartbeat: { noun: 'Hours silent', kind: 'Heartbeat', hourly: true },
+  ingest_silence: { noun: 'Hours silent', kind: 'Ingest silence', hourly: true },
+  ingest_rejected: { noun: 'Rejected spans', kind: 'Rejected spans', hourly: true },
+  missing_step: { noun: 'Runs with step', kind: 'Missing step', hourly: true },
+  stuck_runs: { noun: 'Stuck runs', kind: 'Stuck runs', hourly: true },
 };
 
 export function anomalyValue(metric: AnomalyMetric, v: number): string {
@@ -25,10 +29,13 @@ export function anomalyValue(metric: AnomalyMetric, v: number): string {
     case 'refusal_rate':
     case 'tool_error_rate':
     case 'cache_hit_ratio':
+    case 'missing_step':
+    case 'stuck_runs':
       return fmtPct(v * 100);
     case 'latency_p95':
       return fmtMs(v);
     case 'heartbeat':
+    case 'ingest_silence':
       return `${fmtNum(Math.round(v))}h`;
     default:
       return fmtNum(Math.round(v));
@@ -44,9 +51,10 @@ export function scoreLabel(a: Anomaly): string {
   return METRIC_META[a.metric].hourly ? `${Math.abs(a.score).toFixed(1)}×` : zLabel(a.score);
 }
 
-export function anomalyTarget(a: { scope: AnomalyScope; workflow: string; client: string }): string {
+export function anomalyTarget(a: { scope: AnomalyScope; workflow: string; client: string; service: string }): string {
   if (a.scope === 'workflow') return a.workflow;
   if (a.scope === 'client') return `Client ${a.client}`;
+  if (a.scope === 'service') return `Service ${a.service}`;
   return 'Workspace-wide';
 }
 
@@ -65,7 +73,7 @@ export function versionChangeLabel(a: Anomaly): string {
 
 // The model carries no id; this one drives selection and dismissal.
 export function anomalyKey(a: Anomaly): string {
-  return `${a.metric}:${a.scope}:${a.workflow}:${a.client}:${a.bucket_ms}`;
+  return `${a.metric}:${a.scope}:${a.workflow}:${a.client}:${a.service}:${a.bucket_ms}`;
 }
 
 export interface AnomalyChip {
@@ -88,6 +96,10 @@ const CHIP_DEFS: { metric: AnomalyMetric; noun: string; sev: AnomalySeverity }[]
   { metric: 'tool_repeat', noun: 'tool loop', sev: 'critical' },
   { metric: 'cache_hit_ratio', noun: 'cache drop', sev: 'warning' },
   { metric: 'heartbeat', noun: 'silent client', sev: 'warning' },
+  { metric: 'ingest_silence', noun: 'ingest silence', sev: 'critical' },
+  { metric: 'ingest_rejected', noun: 'rejected span spike', sev: 'critical' },
+  { metric: 'missing_step', noun: 'missing step', sev: 'warning' },
+  { metric: 'stuck_runs', noun: 'stuck run spike', sev: 'critical' },
 ];
 
 export function anomalyChips(anomalies: Anomaly[]): AnomalyChip[] {
@@ -123,6 +135,7 @@ export interface Incident {
   scope: AnomalyScope;
   workflow: string; // '' for workspace-wide
   client: string;
+  service: string;
   bucket_ms: number;
   severity: AnomalySeverity;
   anomalies: Anomaly[];
@@ -131,7 +144,7 @@ export interface Incident {
 export function groupIncidents(anomalies: Anomaly[]): Incident[] {
   const byKey = new Map<string, Incident>();
   for (const a of anomalies) {
-    const key = `${a.scope}:${a.workflow}:${a.client}:${a.bucket_ms}`;
+    const key = `${a.scope}:${a.workflow}:${a.client}:${a.service}:${a.bucket_ms}`;
     const existing = byKey.get(key);
     if (existing) {
       existing.anomalies.push(a);
@@ -144,6 +157,7 @@ export function groupIncidents(anomalies: Anomaly[]): Incident[] {
         scope: a.scope,
         workflow: a.workflow,
         client: a.client,
+        service: a.service,
         bucket_ms: a.bucket_ms,
         severity: a.severity,
         anomalies: [a],

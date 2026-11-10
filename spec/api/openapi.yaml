@@ -1018,7 +1018,7 @@ paths:
           description: Restrict to one metric. Omitted, all are detected.
           schema:
             type: string
-            enum: ["cost", "error_rate", "runs", "latency_p95", "truncation_rate", "refusal_rate", "tool_error_rate", "llm_calls_per_run", "tool_repeat", "cache_hit_ratio", "heartbeat"]
+            enum: ["cost", "error_rate", "runs", "latency_p95", "truncation_rate", "refusal_rate", "tool_error_rate", "llm_calls_per_run", "tool_repeat", "cache_hit_ratio", "heartbeat", "ingest_silence", "ingest_rejected", "missing_step", "stuck_runs"]
         - name: min_severity
           in: query
           description: Drop anomalies below this severity. Omitted, all severities are returned.
@@ -3563,6 +3563,7 @@ components:
         - scope
         - workflow
         - client
+        - service
         - bucket_ms
         - observed
         - expected
@@ -3576,7 +3577,7 @@ components:
       properties:
         metric:
           type: string
-          enum: ["cost", "error_rate", "runs", "latency_p95", "truncation_rate", "refusal_rate", "tool_error_rate", "llm_calls_per_run", "tool_repeat", "cache_hit_ratio", "heartbeat"]
+          enum: ["cost", "error_rate", "runs", "latency_p95", "truncation_rate", "refusal_rate", "tool_error_rate", "llm_calls_per_run", "tool_repeat", "cache_hit_ratio", "heartbeat", "ingest_silence", "ingest_rejected", "missing_step", "stuck_runs"]
           description: >-
             The metric that deviated. cost, error_rate, runs and latency_p95 (p95 root-span
             duration in ms) are daily robust-z outliers. The rest are hourly checks against the
@@ -3587,22 +3588,31 @@ components:
             and with under 5 runs there only a run of 50 LLM calls or 30 calls of one tool is
             flagged, with expected 0), cache_hit_ratio (cache-read over input tokens) and
             heartbeat (hours a regular client has been silent, raised once it misses 3 hours
-            of the week it is usually active in).
+            of the week it is usually active in), ingest_silence (the same for a service, or the
+            whole workspace when every service stopped, from 1 missed hour for a service active in
+            20 of the 24 hours before), ingest_rejected (spans the collector rejected in the hour
+            against the prior 24-hour average, from 20 spans and 5×), missing_step (share of runs
+            that ran a step present in 90% of baseline runs, raised below 50%) and stuck_runs
+            (share of runs with spans but no root span 30 minutes after their newest span, for
+            workflows whose baseline runs have a root span 95% of the time).
         scope:
           type: string
-          enum: ["workspace", "workflow", "client"]
-          description: Whether this anomaly is workspace-wide, for one workflow, or for one client (heartbeat).
+          enum: ["workspace", "workflow", "client", "service"]
+          description: Whether this anomaly is workspace-wide, for one workflow, for one client (heartbeat), or for one service (ingest_silence).
         workflow:
           type: string
           description: The workflow name when scope is "workflow"; empty otherwise.
         client:
           type: string
           description: The client (user_id) when scope is "client"; empty otherwise.
+        service:
+          type: string
+          description: The service (service_name) when scope is "service"; empty otherwise.
         bucket_ms:
           type: integer
           description: >-
             Anomalous bucket, Unix epoch milliseconds: a UTC day for daily metrics, an hour for
-            hourly ones, and the hour a heartbeat became overdue.
+            hourly ones, and the hour a heartbeat or ingest silence became overdue.
         observed:
           type: number
           description: >-

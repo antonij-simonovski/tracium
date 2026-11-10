@@ -523,7 +523,7 @@ func formatAnomalyValue(metric string, v float64) string {
 	switch metric {
 	case "cost":
 		return fmt.Sprintf("$%.2f", v)
-	case "error_rate", "truncation_rate", "refusal_rate", "tool_error_rate", "cache_hit_ratio":
+	case "error_rate", "truncation_rate", "refusal_rate", "tool_error_rate", "cache_hit_ratio", "stuck_runs", "missing_step":
 		return fmt.Sprintf("%.1f%%", v*100)
 	case "latency_p95":
 		if v >= 1000 {

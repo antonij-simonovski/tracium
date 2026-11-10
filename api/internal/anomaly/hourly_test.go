@@ -255,3 +255,126 @@ func TestSilence(t *testing.T) {
 		t.Errorf("client with 3 active days judged: %+v", got)
 	}
 }
+
+func TestRateSpikeBaselineGate(t *testing.T) {
+	o := RateOptions{BaselineHours: 24, DetectFromMs: 24 * HourMs, MinHits: 3, MinRate: 0.05, RateFloor: 0.01,
+		MinBaseTotal: 20, MaxBaseRate: 0.05, Bands: testBands}
+	stuck := hoursFrom(25, func(int) Count { return Count{Hits: 0, Total: 10} })
+	stuck[24] = Count{BucketMs: 24 * HourMs, Hits: 5, Total: 10}
+	if got := RateSpike(stuck, o); len(got) != 1 || got[0].Severity != SeverityCritical {
+		t.Fatalf("5 of 10 stuck vs none = %+v, want one critical", got)
+	}
+
+	noRoot := hoursFrom(25, func(int) Count { return Count{Hits: 10, Total: 10} })
+	if got := RateSpike(noRoot, o); len(got) != 0 {
+		t.Errorf("workflow that never emits a root flagged: %+v", got)
+	}
+
+	fresh := hoursFrom(25, func(int) Count { return Count{} })
+	fresh[24] = Count{BucketMs: 24 * HourMs, Hits: 10, Total: 10}
+	if got := RateSpike(fresh, o); len(got) != 0 {
+		t.Errorf("new workflow with no baseline flagged: %+v", got)
+	}
+}
+
+func TestSilenceBusy(t *testing.T) {
+	const day = 24 * HourMs
+	now := 4*day + 4*7*day
+	var hours []int64
+	for h := now - 28*day; h < now-2*HourMs; h += HourMs {
+		hours = append(hours, h)
+	}
+	o := SilenceOptions{NowMs: now, MinDays: 4, MinSilenceMs: 3 * HourMs,
+		MissedBands: Bands{Info: 3, Warning: 6, Critical: 12}, Bands: Bands{Info: 2, Warning: 4, Critical: 8}}
+	if got := Silence([]Activity{{Client: "svc", Hours: hours}}, o); len(got) != 0 {
+		t.Errorf("2h silence flagged without the busy rule: %+v", got)
+	}
+	o.BusyHours, o.BusyMinSilenceMs, o.BusyMissedBands = 20, HourMs, Bands{Info: 1, Warning: 3, Critical: 6}
+	got := Silence([]Activity{{Client: "svc", Hours: hours}}, o)
+	if len(got) != 1 || got[0].Missed != 2 || got[0].Severity != SeverityInfo || got[0].BucketMs != now-2*HourMs {
+		t.Fatalf("busy service silent 2h = %+v, want info at the first missed hour", got)
+	}
+
+	var sparse []int64
+	for _, h := range hours {
+		if h%(2*HourMs) == 0 {
+			sparse = append(sparse, h)
+		}
+	}
+	if got := Silence([]Activity{{Client: "svc", Hours: sparse}}, o); len(got) != 0 {
+		t.Errorf("service active every other hour flagged on a short gap: %+v", got)
+	}
+}
+
+func TestVolumeSpike(t *testing.T) {
+	o := VolumeOptions{BaselineHours: 24, DetectFromMs: 24 * HourMs, MinCount: 20, Bands: Bands{Info: 5, Warning: 5, Critical: 20}}
+	series := make([]Volume, 25)
+	for i := range series {
+		series[i] = Volume{BucketMs: int64(i) * HourMs}
+	}
+	series[24].N = 25
+	if got := VolumeSpike(series, o); len(got) != 1 || got[0].Severity != SeverityWarning {
+		t.Fatalf("25 rejected after none = %+v, want warning", got)
+	}
+	for i := 0; i < 24; i++ {
+		series[i].N = 1
+	}
+	series[24].N = 30
+	if got := VolumeSpike(series, o); len(got) != 1 || got[0].Severity != SeverityCritical {
+		t.Fatalf("30 rejected vs 1/h = %+v, want critical", got)
+	}
+	for i := 0; i < 24; i++ {
+		series[i].N = 10
+	}
+	if got := VolumeSpike(series, o); len(got) != 0 {
+		t.Errorf("30 rejected vs 10/h flagged: %+v", got)
+	}
+	series[24].N = 19
+	for i := 0; i < 24; i++ {
+		series[i].N = 0
+	}
+	if got := VolumeSpike(series, o); len(got) != 0 {
+		t.Errorf("19 rejected under MinCount flagged: %+v", got)
+	}
+}
+
+func TestPresenceDrop(t *testing.T) {
+	o := PresenceOptions{BaselineHours: 24, FallbackBaselineHours: 168, DetectFromMs: 24 * HourMs,
+		MinBaseRuns: 20, MinRuns: 5, Expected: 0.9, TopSteps: 30, Warning: 0.5, Critical: 0.1}
+	series := make([]Presence, 25)
+	for i := range series {
+		series[i] = Presence{BucketMs: int64(i) * HourMs, Runs: 10,
+			Steps: map[string]int64{"agent": 10, "retrieve": 10, "guard": 10, "rerank": 3}}
+	}
+	series[24].Steps = map[string]int64{"agent": 10, "retrieve": 0, "guard": 3, "rerank": 0}
+	got := PresenceDrop(series, o)
+	if len(got) != 1 || got[0].Step != "retrieve" || got[0].Others != 1 || got[0].Severity != SeverityCritical {
+		t.Fatalf("retrieve and guard dropped = %+v, want one critical for retrieve and 1 more", got)
+	}
+
+	series[24].Steps = map[string]int64{"agent": 10, "retrieve": 6, "guard": 10, "rerank": 0}
+	if got := PresenceDrop(series, o); len(got) != 0 {
+		t.Errorf("step at 60%% or an optional step flagged: %+v", got)
+	}
+
+	series[24] = Presence{BucketMs: 24 * HourMs, Runs: 4, Steps: map[string]int64{"agent": 4}}
+	if got := PresenceDrop(series, o); len(got) != 0 {
+		t.Errorf("hour with 4 runs flagged: %+v", got)
+	}
+
+	cold := make([]Presence, 25)
+	for i := range cold {
+		cold[i].BucketMs = int64(i) * HourMs
+	}
+	cold[0] = Presence{Runs: 10, Steps: map[string]int64{"retrieve": 10}}
+	cold[24] = Presence{BucketMs: 24 * HourMs, Runs: 10, Steps: map[string]int64{}}
+	if got := PresenceDrop(cold, o); len(got) != 0 {
+		t.Errorf("10 baseline runs judged: %+v", got)
+	}
+
+	o.TopSteps = 1
+	series[24] = Presence{BucketMs: 24 * HourMs, Runs: 10, Steps: map[string]int64{"agent": 10}}
+	if got := PresenceDrop(series, o); len(got) != 0 {
+		t.Errorf("steps outside TopSteps flagged: %+v", got)
+	}
+}

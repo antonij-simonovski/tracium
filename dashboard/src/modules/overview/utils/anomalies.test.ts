@@ -11,6 +11,7 @@ function anom(over: Partial<Anomaly>): Anomaly {
     scope: 'workflow',
     workflow: 'a',
     client: '',
+    service: '',
     bucket_ms: 0,
     observed: 2,
     expected: 1,
