@@ -17,6 +17,14 @@ const LABELS: Record<string, string> = {
   cache_hit_ratio: 'Cache hit ratio',
 };
 
+// Names an incident signal metric from a release report, e.g.
+// release_regression:cost_per_run → "Release regression: Cost / run (median)".
+export function releaseSignalLabel(metric: string): string | undefined {
+  if (metric === 'release_regression') return 'Release regressions';
+  const finding = metric.startsWith('release_regression:') ? metric.slice('release_regression:'.length) : undefined;
+  return finding === undefined ? undefined : `Release regression: ${LABELS[finding] ?? finding}`;
+}
+
 const VERDICT_COLOR = { regressed: 'var(--error)', improved: 'var(--accent)', same: 'var(--muted)' } as const;
 
 function fmtValue(metric: string, v: number): string {

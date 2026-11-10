@@ -2,7 +2,6 @@ package release_test
 
 import (
 	"context"
-	"strings"
 	"testing"
 	"time"
 
@@ -75,13 +74,15 @@ func TestLifecycle(t *testing.T) {
 		if r.Status != release.StatusFinal || r.Verdict != "regressed" || r.Runs != 38 || r.PrevRuns != 400 {
 			t.Fatalf("report = %+v", r)
 		}
-		if len(got) != 1 || got[0].Metric != "release_regression" || got[0].Workflow != "agent" || got[0].VersionChange.Version != "v2" || got[0].Severity != "critical" {
-			t.Fatalf("anomaly = %+v", got)
+		if len(got) != 2 || got[0].Metric != "release_regression:truncation_rate" || got[1].Metric != "release_regression:cost_per_run" ||
+			got[0].Workflow != "agent" || got[0].VersionChange.Version != "v2" || got[0].Severity != "critical" {
+			t.Fatalf("anomalies = %+v", got)
 		}
-		if !strings.HasPrefix(got[0].Summary, "v2 regressed against v1: truncated LLM calls 24.6% on v2, 1.0% on v1; median cost per run $0.0400 on v2, $0.0200 on v1 (38 runs against 400).") {
-			t.Errorf("summary = %q", got[0].Summary)
+		if got[0].Summary != "v2 regressed against v1: truncated LLM calls 24.6% on v2, 1.0% on v1 (38 runs against 400)." ||
+			got[1].Summary != "v2 regressed against v1: median cost per run $0.0400 on v2, $0.0200 on v1 (38 runs against 400)." {
+			t.Errorf("summaries = %q, %q", got[0].Summary, got[1].Summary)
 		}
-		if len(tick(t, tr, shipped.Add(90*time.Minute+23*time.Hour))) != 1 || len(tick(t, tr, shipped.Add(90*time.Minute+24*time.Hour))) != 0 {
+		if len(tick(t, tr, shipped.Add(90*time.Minute+23*time.Hour))) != 2 || len(tick(t, tr, shipped.Add(90*time.Minute+24*time.Hour))) != 0 {
 			t.Error("a regression should stay current for 24h after grading, then stop")
 		}
 	})
@@ -123,7 +124,7 @@ func TestLifecycle(t *testing.T) {
 			t.Fatal("rechecked before 300 runs")
 		}
 		stats.runs, stats.next = 300, truncating(300)
-		if got := tick(t, tr, shipped.Add(3*time.Hour)); len(got) != 1 || store.Reports[0].Verdict != "regressed" || store.Reports[0].Runs != 300 {
+		if got := tick(t, tr, shipped.Add(3*time.Hour)); len(got) != 2 || store.Reports[0].Verdict != "regressed" || store.Reports[0].Runs != 300 {
 			t.Fatalf("got %+v, report %+v", got, store.Reports[0])
 		}
 	})

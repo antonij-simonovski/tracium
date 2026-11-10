@@ -35,17 +35,22 @@ const ResolvedLookback = 48 * time.Hour
 
 var dailyMetrics = map[string]bool{"cost": true, "error_rate": true, "runs": true, "latency_p95": true}
 
-// ReleaseMetric is a release report's regression; the report decides how long it stays current.
+// ReleaseMetric prefixes a release report's regressed findings, as in
+// release_regression:truncation_rate; the report decides how long they stay current.
 const ReleaseMetric = "release_regression"
 
+func IsReleaseMetric(metric string) bool { return strings.HasPrefix(metric, ReleaseMetric+":") }
+
 // alwaysCurrent metrics describe now, and resolve as soon as they stop.
-var alwaysCurrent = map[string]bool{"heartbeat": true, "ingest_silence": true, ReleaseMetric: true}
+func alwaysCurrent(metric string) bool {
+	return metric == "heartbeat" || metric == "ingest_silence" || IsReleaseMetric(metric)
+}
 
 // Current reports whether an anomaly describes the present, so it may open or
 // extend an incident.
 func Current(a model.Anomaly, now time.Time, o Options) bool {
 	switch {
-	case alwaysCurrent[a.Metric]:
+	case alwaysCurrent(a.Metric):
 		return true
 	case dailyMetrics[a.Metric]:
 		return a.BucketMs >= now.UTC().Truncate(24*time.Hour).Add(-24*time.Hour).UnixMilli()
@@ -67,7 +72,8 @@ func Subject(a model.Anomaly) (scope, subject string) {
 
 func Muted(mutes []Mute, scope, subject, metric string, now time.Time) bool {
 	for _, m := range mutes {
-		if m.Scope == scope && m.Subject == subject && (m.Metric == "" || m.Metric == metric) && (m.Until == nil || m.Until.After(now)) {
+		matches := m.Metric == "" || m.Metric == metric || (m.Metric == ReleaseMetric && IsReleaseMetric(metric))
+		if m.Scope == scope && m.Subject == subject && matches && (m.Until == nil || m.Until.After(now)) {
 			return true
 		}
 	}
@@ -203,7 +209,7 @@ func merge(inc *Incident, group []model.Anomaly, signals []Signal, now time.Time
 		}
 	}
 	for _, a := range group {
-		if a.VersionChange != nil && (inc.VersionChange == nil || a.Metric == ReleaseMetric) {
+		if a.VersionChange != nil && (inc.VersionChange == nil || IsReleaseMetric(a.Metric)) {
 			inc.VersionChange = a.VersionChange
 		}
 	}
@@ -226,7 +232,7 @@ func quiet(inc Incident, o Options) time.Duration {
 		switch {
 		case dailyMetrics[s.Metric]:
 			d = max(d, o.DailyQuiet)
-		case !alwaysCurrent[s.Metric]:
+		case !alwaysCurrent(s.Metric):
 			d = max(d, o.HourlyQuiet)
 		}
 	}
@@ -261,7 +267,7 @@ func Title(scope, subject string, signals []Signal) string {
 	var title string
 	if noun, ok := metricNouns[top.Metric]; ok {
 		title = fmt.Sprintf("%s: %s at %s", name, noun, value)
-	} else if top.Metric == ReleaseMetric {
+	} else if IsReleaseMetric(top.Metric) {
 		headline, _, _ := strings.Cut(top.Summary, ": ")
 		title = fmt.Sprintf("%s: %s", name, headline)
 	} else if top.Metric == "heartbeat" {

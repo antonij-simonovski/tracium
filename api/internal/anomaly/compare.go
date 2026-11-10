@@ -42,6 +42,10 @@ func DefaultCompareOptions() CompareOptions {
 		OutputTokensRatio: 2.0, CacheMinRatio: 0.2, CacheDrop: 0.5}
 }
 
+// FindingMetrics are the metrics CompareVersions reports on.
+var FindingMetrics = map[string]bool{"error_rate": true, "truncation_rate": true, "refusal_rate": true, "tool_error_rate": true,
+	"cost_per_run": true, "latency_p95": true, "llm_calls_per_run": true, "output_tokens_per_run": true, "cache_hit_ratio": true}
+
 const (
 	Regressed = "regressed"
 	Improved  = "improved"

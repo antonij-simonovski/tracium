@@ -1943,8 +1943,9 @@ export interface components {
             version_change: components["schemas"]["VersionChange"] | null;
             signals: components["schemas"]["IncidentSignal"][];
         };
-        /** @description One anomaly bucket of the incident, as in Anomaly. */
+        /** @description One anomaly bucket of the incident, as in Anomaly, or one regressed finding of a release report. */
         IncidentSignal: {
+            /** @description An anomaly metric, or release_regression:<finding> (for example release_regression:cost_per_run) for a release report finding. */
             metric: string;
             bucket_ms: number;
             observed: number;
@@ -3700,7 +3701,7 @@ export interface operations {
                     /** @enum {string} */
                     duration: "24h" | "7d" | "forever";
                     /**
-                     * @description Mute only this metric (an anomaly metric or release_regression). Empty mutes every metric of the subject.
+                     * @description Mute only this metric: an anomaly metric, one release report finding such as release_regression:truncation_rate, or release_regression for every release finding. Empty mutes every metric of the subject.
                      * @default
                      */
                     metric?: string;

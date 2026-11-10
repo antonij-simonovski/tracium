@@ -50,6 +50,11 @@ func incidentStore() *mocks.MockIncidentStore {
 }
 
 func TestIncidentsAcrossWorkspacesAre404(t *testing.T) {
+	for _, metric := range []string{"release_regression", "release_regression:truncation_rate", "release_regression:cost_per_run"} {
+		if rec := serveIncident(incidentRouter(incidentStore(), nil), http.MethodPost, "/v1/incidents/own/mute", `{"duration":"24h","metric":"`+metric+`"}`); rec.Code != http.StatusCreated {
+			t.Errorf("%s: got %d, want 201", metric, rec.Code)
+		}
+	}
 	store := incidentStore()
 	notifier := &recordingNotifier{}
 	r := incidentRouter(store, notifier)
@@ -89,7 +94,8 @@ func TestIncidentResolveNotifies(t *testing.T) {
 }
 
 func TestIncidentMute(t *testing.T) {
-	for _, body := range []string{`{"duration":"1h"}`, `{}`, `{"duration":"24h","metric":"nope"}`, `not json`} {
+	for _, body := range []string{`{"duration":"1h"}`, `{}`, `{"duration":"24h","metric":"nope"}`, `not json`,
+		`{"duration":"24h","metric":"release_regression:nope"}`, `{"duration":"24h","metric":"release_regression:"}`} {
 		if rec := serveIncident(incidentRouter(incidentStore(), nil), http.MethodPost, "/v1/incidents/own/mute", body); rec.Code != http.StatusBadRequest {
 			t.Errorf("%s: got %d, want 400", body, rec.Code)
 		}

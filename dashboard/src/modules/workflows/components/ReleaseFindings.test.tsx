@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { ReleaseLines } from '../../overview/components/ReleaseLines';
 import type { ReleaseReport } from '../interfaces';
-import { ReleaseFindings } from './ReleaseFindings';
+import { ReleaseFindings, releaseSignalLabel } from './ReleaseFindings';
 import { VersionsTable } from './VersionsTable';
 
 const now = Date.parse('2026-11-10T12:00:00Z');
@@ -36,6 +36,13 @@ describe('release reports', () => {
     expect(screen.getByText('Checking')).toBeTruthy();
     expect(screen.getByText('Healthy')).toBeTruthy();
     expect(screen.getByText('Not enough runs')).toBeTruthy();
+  });
+
+  it('names release signal metrics', () => {
+    expect(releaseSignalLabel('release_regression:truncation_rate')).toBe('Release regression: Truncated LLM calls');
+    expect(releaseSignalLabel('release_regression:cost_per_run')).toBe('Release regression: Cost / run (median)');
+    expect(releaseSignalLabel('release_regression')).toBe('Release regressions');
+    expect(releaseSignalLabel('truncation_rate')).toBeUndefined();
   });
 
   it('lists the last day of releases on the overview', () => {

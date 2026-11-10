@@ -6,10 +6,12 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/tracium/api/internal/anomaly"
 	"github.com/tracium/api/internal/incident"
 	"github.com/tracium/api/internal/middleware"
 )
@@ -147,8 +149,9 @@ func (h *IncidentHandler) Mute(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "BAD_REQUEST", "duration must be 24h, 7d or forever")
 		return
 	}
-	if req.Metric != "" && !validAnomalyMetrics[req.Metric] && req.Metric != incident.ReleaseMetric {
-		respondError(w, http.StatusBadRequest, "BAD_REQUEST", "metric must be empty, "+incident.ReleaseMetric+" or one of "+anomalyMetricList)
+	finding, isRelease := strings.CutPrefix(req.Metric, incident.ReleaseMetric+":")
+	if req.Metric != "" && !validAnomalyMetrics[req.Metric] && req.Metric != incident.ReleaseMetric && !(isRelease && anomaly.FindingMetrics[finding]) {
+		respondError(w, http.StatusBadRequest, "BAD_REQUEST", "metric must be empty, "+incident.ReleaseMetric+", "+incident.ReleaseMetric+":<finding> or one of "+anomalyMetricList)
 		return
 	}
 	inc, ok := h.get(w, r)

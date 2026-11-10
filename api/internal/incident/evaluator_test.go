@@ -124,12 +124,17 @@ func TestEvaluatorFoldsReleaseRegressions(t *testing.T) {
 	daily := &model.VersionChange{Workflow: "sf-truncation", Version: "v1", FirstSeenMs: 1}
 	old := truncation()
 	old.VersionChange = daily
-	regression := model.Anomaly{Metric: incident.ReleaseMetric, Scope: "workflow", Workflow: "sf-truncation", BucketMs: 5, Severity: "critical",
-		Summary:       "v2 regressed against v1: truncated LLM calls 24.6% on v2, 1.0% on v1 (38 runs against 400).",
-		VersionChange: &model.VersionChange{Workflow: "sf-truncation", Version: "v2", FirstSeenMs: 5}}
+	finding := func(metric, severity, summary string) model.Anomaly {
+		return model.Anomaly{Metric: incident.ReleaseMetric + ":" + metric, Scope: "workflow", Workflow: "sf-truncation", BucketMs: 5, Severity: severity,
+			Summary: "v2 regressed against v1: " + summary, VersionChange: &model.VersionChange{Workflow: "sf-truncation", Version: "v2", FirstSeenMs: 5}}
+	}
+	findings := releaseSource{
+		finding("truncation_rate", "critical", "truncated LLM calls 24.6% on v2, 1.0% on v1 (38 runs against 400)."),
+		finding("cost_per_run", "warning", "median cost per run $0.0400 on v2, $0.0200 on v1 (38 runs against 400)."),
+	}
 	det := &fakeDetector{anomalies: map[string][]model.Anomaly{"a": {old}, "quiet": nil}}
 	store := &mocks.MockIncidentStore{}
-	e := incident.NewEvaluator(det, store, freeLock{}, workspaces{"a", "quiet"}, nil, config(), releaseSource{regression})
+	e := incident.NewEvaluator(det, store, freeLock{}, workspaces{"a", "quiet"}, nil, config(), findings)
 	if err := e.Tick(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +146,7 @@ func TestEvaluatorFoldsReleaseRegressions(t *testing.T) {
 		t.Fatalf("incidents = %v, want one per workspace", subjects)
 	}
 	inc := store.Incidents[0]
-	if len(inc.Signals) != 2 || inc.VersionChange.Version != "v2" || inc.Title != "sf-truncation: v2 regressed against v1 (+1 more signal)" {
+	if len(inc.Signals) != 3 || inc.VersionChange.Version != "v2" || inc.Title != "sf-truncation: v2 regressed against v1 (+2 more signals)" {
 		t.Errorf("incident = %+v", inc)
 	}
 
@@ -154,5 +159,19 @@ func TestEvaluatorFoldsReleaseRegressions(t *testing.T) {
 		if inc.WorkspaceID == "quiet" {
 			t.Errorf("muted release regression opened %+v", inc)
 		}
+	}
+
+	store.MuteList = []incident.Mute{{WorkspaceID: "quiet", Scope: "workflow", Subject: "sf-truncation", Metric: incident.ReleaseMetric + ":truncation_rate"}}
+	store.Incidents = nil
+	if err := e.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for _, inc := range store.Incidents {
+		if inc.WorkspaceID == "quiet" && (len(inc.Signals) != 1 || inc.Signals[0].Metric != "release_regression:cost_per_run") {
+			t.Errorf("a finding mute should leave only the cost signal: %+v", inc.Signals)
+		}
+	}
+	if len(store.Incidents) != 2 {
+		t.Errorf("incidents = %d, want the quiet workspace's cost finding to open one", len(store.Incidents))
 	}
 }

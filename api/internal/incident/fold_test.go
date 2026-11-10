@@ -138,3 +138,26 @@ func TestTitle(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestMutedReleaseFindings(t *testing.T) {
+	mute := func(metric string) []Mute { return []Mute{{Scope: "workflow", Subject: "wf", Metric: metric}} }
+	cases := []struct {
+		mute, metric string
+		want         bool
+	}{
+		{"release_regression", "release_regression:truncation_rate", true},
+		{"release_regression", "release_regression:cost_per_run", true},
+		{"release_regression", "truncation_rate", false},
+		{"release_regression:truncation_rate", "release_regression:truncation_rate", true},
+		{"release_regression:truncation_rate", "release_regression:cost_per_run", false},
+		{"truncation_rate", "release_regression:truncation_rate", false},
+	}
+	for _, c := range cases {
+		if got := Muted(mute(c.mute), "workflow", "wf", c.metric, now); got != c.want {
+			t.Errorf("mute %s, metric %s: got %v, want %v", c.mute, c.metric, got, c.want)
+		}
+	}
+	if !Current(model.Anomaly{Metric: "release_regression:cost_per_run", BucketMs: 1}, now, DefaultOptions()) {
+		t.Error("release findings should always be current")
+	}
+}

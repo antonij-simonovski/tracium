@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/tracium/api/internal/anomaly"
@@ -127,7 +126,7 @@ func (t *Tracker) Anomalies(ctx context.Context, workspaceID string, now time.Ti
 			continue
 		}
 		if r.Verdict == anomaly.Regressed && r.FinalizedAt != nil && now.Sub(*r.FinalizedAt) < t.o.Current {
-			out = append(out, Signal(r))
+			out = append(out, Signals(r)...)
 		}
 	}
 	return out, errors.Join(errs...)
@@ -178,26 +177,24 @@ var findingNouns = map[string]string{
 	"llm_calls_per_run": "median LLM calls per run", "output_tokens_per_run": "median output tokens per run", "cache_hit_ratio": "cache hit ratio",
 }
 
-// Signal is the anomaly a regressed report feeds the incident engine, so
-// grouping, mutes and notifications treat it like any detector's.
-func Signal(r Report) model.Anomaly {
-	a := model.Anomaly{Metric: incident.ReleaseMetric, Scope: "workflow", Workflow: r.Workflow, BucketMs: r.FirstSeenAt.UnixMilli(),
-		Direction: "up", Severity: "info", VersionChange: &model.VersionChange{Workflow: r.Workflow, Version: r.Version, FirstSeenMs: r.FirstSeenAt.UnixMilli()}}
-	var parts []string
+// Signals are the anomalies a regressed report feeds the incident engine, one
+// per regressed finding, so grouping, mutes and notifications treat them like
+// any detector's.
+func Signals(r Report) []model.Anomaly {
+	var out []model.Anomaly
 	for _, f := range r.Findings {
 		if f.Verdict != anomaly.Regressed {
 			continue
 		}
-		if rank(f.Severity) > rank(a.Severity) {
-			a.Severity, a.Observed, a.Expected = f.Severity, f.Next, f.Prev
+		direction := "up"
+		if f.Next < f.Prev {
+			direction = "down"
 		}
-		parts = append(parts, fmt.Sprintf("%s %s on %s, %s on %s", findingNouns[f.Metric],
-			query.FormatAnomalyValue(f.Metric, f.Next), r.Version, query.FormatAnomalyValue(f.Metric, f.Prev), r.PrevVersion))
+		out = append(out, model.Anomaly{Metric: incident.ReleaseMetric + ":" + f.Metric, Scope: "workflow", Workflow: r.Workflow,
+			BucketMs: r.FirstSeenAt.UnixMilli(), Observed: f.Next, Expected: f.Prev, Direction: direction, Severity: f.Severity,
+			Summary: fmt.Sprintf("%s regressed against %s: %s %s on %s, %s on %s (%d runs against %d).", r.Version, r.PrevVersion, findingNouns[f.Metric],
+				query.FormatAnomalyValue(f.Metric, f.Next), r.Version, query.FormatAnomalyValue(f.Metric, f.Prev), r.PrevVersion, r.Runs, r.PrevRuns),
+			VersionChange: &model.VersionChange{Workflow: r.Workflow, Version: r.Version, FirstSeenMs: r.FirstSeenAt.UnixMilli()}})
 	}
-	a.Summary = fmt.Sprintf("%s regressed against %s: %s (%d runs against %d).", r.Version, r.PrevVersion, strings.Join(parts, "; "), r.Runs, r.PrevRuns)
-	return a
-}
-
-func rank(severity string) int {
-	return map[string]int{"info": 1, "warning": 2, "critical": 3}[severity]
+	return out
 }

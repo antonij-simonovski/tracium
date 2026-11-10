@@ -1234,7 +1234,11 @@ paths:
                   enum: ["24h", "7d", "forever"]
                 metric:
                   type: string
-                  description: Mute only this metric (an anomaly metric or release_regression). Empty mutes every metric of the subject.
+                  pattern: "^([a-z0-9_]+|release_regression:(error_rate|truncation_rate|refusal_rate|tool_error_rate|cost_per_run|latency_p95|llm_calls_per_run|output_tokens_per_run|cache_hit_ratio))?$"
+                  description: >
+                    Mute only this metric: an anomaly metric, one release report finding such as
+                    release_regression:truncation_rate, or release_regression for every release
+                    finding. Empty mutes every metric of the subject.
                   default: ""
       responses:
         "201":
@@ -4064,10 +4068,11 @@ components:
     IncidentSignal:
       type: object
       required: [metric, bucket_ms, observed, expected, score, direction, severity, summary, trace_ids]
-      description: One anomaly bucket of the incident, as in Anomaly.
+      description: One anomaly bucket of the incident, as in Anomaly, or one regressed finding of a release report.
       properties:
         metric:
           type: string
+          description: An anomaly metric, or release_regression:<finding> (for example release_regression:cost_per_run) for a release report finding.
         bucket_ms:
           type: integer
         observed:
