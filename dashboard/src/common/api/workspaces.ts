@@ -1,5 +1,12 @@
 import { BaseAPIClient } from './client';
 import type { Workspace } from '../../modules/shell/interfaces';
+import type { components } from '../../types/openapi';
+
+export type AlertChannel = components['schemas']['AlertChannel'];
+export type AlertChannelList = components['schemas']['AlertChannelList'];
+export type CreateAlertChannelInput = components['schemas']['CreateAlertChannelRequest'];
+export type UpdateAlertChannelInput = components['schemas']['UpdateAlertChannelRequest'];
+export type AlertTestResult = components['schemas']['AlertTestResult'];
 
 export interface CreateWorkspaceInput {
   name: string;
@@ -65,6 +72,26 @@ export class WorkspacesAPI extends BaseAPIClient {
 
   revokeInvite(id: string, inviteId: string): Promise<void> {
     return this.delete(`/workspaces/${encodeURIComponent(id)}/invites/${encodeURIComponent(inviteId)}`);
+  }
+
+  alertChannels(id: string): Promise<AlertChannelList> {
+    return this.get<AlertChannelList>(`/workspaces/${encodeURIComponent(id)}/alert-channels`);
+  }
+
+  createAlertChannel(id: string, input: CreateAlertChannelInput): Promise<AlertChannel> {
+    return this.post<AlertChannel>(`/workspaces/${encodeURIComponent(id)}/alert-channels`, input);
+  }
+
+  updateAlertChannel(id: string, channelId: string, input: UpdateAlertChannelInput): Promise<AlertChannel> {
+    return this.patch<AlertChannel>(`/workspaces/${encodeURIComponent(id)}/alert-channels/${encodeURIComponent(channelId)}`, input);
+  }
+
+  deleteAlertChannel(id: string, channelId: string): Promise<void> {
+    return this.delete(`/workspaces/${encodeURIComponent(id)}/alert-channels/${encodeURIComponent(channelId)}`);
+  }
+
+  testAlertChannel(id: string, channelId: string): Promise<AlertTestResult> {
+    return this.post<AlertTestResult>(`/workspaces/${encodeURIComponent(id)}/alert-channels/${encodeURIComponent(channelId)}/test`, {});
   }
 
   acceptInvite(token: string): Promise<{ workspace_id: string }> {

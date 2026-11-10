@@ -173,6 +173,13 @@ other version attribute, is ignored. Runs without it are unversioned.
   `DETECTION_MIN_SEVERITY` (`info`, `warning` or `critical`; default `warning`,
   the lowest severity that opens an incident). With several API replicas, one
   runs the checks at a time.
+- **Alerts:** each workspace's owner adds channels in **Settings → Alerts**
+  (Slack incoming webhook, signed webhook, or email when the deployment sends
+  mail). Slack and webhook URLs must be https and resolve to public addresses;
+  `ALERTS_ALLOW_PRIVATE_URLS=true` lifts that for internal services. Links in
+  messages use `PUBLIC_URL`; without it they carry the incident and trace ids.
+  Webhook signature verification is described on `POST
+  /v1/workspaces/{id}/alert-channels` in `spec/api/openapi.yaml`.
 - **Cost allocation:** any custom OTLP attribute your apps attach (e.g. `team`,
   `user.id`, `environment`) is retained and becomes a dimension you can allocate
   spend by with `GET /v1/metrics/usage-by-attribute?key=team`, or the dashboard's
