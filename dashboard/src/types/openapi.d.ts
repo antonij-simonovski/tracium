@@ -581,7 +581,7 @@ export interface paths {
         put?: never;
         /**
          * Create an alert channel
-         * @description Owner only. When an incident opens, escalates or resolves, every enabled channel whose `min_severity` the incident reaches gets one message; failed sends are retried 4 times (after 30s, 2m, 10m and 1h). Slack and webhook URLs must be https and reach a public address (Slack: `hooks.slack.com`) unless the deployment sets `ALERTS_ALLOW_PRIVATE_URLS=true`. Email needs a deployment that sends mail (`EMAIL_DISABLED` otherwise).
+         * @description Owner only. When an incident opens, escalates or resolves, every enabled channel whose `min_severity` the incident reaches gets one message; failed sends are retried 4 times (after 30s, 2m, 10m and 1h, or the destination's `Retry-After` up to 1h) on 5xx, 408, 429, timeouts and connection errors. Other 4xx answers and blocked targets fail at once. Slack and webhook URLs must be https and reach a public address (Slack: `hooks.slack.com`) unless the deployment sets `ALERTS_ALLOW_PRIVATE_URLS=true`. Email needs a deployment that sends mail (`EMAIL_DISABLED` otherwise).
          *
          *     A webhook gets a JSON POST of `{version, event, incident}` with headers `X-Tracium-Event`, `X-Tracium-Timestamp` (unix seconds) and `X-Tracium-Signature: sha256=<hex>`, the HMAC-SHA256 of `<timestamp>.<raw body>` keyed with the channel's `secret`. To verify, recompute it over the raw body, compare in constant time, and reject timestamps more than 5 minutes old. The secret is returned only in this response.
          */

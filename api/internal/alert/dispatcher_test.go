@@ -3,6 +3,10 @@ package alert_test
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -168,5 +172,80 @@ func TestEmailChannelRejectedWhenMailDisabled(t *testing.T) {
 	d, _, _ := setup()
 	if _, err := d.Validate(context.Background(), alert.KindEmail, "a@example.com"); !errors.Is(err, alert.ErrEmailDisabled) {
 		t.Fatalf("got %v", err)
+	}
+}
+
+func TestFlushFailsFastOnPermanentErrors(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		code, _ := strconv.Atoi(strings.TrimPrefix(r.URL.Path, "/"))
+		if code == http.StatusTooManyRequests {
+			w.Header().Set("Retry-After", "90")
+		}
+		w.WriteHeader(code)
+	}))
+	defer srv.Close()
+	opts := alert.DefaultOptions()
+	opts.AllowPrivateURLs = true
+	now := time.Date(2026, 11, 10, 14, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		target    string
+		allow     bool
+		permanent bool
+		wait      time.Duration
+	}{
+		{srv.URL + "/404", true, true, 0},
+		{srv.URL + "/410", true, true, 0},
+		{srv.URL + "/400", true, true, 0},
+		{srv.URL + "/403", true, true, 0},
+		{srv.URL + "/200", false, true, 0},
+		{"https://127.0.0.1/hook", false, true, 0},
+		{srv.URL + "/500", true, false, 30 * time.Second},
+		{srv.URL + "/503", true, false, 30 * time.Second},
+		{srv.URL + "/408", true, false, 30 * time.Second},
+		{srv.URL + "/429", true, false, 90 * time.Second},
+	} {
+		o := opts
+		o.AllowPrivateURLs = tc.allow
+		ch := alert.Channel{ID: "c", WorkspaceID: "ws", Kind: alert.KindWebhook, Target: tc.target, MinSeverity: "warning", Enabled: true}
+		store := &mocks.MockAlertStore{ChannelSet: []alert.Channel{ch}}
+		d := alert.NewDispatcher(store, alert.NewSenders(nil, o), o)
+		alert.SetClock(d, func() time.Time { return now })
+		if err := d.Notify(context.Background(), event(incident.EventOpened, "critical", now)); err != nil {
+			t.Fatal(err)
+		}
+		if err := d.Flush(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		q := store.Queue[0]
+		if tc.permanent {
+			if q.Status != alert.StatusFailed || q.Attempts != 1 || !strings.Contains(q.LastError, "not retried") {
+				t.Errorf("%s allow=%v: want failed after one attempt, got %+v", tc.target, tc.allow, q)
+			}
+			continue
+		}
+		if q.Status != alert.StatusPending || q.Attempts != 1 || !q.NextAttemptAt.Equal(now.Add(tc.wait)) {
+			t.Errorf("%s: want retry after %s, got %+v", tc.target, tc.wait, q)
+		}
+	}
+}
+
+func TestRetryAfterCappedAtLastStep(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", "86400")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+	opts := alert.DefaultOptions()
+	opts.AllowPrivateURLs = true
+	store := &mocks.MockAlertStore{ChannelSet: []alert.Channel{{ID: "c", WorkspaceID: "ws", Kind: alert.KindSlack, Target: srv.URL, MinSeverity: "warning", Enabled: true}}}
+	d := alert.NewDispatcher(store, alert.NewSenders(nil, opts), opts)
+	now := time.Date(2026, 11, 10, 14, 0, 0, 0, time.UTC)
+	alert.SetClock(d, func() time.Time { return now })
+	_ = d.Notify(context.Background(), event(incident.EventOpened, "critical", now))
+	if err := d.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if q := store.Queue[0]; !q.NextAttemptAt.Equal(now.Add(time.Hour)) {
+		t.Fatalf("retry at %s", q.NextAttemptAt)
 	}
 }

@@ -30,6 +30,39 @@ type Sender interface {
 
 var errBlockedAddress = errors.New("destination address is private, loopback or link-local; set ALERTS_ALLOW_PRIVATE_URLS=true to allow it")
 
+var errLookup = errors.New("host does not resolve")
+
+// permanentError is a failure a retry cannot fix, such as a 404 or a blocked target.
+type permanentError struct{ error }
+
+func (e permanentError) Unwrap() error { return e.error }
+
+func permanent(err error) error { return permanentError{err} }
+
+// Permanent reports whether err is not worth retrying.
+func Permanent(err error) bool {
+	var p permanentError
+	return errors.As(err, &p) || errors.Is(err, errBlockedAddress) || errors.Is(err, extension.ErrMailDisabled)
+}
+
+// retryAfterError carries the destination's Retry-After wait.
+type retryAfterError struct {
+	error
+	after time.Duration
+}
+
+func (e retryAfterError) Unwrap() error { return e.error }
+
+func retryAfter(h string) time.Duration {
+	if secs, err := strconv.Atoi(strings.TrimSpace(h)); err == nil && secs > 0 {
+		return time.Duration(secs) * time.Second
+	}
+	if t, err := http.ParseTime(h); err == nil {
+		return time.Until(t)
+	}
+	return 0
+}
+
 var blockedPrefixes = []netip.Prefix{
 	netip.MustParsePrefix("0.0.0.0/8"),
 	netip.MustParsePrefix("100.64.0.0/10"),
@@ -75,7 +108,16 @@ func NewHTTPClient(allowPrivate bool, timeout time.Duration) *http.Client {
 
 // ValidateTarget checks a channel target and returns it normalised. URLs must
 // be https with a public host (Slack: hooks.slack.com) unless allowPrivate.
+// Every error but a failed DNS lookup is Permanent.
 func ValidateTarget(ctx context.Context, kind, target string, allowPrivate bool) (string, error) {
+	normalised, err := validateTarget(ctx, kind, target, allowPrivate)
+	if err != nil && !errors.Is(err, errLookup) {
+		err = permanent(err)
+	}
+	return normalised, err
+}
+
+func validateTarget(ctx context.Context, kind, target string, allowPrivate bool) (string, error) {
 	target = strings.TrimSpace(target)
 	if kind == KindEmail {
 		var out []string
@@ -110,7 +152,7 @@ func ValidateTarget(ctx context.Context, kind, target string, allowPrivate bool)
 	}
 	addrs, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
 	if err != nil {
-		return "", fmt.Errorf("host %q does not resolve", host)
+		return "", fmt.Errorf("%w: %v", errLookup, err)
 	}
 	for _, a := range addrs {
 		if blocked(a) {
@@ -145,7 +187,7 @@ type httpSender struct {
 func (s httpSender) post(ctx context.Context, target string, body []byte, header http.Header) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
 	if err != nil {
-		return errors.New("invalid target URL")
+		return permanent(errors.New("invalid target URL"))
 	}
 	req.Header = header
 	req.Header.Set("Content-Type", "application/json")
@@ -160,10 +202,17 @@ func (s httpSender) post(ctx context.Context, target string, body []byte, header
 	}
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, s.maxBytes))
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return fmt.Errorf("destination answered %d", resp.StatusCode)
+	code := resp.StatusCode
+	err = fmt.Errorf("destination answered %d", code)
+	switch {
+	case code >= 200 && code <= 299:
+		return nil
+	case code == http.StatusTooManyRequests:
+		return retryAfterError{err, retryAfter(resp.Header.Get("Retry-After"))}
+	case code >= 400 && code <= 499 && code != http.StatusRequestTimeout:
+		return permanent(err)
 	}
-	return nil
+	return err
 }
 
 type SlackSender struct{ httpSender }

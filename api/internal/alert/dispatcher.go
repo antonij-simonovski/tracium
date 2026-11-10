@@ -139,20 +139,26 @@ func (d *Dispatcher) deliver(ctx context.Context, del Delivery) error {
 	del.Attempts++
 	var err error
 	if !del.Channel.Enabled {
-		err = errors.New("channel disabled")
-		del.Attempts = len(d.opts.Backoff) + 1
+		err = permanent(errors.New("channel disabled"))
 	} else {
 		del.Payload.ID = fmt.Sprintf("%s/%s/%s/%d", del.IncidentID, del.ChannelID, del.Event, del.Seq)
 		err = d.send(ctx, del.Channel, del.Payload)
 	}
 	now := d.now()
+	var ra retryAfterError
 	switch {
 	case err == nil:
 		del.Status, del.LastError, del.SentAt = StatusSent, "", &now
+	case Permanent(err):
+		del.Status, del.LastError = StatusFailed, err.Error()+" (permanent, not retried)"
 	case del.Attempts > len(d.opts.Backoff):
 		del.Status, del.LastError = StatusFailed, err.Error()
 	default:
-		del.Status, del.LastError, del.NextAttemptAt = StatusPending, err.Error(), now.Add(d.opts.Backoff[del.Attempts-1])
+		wait := d.opts.Backoff[del.Attempts-1]
+		if errors.As(err, &ra) && ra.after > 0 {
+			wait = min(ra.after, d.opts.Backoff[len(d.opts.Backoff)-1])
+		}
+		del.Status, del.LastError, del.NextAttemptAt = StatusPending, err.Error(), now.Add(wait)
 	}
 	if err != nil {
 		log.Printf("alert delivery: channel %s incident %s %s attempt %d: %v", del.ChannelID, del.IncidentID, del.Event, del.Attempts, err)

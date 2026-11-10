@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tracium/api/extension"
 	"github.com/tracium/api/internal/incident"
 	"github.com/tracium/api/internal/model"
 )
@@ -209,5 +210,18 @@ func TestRenderText(t *testing.T) {
 func TestMask(t *testing.T) {
 	if got := Mask(KindSlack, "https://hooks.slack.com/services/T0/B0/abcdA1b2"); got != "https://hooks.slack.com/…/…A1b2" {
 		t.Fatal(got)
+	}
+}
+
+func TestPermanentClasses(t *testing.T) {
+	err := EmailSender{Mailer: extension.DisabledMailer{}}.Send(context.Background(), Channel{Target: "a@example.com"}, Message{})
+	if !Permanent(err) {
+		t.Fatal("mail disabled is retried")
+	}
+	if _, err := ValidateTarget(context.Background(), KindSlack, "https://example.com/x", false); !Permanent(err) {
+		t.Fatal("non-Slack host is retried")
+	}
+	if Permanent(context.DeadlineExceeded) || Permanent(errors.New("connection refused")) {
+		t.Fatal("transient error marked permanent")
 	}
 }
