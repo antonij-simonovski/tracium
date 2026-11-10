@@ -331,7 +331,7 @@ func (r *ClickHouseRepository) scanBuckets(ctx context.Context, q string, args [
 func hourlySummary(a model.Anomaly, run, tool string) string {
 	subject := fmt.Sprintf("Workflow %q", a.Workflow)
 	at := time.UnixMilli(a.BucketMs).UTC().Format("2006-01-02 15:04 UTC")
-	obs, exp := formatAnomalyValue(a.Metric, a.Observed), formatAnomalyValue(a.Metric, a.Expected)
+	obs, exp := FormatAnomalyValue(a.Metric, a.Observed), FormatAnomalyValue(a.Metric, a.Expected)
 	switch a.Metric {
 	case "llm_calls_per_run":
 		if a.Expected == 0 {

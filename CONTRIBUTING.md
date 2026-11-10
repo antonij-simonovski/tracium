@@ -167,6 +167,12 @@ other version attribute, is ignored. Runs without it are unversioned.
   MCP clients connect to `<PUBLIC_URL>/v1/mcp` by signing in (OAuth) instead of
   with a pasted read key. See [api/README.md](api/README.md#connecting-with-oauth).
 - **Retention:** `RETENTION_DAYS` (default 90; `0` keeps data forever).
+- **Incidents:** the API checks every workspace for anomalies in the background
+  and stores incidents (`GET /v1/incidents`). `DETECTION_ENABLED` (default
+  `true`), `DETECTION_INTERVAL_SECONDS` (default `300`) and
+  `DETECTION_MIN_SEVERITY` (`info`, `warning` or `critical`; default `warning`,
+  the lowest severity that opens an incident). With several API replicas, one
+  runs the checks at a time.
 - **Cost allocation:** any custom OTLP attribute your apps attach (e.g. `team`,
   `user.id`, `environment`) is retained and becomes a dimension you can allocate
   spend by with `GET /v1/metrics/usage-by-attribute?key=team`, or the dashboard's

@@ -1039,6 +1039,201 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /v1/incidents:
+    get:
+      operationId: listIncidents
+      summary: List incidents
+      description: >
+        Incidents opened by the background evaluator, which groups current
+        anomalies by subject (a workflow, a client or the workspace) every few
+        minutes. Open incidents come first, then newest first.
+      tags: [Incidents]
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceFilter"
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: ["open", "resolved", "all"]
+            default: all
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: Paginated incidents with their signals.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedIncidentResponse"
+        "400":
+          description: Invalid status or paging parameter.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: The caller is not a member of workspace_id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/incidents/{id}:
+    get:
+      operationId: getIncident
+      summary: Get an incident
+      tags: [Incidents]
+      parameters:
+        - $ref: "#/components/parameters/IncidentID"
+      responses:
+        "200":
+          description: The incident with its signals.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Incident"
+        "404":
+          description: No incident with that id in the caller's workspaces.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/incidents/{id}/resolve:
+    post:
+      operationId: resolveIncident
+      summary: Resolve an incident
+      description: Resolves the incident as the caller and emits a resolved event. Resolving a resolved incident changes nothing.
+      tags: [Incidents]
+      parameters:
+        - $ref: "#/components/parameters/IncidentID"
+      responses:
+        "200":
+          description: The resolved incident.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Incident"
+        "404":
+          description: No incident with that id in the caller's workspaces.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/incidents/{id}/mute:
+    post:
+      operationId: muteIncident
+      summary: Mute an incident's subject
+      description: >
+        Mutes the incident's subject, or one metric of it, so its anomalies open
+        no incident, and resolves the incident without a notification.
+      tags: [Incidents]
+      parameters:
+        - $ref: "#/components/parameters/IncidentID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [duration]
+              properties:
+                duration:
+                  type: string
+                  enum: ["24h", "7d", "forever"]
+                metric:
+                  type: string
+                  description: Mute only this metric. Empty mutes every metric of the subject.
+                  default: ""
+      responses:
+        "201":
+          description: The mute.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncidentMute"
+        "400":
+          description: Invalid duration or metric.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: No incident with that id in the caller's workspaces.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/workspaces/{id}/incident-mutes:
+    get:
+      operationId: listIncidentMutes
+      summary: List a workspace's active mutes
+      tags: [Incidents]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Active mutes, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedIncidentMuteResponse"
+        "403":
+          description: The caller is not a member of the workspace.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/workspaces/{id}/incident-mutes/{muteId}:
+    delete:
+      operationId: deleteIncidentMute
+      summary: Remove a mute
+      tags: [Incidents]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: muteId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Removed.
+        "403":
+          description: The caller is not a member of the workspace.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: No mute with that id in the workspace.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /v1/metrics/setup-checks:
     get:
       operationId: getSetupChecks
@@ -2409,6 +2604,12 @@ components:
         never authenticates ingest.
 
   parameters:
+    IncidentID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
     WorkflowName:
       name: name
       in: path
@@ -3649,6 +3850,141 @@ components:
           description: >-
             Sample runs behind the anomaly: the worst run for llm_calls_per_run and
             tool_repeat. Empty for other metrics.
+
+    Incident:
+      type: object
+      required: [id, workspace_id, scope, subject, status, severity, title, opened_at, updated_at, resolved_at, resolved_by, last_signal_at, version_change, signals]
+      properties:
+        id:
+          type: string
+        workspace_id:
+          type: string
+        scope:
+          type: string
+          enum: ["workspace", "workflow", "client", "service"]
+        subject:
+          type: string
+          description: The workflow name, client id or service name; empty for scope workspace.
+        status:
+          type: string
+          enum: ["open", "resolved"]
+        severity:
+          type: string
+          enum: ["info", "warning", "critical"]
+          description: The highest severity of its signals.
+        title:
+          type: string
+          example: "sf-truncation: truncated LLM calls at 66.7%"
+        opened_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+        resolved_by:
+          type: string
+          description: The user who resolved or muted it; empty while open or when it resolved by itself.
+        last_signal_at:
+          type: string
+          format: date-time
+          description: The last evaluation that saw a current anomaly for the subject.
+        version_change:
+          allOf:
+            - $ref: "#/components/schemas/VersionChange"
+          nullable: true
+        signals:
+          type: array
+          items:
+            $ref: "#/components/schemas/IncidentSignal"
+
+    IncidentSignal:
+      type: object
+      required: [metric, bucket_ms, observed, expected, score, direction, severity, summary, trace_ids]
+      description: One anomaly bucket of the incident, as in Anomaly.
+      properties:
+        metric:
+          type: string
+        bucket_ms:
+          type: integer
+        observed:
+          type: number
+        expected:
+          type: number
+        score:
+          type: number
+        direction:
+          type: string
+          enum: ["spike", "drop"]
+        severity:
+          type: string
+          enum: ["info", "warning", "critical"]
+        summary:
+          type: string
+        trace_ids:
+          type: array
+          items:
+            type: string
+          description: Up to three example runs from the signal's bucket. Empty for runs and heartbeat.
+
+    IncidentMute:
+      type: object
+      required: [id, workspace_id, scope, subject, metric, until, created_by, created_at]
+      properties:
+        id:
+          type: string
+        workspace_id:
+          type: string
+        scope:
+          type: string
+        subject:
+          type: string
+        metric:
+          type: string
+          description: The muted metric; empty mutes every metric of the subject.
+        until:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the mute ends; null mutes forever.
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    PaginatedIncidentResponse:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Incident"
+        total:
+          type: integer
+        page:
+          type: integer
+        page_size:
+          type: integer
+
+    PaginatedIncidentMuteResponse:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/IncidentMute"
+        total:
+          type: integer
+        page:
+          type: integer
+        page_size:
+          type: integer
 
     VersionChange:
       type: object

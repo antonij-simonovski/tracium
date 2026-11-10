@@ -6,6 +6,7 @@ import (
 	"github.com/tracium/api/internal/apikey"
 	"github.com/tracium/api/internal/auth"
 	"github.com/tracium/api/internal/handler"
+	"github.com/tracium/api/internal/incident"
 	"github.com/tracium/api/internal/middleware"
 	"github.com/tracium/api/internal/model"
 	"github.com/tracium/api/internal/oauth"
@@ -18,7 +19,7 @@ import (
 	"time"
 )
 
-func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, inviteStore workspace.InviteStore, userStore *auth.UserStore, authenticator middleware.Authenticator, authService *auth.Service, apiKeyService *apikey.Service, healthChecks []handler.DependencyCheck, opts Options, oauthService *oauth.Service, reviews review.Store) http.Handler {
+func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, inviteStore workspace.InviteStore, userStore *auth.UserStore, authenticator middleware.Authenticator, authService *auth.Service, apiKeyService *apikey.Service, healthChecks []handler.DependencyCheck, opts Options, oauthService *oauth.Service, reviews review.Store, incidents incident.Store) http.Handler {
 	authHandler := handler.NewAuthHandler(authService)
 	workspaceHandler := handler.NewWorkspaceHandler(wsStore, userStore, opts.Entitlements)
 	apiKeyHandler := handler.NewAPIKeyHandler(apiKeyService, wsStore)
@@ -29,6 +30,7 @@ func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, invit
 	spanHandler := handler.NewSpanHandler(repo, wsStore)
 	reviewHandler := handler.NewReviewHandler(repo, reviews, wsStore)
 	metricsHandler := handler.NewMetricsHandler(repo, wsStore)
+	incidentHandler := handler.NewIncidentHandler(incidents, wsStore, opts.Notifier)
 	queryHandler := handler.NewQueryHandler(repo, repo, wsStore)
 	healthHandler := handler.NewHealthHandler(healthChecks...)
 	var oauthHandler *handler.OAuthHandler
@@ -186,6 +188,13 @@ func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, invit
 		r.Get(version.Route(version.V1, "/metrics/attribute-keys"), metricsHandler.AttributeKeys)
 		r.Get(version.Route(version.V1, "/metrics/usage-by-attribute"), metricsHandler.UsageByAttribute)
 		r.Get(version.Route(version.V1, "/metrics/anomalies"), metricsHandler.Anomalies)
+
+		r.Get(version.Route(version.V1, "/incidents"), incidentHandler.List)
+		r.Get(version.Route(version.V1, "/incidents/{id}"), incidentHandler.Get)
+		r.Post(version.Route(version.V1, "/incidents/{id}/resolve"), incidentHandler.Resolve)
+		r.Post(version.Route(version.V1, "/incidents/{id}/mute"), incidentHandler.Mute)
+		r.Get(version.Route(version.V1, "/workspaces/{id}/incident-mutes"), incidentHandler.ListMutes)
+		r.Delete(version.Route(version.V1, "/workspaces/{id}/incident-mutes/{muteId}"), incidentHandler.DeleteMute)
 	})
 
 	// One bucket per account for the query API and both MCP routes: read keys

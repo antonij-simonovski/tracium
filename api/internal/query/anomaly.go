@@ -508,8 +508,8 @@ func anomalySummary(a model.Anomaly) string {
 	}
 	date := time.UnixMilli(a.BucketMs).UTC().Format(dateFmt)
 	noun := map[string]string{"cost": "cost", "runs": "run volume", "error_rate": "error rate", "latency_p95": "p95 run latency"}[a.Metric]
-	obs := formatAnomalyValue(a.Metric, a.Observed)
-	exp := formatAnomalyValue(a.Metric, a.Expected)
+	obs := FormatAnomalyValue(a.Metric, a.Observed)
+	exp := FormatAnomalyValue(a.Metric, a.Expected)
 	if a.Direction == "drop" {
 		return fmt.Sprintf("%s %s fell to %s on %s, from a typical %s.", subject, noun, obs, date, exp)
 	}
@@ -519,7 +519,7 @@ func anomalySummary(a model.Anomaly) string {
 	return fmt.Sprintf("%s %s rose to %s on %s, from near zero.", subject, noun, obs, date)
 }
 
-func formatAnomalyValue(metric string, v float64) string {
+func FormatAnomalyValue(metric string, v float64) string {
 	switch metric {
 	case "cost":
 		return fmt.Sprintf("$%.2f", v)

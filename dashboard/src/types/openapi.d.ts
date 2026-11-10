@@ -435,6 +435,117 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/incidents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List incidents
+         * @description Incidents opened by the background evaluator, which groups current anomalies by subject (a workflow, a client or the workspace) every few minutes. Open incidents come first, then newest first.
+         */
+        get: operations["listIncidents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/incidents/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get an incident */
+        get: operations["getIncident"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/incidents/{id}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolve an incident
+         * @description Resolves the incident as the caller and emits a resolved event. Resolving a resolved incident changes nothing.
+         */
+        post: operations["resolveIncident"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/incidents/{id}/mute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mute an incident's subject
+         * @description Mutes the incident's subject, or one metric of it, so its anomalies open no incident, and resolves the incident without a notification.
+         */
+        post: operations["muteIncident"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspaces/{id}/incident-mutes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List a workspace's active mutes */
+        get: operations["listIncidentMutes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspaces/{id}/incident-mutes/{muteId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove a mute */
+        delete: operations["deleteIncidentMute"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/metrics/setup-checks": {
         parameters: {
             query?: never;
@@ -1709,6 +1820,81 @@ export interface components {
             /** @description Sample runs behind the anomaly: the worst run for llm_calls_per_run and tool_repeat. Empty for other metrics. */
             trace_ids: string[];
         };
+        Incident: {
+            id: string;
+            workspace_id: string;
+            /** @enum {string} */
+            scope: "workspace" | "workflow" | "client" | "service";
+            /** @description The workflow name, client id or service name; empty for scope workspace. */
+            subject: string;
+            /** @enum {string} */
+            status: "open" | "resolved";
+            /**
+             * @description The highest severity of its signals.
+             * @enum {string}
+             */
+            severity: "info" | "warning" | "critical";
+            /** @example sf-truncation: truncated LLM calls at 66.7% */
+            title: string;
+            /** Format: date-time */
+            opened_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: date-time */
+            resolved_at: string | null;
+            /** @description The user who resolved or muted it; empty while open or when it resolved by itself. */
+            resolved_by: string;
+            /**
+             * Format: date-time
+             * @description The last evaluation that saw a current anomaly for the subject.
+             */
+            last_signal_at: string;
+            version_change: components["schemas"]["VersionChange"] | null;
+            signals: components["schemas"]["IncidentSignal"][];
+        };
+        /** @description One anomaly bucket of the incident, as in Anomaly. */
+        IncidentSignal: {
+            metric: string;
+            bucket_ms: number;
+            observed: number;
+            expected: number;
+            score: number;
+            /** @enum {string} */
+            direction: "spike" | "drop";
+            /** @enum {string} */
+            severity: "info" | "warning" | "critical";
+            summary: string;
+            /** @description Up to three example runs from the signal's bucket. Empty for runs and heartbeat. */
+            trace_ids: string[];
+        };
+        IncidentMute: {
+            id: string;
+            workspace_id: string;
+            scope: string;
+            subject: string;
+            /** @description The muted metric; empty mutes every metric of the subject. */
+            metric: string;
+            /**
+             * Format: date-time
+             * @description When the mute ends; null mutes forever.
+             */
+            until: string | null;
+            created_by: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        PaginatedIncidentResponse: {
+            items: components["schemas"]["Incident"][];
+            total: number;
+            page: number;
+            page_size: number;
+        };
+        PaginatedIncidentMuteResponse: {
+            items: components["schemas"]["IncidentMute"][];
+            total: number;
+            page: number;
+            page_size: number;
+        };
         VersionChange: {
             workflow: string;
             version: string;
@@ -1960,6 +2146,7 @@ export interface components {
     };
     responses: never;
     parameters: {
+        IncidentID: string;
         /** @description The workflow name (the trace root span name). */
         WorkflowName: string;
         /** @description Time window for the metric. Defaults to 7d. 24h is bucketed hourly; 7d/30d/90d/1y daily. Ranges longer than 30d (90d, 1y) are served from the daily rollup, so latency percentiles are not available for them. */
@@ -3204,6 +3391,234 @@ export interface operations {
             };
             /** @description Invalid range, metric, or severity. */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listIncidents: {
+        parameters: {
+            query?: {
+                /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
+                workspace_id?: components["parameters"]["WorkspaceFilter"];
+                status?: "open" | "resolved" | "all";
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated incidents with their signals. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedIncidentResponse"];
+                };
+            };
+            /** @description Invalid status or paging parameter. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The caller is not a member of workspace_id. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getIncident: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["IncidentID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The incident with its signals. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Incident"];
+                };
+            };
+            /** @description No incident with that id in the caller's workspaces. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    resolveIncident: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["IncidentID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The resolved incident. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Incident"];
+                };
+            };
+            /** @description No incident with that id in the caller's workspaces. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    muteIncident: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["IncidentID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    duration: "24h" | "7d" | "forever";
+                    /**
+                     * @description Mute only this metric. Empty mutes every metric of the subject.
+                     * @default
+                     */
+                    metric?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The mute. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncidentMute"];
+                };
+            };
+            /** @description Invalid duration or metric. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description No incident with that id in the caller's workspaces. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listIncidentMutes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Active mutes, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedIncidentMuteResponse"];
+                };
+            };
+            /** @description The caller is not a member of the workspace. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    deleteIncidentMute: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                muteId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The caller is not a member of the workspace. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description No mute with that id in the workspace. */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
