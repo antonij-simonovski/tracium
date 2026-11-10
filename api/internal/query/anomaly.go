@@ -124,10 +124,11 @@ func (r *ClickHouseRepository) Anomalies(ctx context.Context, f MetricsFilter) (
 	if err := r.anomalyLatency(ctx, f, baseStart, workflows, overall, byWorkflow); err != nil {
 		return nil, err
 	}
-	out = append(out, detectSeries(f, "workspace", "", axis, overall, detectFrom, minSev)...)
+	var perWorkflow []model.Anomaly
 	for _, name := range workflows {
-		out = append(out, detectSeries(f, "workflow", name, axis, byWorkflow[name], detectFrom, minSev)...)
+		perWorkflow = append(perWorkflow, detectSeries(f, "workflow", name, axis, byWorkflow[name], detectFrom, minSev)...)
 	}
+	out = append(uncoveredWorkspace(detectSeries(f, "workspace", "", axis, overall, detectFrom, minSev), perWorkflow), perWorkflow...)
 
 	hourly, err := r.hourlyAnomalies(ctx, f, minSev)
 	if err != nil {
@@ -147,7 +148,31 @@ func (r *ClickHouseRepository) Anomalies(ctx context.Context, f MetricsFilter) (
 	if len(out) > anomalyResultLimit {
 		out = out[:anomalyResultLimit]
 	}
+	for i := range out {
+		if out[i].TraceIDs == nil {
+			out[i].TraceIDs = []string{}
+		}
+	}
 	return out, nil
+}
+
+// uncoveredWorkspace drops workspace anomalies that one workflow's anomaly on the
+// same metric and day mostly explains, so one bad workflow is reported once.
+func uncoveredWorkspace(workspace, workflows []model.Anomaly) []model.Anomaly {
+	var out []model.Anomaly
+	for _, a := range workspace {
+		covered := false
+		for _, w := range workflows {
+			if w.Metric == a.Metric && w.BucketMs == a.BucketMs && w.Deviation/a.Deviation > 0.5 {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // detectSeries runs every enabled metric's detector over one series (zero-filled

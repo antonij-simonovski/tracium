@@ -150,3 +150,20 @@ func TestAttachVersionChanges(t *testing.T) {
 		t.Errorf("summary = %q", in[0].Summary)
 	}
 }
+
+func TestUncoveredWorkspace(t *testing.T) {
+	ws := []model.Anomaly{
+		{Metric: "runs", Scope: "workspace", BucketMs: 1, Deviation: 100},
+		{Metric: "latency_p95", Scope: "workspace", BucketMs: 1, Deviation: 1000},
+		{Metric: "cost", Scope: "workspace", BucketMs: 1, Deviation: 10},
+	}
+	wf := []model.Anomaly{
+		{Metric: "runs", Scope: "workflow", Workflow: "bad", BucketMs: 1, Deviation: 80},
+		{Metric: "latency_p95", Scope: "workflow", Workflow: "bad", BucketMs: 2, Deviation: 1000},
+		{Metric: "cost", Scope: "workflow", Workflow: "small", BucketMs: 1, Deviation: 3},
+	}
+	got := uncoveredWorkspace(ws, wf)
+	if len(got) != 2 || got[0].Metric != "latency_p95" || got[1].Metric != "cost" {
+		t.Errorf("uncoveredWorkspace = %+v, want latency_p95 (other day) and cost (workflow carries 30%%)", got)
+	}
+}

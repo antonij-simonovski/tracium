@@ -1669,7 +1669,7 @@ export interface components {
         };
         Anomaly: {
             /**
-             * @description The metric that deviated. cost, error_rate, runs and latency_p95 (p95 root-span duration in ms) are daily robust-z outliers. The rest are hourly checks against the prior 24 hours: truncation_rate, refusal_rate and tool_error_rate (share of LLM or tool calls flagged at ingest), llm_calls_per_run and tool_repeat (the worst run's LLM calls, or calls of one tool, against the workflow's typical run), cache_hit_ratio (cache-read over input tokens) and heartbeat (hours a regular client has been silent).
+             * @description The metric that deviated. cost, error_rate, runs and latency_p95 (p95 root-span duration in ms) are daily robust-z outliers. The rest are hourly checks against the prior 24 hours: truncation_rate, refusal_rate and tool_error_rate (share of LLM or tool calls flagged at ingest), llm_calls_per_run and tool_repeat (the worst run's LLM calls against the workflow's median run, or calls of one tool against its p95 run; a workflow with under 20 runs in 24 hours is compared with the last 7 days, and with under 5 runs there only a run of 50 LLM calls or 30 calls of one tool is flagged, with expected 0), cache_hit_ratio (cache-read over input tokens) and heartbeat (hours a regular client has been silent, raised once it misses 3 hours of the week it is usually active in).
              * @enum {string}
              */
             metric: "cost" | "error_rate" | "runs" | "latency_p95" | "truncation_rate" | "refusal_rate" | "tool_error_rate" | "llm_calls_per_run" | "tool_repeat" | "cache_hit_ratio" | "heartbeat";
@@ -1686,7 +1686,7 @@ export interface components {
             bucket_ms: number;
             /** @description The bucket's value: USD, a 0–1 rate or ratio, a count, latency in ms, or silent hours. */
             observed: number;
-            /** @description Baseline the value was compared against (median, prior-24h rate, or usual interval in hours). */
+            /** @description Baseline the value was compared against: median, prior-24h rate, 0 for a run flagged with no baseline yet, or for heartbeat the hours from the client's last activity to its first missed hour (its usual interval in hours for a client too irregular for a weekly profile). */
             expected: number;
             /** @description observed − expected. */
             deviation: number;
@@ -1706,6 +1706,8 @@ export interface components {
             summary: string;
             /** @description A workflow version first seen on the anomaly's day or the day before, or null. Scope "workflow" names its own workflow's version; scope "workspace" names the version of the workflow that carried the most of the metric that day (errored runs for error_rate), and null when that workflow did not change version. A workflow's first versioned day is not a change. */
             version_change: components["schemas"]["VersionChange"] | null;
+            /** @description Sample runs behind the anomaly: the worst run for llm_calls_per_run and tool_repeat. Empty for other metrics. */
+            trace_ids: string[];
         };
         VersionChange: {
             workflow: string;

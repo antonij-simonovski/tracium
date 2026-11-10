@@ -2,6 +2,7 @@ package anomaly
 
 import (
 	"math"
+	"math/bits"
 	"sort"
 )
 
@@ -72,43 +73,51 @@ func RateSpike(series []Count, o RateOptions) []Result {
 	return out
 }
 
-// RunStat summarizes one hour of runs by a per-run count: its median and worst.
+// RunStat summarizes one hour of runs by a per-run count: the typical run
+// (median, or p95 where some runs legitimately go high) and the worst.
 type RunStat struct {
 	BucketMs int64
 	Runs     int64
-	Median   float64
+	Typical  float64
 	Max      float64
 }
+
+const fallbackMinRuns = 5
 
 type RunOptions struct {
 	BaselineHours int
 	DetectFromMs  int64
 	MinBaseRuns   int64
+	// FallbackBaselineHours widens a baseline with fewer than MinBaseRuns runs,
+	// for low-volume workflows; it then needs fallbackMinRuns.
+	FallbackBaselineHours int
+	// AbsoluteMax flags a run with no usable baseline once it reaches this count.
+	AbsoluteMax float64
 	// MinMax is the absolute count a run must reach before it is worth flagging.
 	MinMax float64
 	Bands  Bands
 }
 
 // RunOutlier flags hours with a run far above the workflow's typical run: the
-// worst run against the median of the baseline hours' medians.
+// worst run against the median of the baseline hours' typical runs. With no
+// baseline it falls back to AbsoluteMax, with Expected 0.
 func RunOutlier(series []RunStat, o RunOptions) []Result {
 	var out []Result
 	for i, p := range series {
 		if p.BucketMs < o.DetectFromMs || p.Runs == 0 || p.Max < o.MinMax {
 			continue
 		}
-		var runs int64
-		var medians []float64
-		for _, b := range series[max(0, i-o.BaselineHours):i] {
-			if b.Runs > 0 {
-				runs += b.Runs
-				medians = append(medians, b.Median)
-			}
+		base, ok := runBaseline(series[max(0, i-o.BaselineHours):i], o.MinBaseRuns)
+		if !ok && o.FallbackBaselineHours > 0 {
+			base, ok = runBaseline(series[max(0, i-o.FallbackBaselineHours):i], fallbackMinRuns)
 		}
-		if runs < o.MinBaseRuns {
+		if !ok {
+			if o.AbsoluteMax > 0 && p.Max >= o.AbsoluteMax {
+				out = append(out, Result{BucketMs: p.BucketMs, Observed: p.Max, Deviation: p.Max,
+					Score: p.Max, Direction: Spike, Severity: SeverityWarning})
+			}
 			continue
 		}
-		base := medianOf(medians)
 		multiple := p.Max / math.Max(base, 1)
 		if sev := o.Bands.severity(multiple); sev != SeverityNone {
 			out = append(out, Result{BucketMs: p.BucketMs, Observed: p.Max, Expected: base,
@@ -116,6 +125,21 @@ func RunOutlier(series []RunStat, o RunOptions) []Result {
 		}
 	}
 	return out
+}
+
+func runBaseline(hours []RunStat, minRuns int64) (float64, bool) {
+	var runs int64
+	var typical []float64
+	for _, b := range hours {
+		if b.Runs > 0 {
+			runs += b.Runs
+			typical = append(typical, b.Typical)
+		}
+	}
+	if runs == 0 || runs < minRuns {
+		return 0, false
+	}
+	return medianOf(typical), true
 }
 
 // Ratio is one hour's Num/Den (e.g. cache-read tokens over input tokens).
@@ -163,12 +187,10 @@ func RatioDrop(series []Ratio, o DropOptions) []Result {
 	return out
 }
 
-// Activity is one client's history: the UTC days it ran on and the hours it ran
-// in over the recent window, both as bucket ms.
+// Activity is one client's active hours over the last four weeks, as bucket ms.
 type Activity struct {
-	Client      string
-	Days        []int64
-	RecentHours []int64
+	Client string
+	Hours  []int64
 }
 
 type SilenceOptions struct {
@@ -177,68 +199,112 @@ type SilenceOptions struct {
 	MinDays int
 	// MinSilenceMs keeps hourly clients from paging on a short pause.
 	MinSilenceMs int64
-	// Bands are multiples of the client's usual interval.
+	// MissedBands are counts of expected hours missed.
+	MissedBands Bands
+	// Bands are multiples of the usual gap between days, for irregular clients.
 	Bands Bands
 }
 
-// SilenceResult is a client gone quiet: Observed and Expected are the silence
-// and the usual interval, in hours. BucketMs is the hour it became overdue.
+// SilenceResult is a client gone quiet: Observed is the silence and Expected
+// the hours from its last activity to the first missed expected hour. Missed is
+// 0 for a client judged by its gap between days, whose Expected is that gap.
 type SilenceResult struct {
-	Client string
+	Client     string
+	Missed     int
+	LastSeenMs int64
 	Result
 }
 
-// Silence flags regular clients whose silence is a multiple of their usual
-// interval between runs. A client that skips days uses the median gap between
-// its days; one that runs daily uses the longest recent pause between its
-// active hours, so a client that sleeps overnight is judged by that gap.
+const (
+	weekMs           = 7 * 24 * HourMs
+	slotsPerWeek     = 168
+	minSlotWeeks     = 2
+	minExpectedSlots = 8
+)
+
+// Silence flags regular clients that missed hours they are usually active in.
+// An hour of the week (UTC) is expected when the client was active in it in at
+// least two of the last four weeks, so nights and weekends are never missed.
+// Clients with too few expected hours fall back to the median gap between
+// their active days.
 func Silence(clients []Activity, o SilenceOptions) []SilenceResult {
 	const dayMs = 24 * HourMs
 	var out []SilenceResult
 	for _, c := range clients {
-		if len(c.Days) < o.MinDays {
-			continue
-		}
-		days := sorted(c.Days)
-		gaps := make([]float64, 0, len(days)-1)
-		for i := 1; i < len(days); i++ {
-			gaps = append(gaps, float64(days[i]-days[i-1]))
-		}
-		interval := medianOf(gaps)
-		last := days[len(days)-1] + dayMs
-		if hours := sorted(c.RecentHours); len(hours) > 0 {
-			last = hours[len(hours)-1] + HourMs
-			if interval <= float64(dayMs) && len(hours) > 1 {
-				var longest int64
-				for i := 1; i < len(hours); i++ {
-					longest = max(longest, hours[i]-hours[i-1])
-				}
-				interval = math.Min(float64(longest), float64(dayMs))
+		hours := sorted(c.Hours)
+		var days []int64
+		var weeks [slotsPerWeek]uint8
+		for _, h := range hours {
+			if d := h / dayMs * dayMs; len(days) == 0 || days[len(days)-1] != d {
+				days = append(days, d)
+			}
+			if w := (o.NowMs - h) / weekMs; w >= 0 && w < 4 {
+				weeks[slot(h)] |= 1 << w
 			}
 		}
-		interval = math.Max(interval, float64(HourMs))
-		silence := float64(o.NowMs - last)
-		if silence < float64(o.MinSilenceMs) {
+		if len(days) < o.MinDays {
 			continue
 		}
-		multiple := silence / interval
-		sev := o.Bands.severity(multiple)
+		var expected [slotsPerWeek]bool
+		n := 0
+		for s, w := range weeks {
+			if bits.OnesCount8(w) >= minSlotWeeks {
+				expected[s] = true
+				n++
+			}
+		}
+		last := hours[len(hours)-1] + HourMs
+		silence := o.NowMs - last
+		if silence < o.MinSilenceMs {
+			continue
+		}
+		res := SilenceResult{Client: c.Client, LastSeenMs: last - HourMs}
+		var multiple, interval float64
+		var sev Severity
+		var overdue int64
+		if n >= minExpectedSlots {
+			var first int64
+			for h := last; h+HourMs <= o.NowMs; h += HourMs {
+				if expected[slot(h)] {
+					if res.Missed++; res.Missed == 1 {
+						first = h
+					}
+					if res.Missed == int(o.MissedBands.Info) {
+						overdue = h
+					}
+				}
+			}
+			multiple = float64(res.Missed)
+			sev = o.MissedBands.severity(multiple)
+			interval = float64(first - last)
+		} else {
+			gaps := make([]float64, 0, len(days)-1)
+			for i := 1; i < len(days); i++ {
+				gaps = append(gaps, float64(days[i]-days[i-1]))
+			}
+			interval = math.Max(medianOf(gaps), float64(HourMs))
+			multiple = float64(silence) / interval
+			sev = o.Bands.severity(multiple)
+			overdue = last + int64(o.Bands.Info*interval)
+		}
 		if sev == SeverityNone {
 			continue
 		}
-		overdue := last + int64(o.Bands.Info*interval)
-		out = append(out, SilenceResult{Client: c.Client, Result: Result{
+		res.Result = Result{
 			BucketMs:  overdue / HourMs * HourMs,
-			Observed:  silence / float64(HourMs),
+			Observed:  float64(silence) / float64(HourMs),
 			Expected:  interval / float64(HourMs),
-			Deviation: (silence - interval) / float64(HourMs),
+			Deviation: (float64(silence) - interval) / float64(HourMs),
 			Score:     -multiple,
 			Direction: Drop,
 			Severity:  sev,
-		}})
+		}
+		out = append(out, res)
 	}
 	return out
 }
+
+func slot(h int64) int { return int(h / HourMs % slotsPerWeek) }
 
 func sorted(xs []int64) []int64 {
 	out := append([]int64(nil), xs...)

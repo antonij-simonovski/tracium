@@ -30,6 +30,7 @@ type Anomaly struct {
 	Summary   string  `json:"summary"`
 
 	VersionChange *VersionChange `json:"version_change"`
+	TraceIDs      []string       `json:"trace_ids"`
 }
 
 // VersionChange is a workflow version and the day it was first seen.

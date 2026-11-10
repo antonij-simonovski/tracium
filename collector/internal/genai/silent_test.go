@@ -1,6 +1,9 @@
 package genai
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestSilentFailure(t *testing.T) {
 	out := func(text string) map[string]string {
@@ -54,6 +57,38 @@ func TestSilentFailure(t *testing.T) {
 		{"tool status ok", tool(`{"status": "ok"}`), "tool", "", false, ""},
 		{"tool errored span", tool(`{"error": "x"}`), "tool", "", true, ""},
 		{"error payload on llm ignored", out(`{"error": "x"}`), "llm", "stop", false, ""},
+		{"i'm unable", out("I'm unable to help with that request."), "llm", "stop", false, SilentRefused},
+		{"sorry i'm unable", out("I'm sorry, but I'm unable to assist with that."), "llm", "stop", false, SilentRefused},
+		{"i'm not able", out("I'm not able to provide that information."), "llm", "stop", false, SilentRefused},
+		{"we're unable", out("We're unable to assist with that."), "llm", "stop", false, SilentRefused},
+		{"sorry but can't", out("I'm sorry, but I can't help with that."), "llm", "stop", false, SilentRefused},
+		{"openinference message", map[string]string{"llm.output_messages.0.message.content": "I'm unable to help with that."}, "llm", "stop", false, SilentRefused},
+		{"openinference output value", map[string]string{"output.value": "I cannot assist with that."}, "llm", "stop", false, SilentRefused},
+		{"can't help but notice", out("I can't help but notice the query has a typo; here's the fixed SQL: SELECT 1;"), "llm", "stop", false, ""},
+		{"hedged diagnosis", out("I cannot provide a definitive diagnosis, but common causes are A, B and C."), "llm", "stop", false, ""},
+		{"however hedge", out("I can't provide exact figures; however the trend is up."), "llm", "stop", false, ""},
+		{"long answer with caveat", out("I can't provide legal advice. " + strings.Repeat("General background follows. ", 30)), "llm", "stop", false, ""},
+		{"responses incomplete", nil, "llm", "incomplete", false, SilentTruncated},
+		{"responses incomplete filtered", map[string]string{"output.value": `{"status":"incomplete","incomplete_details":{"reason":"content_filter"}}`}, "llm", "incomplete", false, SilentRefused},
+		{"incomplete filtered finish reasons", map[string]string{"gen_ai.response.finish_reasons": `["incomplete","content_filter"]`}, "llm", "incomplete", false, SilentRefused},
+		{"filter reason on long output", out(strings.Repeat("x", 700)), "llm", "content_filter", false, SilentRefused},
+		{"mcp isError", tool(`{"content":[{"type":"text","text":"ENOENT"}],"isError":true}`), "tool", "", false, SilentToolError},
+		{"mcp isError false", tool(`{"content":[{"type":"text","text":"ok"}],"isError":false}`), "tool", "", false, ""},
+		{"is_error", tool(`{"is_error": true}`), "tool", "", false, SilentToolError},
+		{"success false", tool(`{"success": false, "message": "timeout"}`), "tool", "", false, SilentToolError},
+		{"ok false", tool(`{"ok": false}`), "tool", "", false, SilentToolError},
+		{"success string false not bool", tool(`{"success": "false"}`), "tool", "", false, ""},
+		{"success true", tool(`{"success": true}`), "tool", "", false, ""},
+		{"status failed", tool(`{"status": "failed", "reason": "quota"}`), "tool", "", false, SilentToolError},
+		{"status Failure", tool(`{"status": "Failure"}`), "tool", "", false, SilentToolError},
+		{"double encoded", tool(`"{\"error\": \"rate limited\"}"`), "tool", "", false, SilentToolError},
+		{"double encoded ok", tool(`"{\"data\": 1}"`), "tool", "", false, ""},
+		{"quoted prose", tool(`"error"`), "tool", "", false, ""},
+		{"error none", tool(`{"error": "none"}`), "tool", "", false, ""},
+		{"error NULL", tool(`{"error": " NULL "}`), "tool", "", false, ""},
+		{"error ok", tool(`{"error": "ok"}`), "tool", "", false, ""},
+		{"error string 0", tool(`{"error": "0"}`), "tool", "", false, ""},
+		{"error string false", tool(`{"error": "False"}`), "tool", "", false, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
