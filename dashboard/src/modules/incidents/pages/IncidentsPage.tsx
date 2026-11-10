@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Section, plural } from '../../../common';
+import { Section, plural, relativeTime } from '../../../common';
 import hover from '../../../common/styles/hover.module.css';
 import { IncidentRow } from '../components/IncidentRow';
 import { useIncidents } from '../hooks/useIncidents';
@@ -21,6 +21,7 @@ export function IncidentsPage({ setView, setSelected }: IncidentsPageProps) {
   const list = useIncidents(tab);
   const items = list.data?.items ?? [];
   const total = list.data?.total ?? 0;
+  const lastChecked = list.data?.last_evaluated_at;
 
   const open = (id: string) => openIncident(id, setView, setSelected);
   const onSubject = (inc: Incident) => openSubject(inc, setView, setSelected);
@@ -69,7 +70,7 @@ export function IncidentsPage({ setView, setSelected }: IncidentsPageProps) {
             <div style={{ padding: '48px 16px', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center' }}>
               <p style={{ fontSize: 17, fontWeight: 500, margin: 0 }}>Nothing looks wrong right now</p>
               <p style={{ fontSize: 14, color: 'var(--muted)', margin: 0 }}>
-                Tracium checks every workspace for anomalies in the background.
+                {lastChecked ? `Last checked ${relativeTime(Date.parse(lastChecked))}.` : 'Not checked yet.'} Tracium checks every workspace for anomalies in the background.
               </p>
               <button onClick={() => setView('settings')} className={hover.text} style={{ background: 'none', border: 'none', font: 'inherit', fontSize: 14, cursor: 'pointer', textDecoration: 'underline' }}>
                 Alert settings

@@ -3,7 +3,7 @@ import type { PaginatedResponse } from '../interfaces';
 import type { Incident, IncidentStatus, MuteInput } from '../../modules/incidents/interfaces';
 
 export class IncidentsAPI extends BaseAPIClient {
-  listIncidents(status: IncidentStatus, page = 1, pageSize = 50): Promise<PaginatedResponse<Incident>> {
+  listIncidents(status: IncidentStatus, page = 1, pageSize = 50): Promise<PaginatedResponse<Incident> & { last_evaluated_at?: string | null }> {
     return this.get('/incidents', { status, page, page_size: pageSize });
   }
 

@@ -3986,6 +3986,11 @@ components:
           type: integer
         page_size:
           type: integer
+        last_evaluated_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the background check last finished for these workspaces (the oldest across them). Null when none has been checked yet.
 
     PaginatedIncidentMuteResponse:
       type: object

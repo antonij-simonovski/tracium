@@ -599,7 +599,11 @@ func (h *QueryHandler) listIncidents(ctx context.Context, scope []string, raw js
 			out = append(out, inc)
 		}
 	}
-	return map[string]any{"incidents": out, "total": total}, nil
+	last, err := h.incidents.LastEvaluated(ctx, scope)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"incidents": out, "total": total, "last_evaluated_at": last}, nil
 }
 
 func (h *QueryHandler) getIncident(ctx context.Context, scope []string, raw json.RawMessage) (any, error) {

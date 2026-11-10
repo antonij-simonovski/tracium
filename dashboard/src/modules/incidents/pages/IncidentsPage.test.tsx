@@ -25,6 +25,12 @@ function show(nav = { setView: vi.fn(), setSelected: vi.fn() }) {
 beforeEach(() => listIncidents.mockReset());
 
 describe('IncidentsPage', () => {
+  it('shows when the background check last ran', async () => {
+    listIncidents.mockResolvedValue({ ...page([]), last_evaluated_at: new Date(Date.now() - 3 * 60_000).toISOString() });
+    show();
+    expect(await screen.findByText(/Last checked 3m ago\./)).toBeTruthy();
+  });
+
   it('lists open incidents with subject, signals, age and likely cause', async () => {
     listIncidents.mockResolvedValue(page([INCIDENT]));
     const nav = show();
@@ -42,6 +48,7 @@ describe('IncidentsPage', () => {
     listIncidents.mockResolvedValue(page([]));
     const nav = show();
     expect(await screen.findByText('Nothing looks wrong right now')).toBeTruthy();
+    expect(screen.getByText(/Not checked yet\./)).toBeTruthy();
     fireEvent.click(screen.getByText('Alert settings'));
     expect(nav.setView).toHaveBeenCalledWith('settings');
     fireEvent.click(screen.getByRole('tab', { name: /Resolved/ }));

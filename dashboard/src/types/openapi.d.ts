@@ -1895,6 +1895,11 @@ export interface components {
             total: number;
             page: number;
             page_size: number;
+            /**
+             * Format: date-time
+             * @description When the background check last finished for these workspaces (the oldest across them). Null when none has been checked yet.
+             */
+            last_evaluated_at?: string | null;
         };
         PaginatedIncidentMuteResponse: {
             items: components["schemas"]["IncidentMute"][];

@@ -83,6 +83,9 @@ func TestEvaluatorKeepsWorkspacesApart(t *testing.T) {
 	if len(det.samples) != 2 || det.samples[0] != "a/sf-truncation/truncation_rate" {
 		t.Fatalf("samples should be read once per new signal, got %v", det.samples)
 	}
+	if _, ok := store.Evaluated["a"]; !ok || len(store.Evaluated) != 2 {
+		t.Fatalf("want a and b marked evaluated, got %v", store.Evaluated)
+	}
 	for _, inc := range store.Incidents {
 		if got := inc.Signals[0].TraceIDs; len(got) != 1 || got[0] != "sample-"+inc.WorkspaceID {
 			t.Fatalf("trace ids %v", got)

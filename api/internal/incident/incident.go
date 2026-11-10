@@ -100,4 +100,7 @@ type Store interface {
 	Mutes(ctx context.Context, workspaceID string) ([]Mute, error)
 	AddMute(ctx context.Context, m *Mute) error
 	DeleteMute(ctx context.Context, workspaceID, id string) error
+	MarkEvaluated(ctx context.Context, workspaceID string, at time.Time) error
+	// LastEvaluated is the oldest last evaluation among workspaceIDs, or nil when none was evaluated.
+	LastEvaluated(ctx context.Context, workspaceIDs []string) (*time.Time, error)
 }
