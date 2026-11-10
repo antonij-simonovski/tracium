@@ -15,6 +15,7 @@ import (
 	"github.com/tracium/api/internal/incident"
 	"github.com/tracium/api/internal/oauth"
 	"github.com/tracium/api/internal/query"
+	"github.com/tracium/api/internal/release"
 	"github.com/tracium/api/internal/review"
 	"github.com/tracium/api/internal/workspace"
 	"github.com/tracium/api/migrations"
@@ -113,6 +114,7 @@ func New(ctx context.Context, cfg Config, opts Options) (*Application, error) {
 	}
 	health := []handler.DependencyCheck{{Name: "clickhouse", Check: repo.Ping}, {Name: "postgres", Check: pool.Ping}}
 	incidents := incident.NewStore(pool)
+	reports := release.NewStore(pool)
 	var evaluator *incident.Evaluator
 	if *cfg.Detection.Enabled {
 		fold := incident.DefaultOptions()
@@ -121,10 +123,10 @@ func New(ctx context.Context, cfg Config, opts Options) (*Application, error) {
 			Interval: time.Duration(cfg.Detection.IntervalSeconds) * time.Second,
 			Timeout:  time.Duration(cfg.Storage.QueryTimeout) * time.Second,
 			Fold:     fold,
-		})
+		}, release.NewTracker(repo, reports, release.DefaultOptions()))
 	}
 	return &Application{cfg: cfg, sessions: service, evaluator: evaluator,
-		Handler: newRouter(cfg, repo, workspaces, workspaces, users, service, service, apiKeyService, health, opts, oauthService, review.NewStore(pool), incidents),
+		Handler: newRouter(cfg, repo, workspaces, workspaces, users, service, service, apiKeyService, health, opts, oauthService, review.NewStore(pool), incidents, reports),
 		close:   func() { pool.Close(); repo.Close() }}, nil
 }
 

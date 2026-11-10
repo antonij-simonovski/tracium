@@ -1,4 +1,5 @@
 import { useQuery, type Query } from '@tanstack/react-query';
+import { APIError } from '../../../common/api/client';
 import { useAPIClient } from '../../../common/providers/APIProvider';
 
 // Same 1-minute refresh grid as the workflows list.
@@ -33,6 +34,16 @@ export function useWorkflowVersions(name: string, range: string) {
     queryKey: ['workflows', 'versions', workspaceId, name, range],
     queryFn: () => metricsAPI.getWorkflowVersions(name, range),
     ...shared(workspaceId, name, true),
+  });
+}
+
+// A version with no report answers 404, which resolves to null.
+export function useReleaseReport(name: string, version: string) {
+  const { metricsAPI, workspaceId } = useAPIClient();
+  return useQuery({
+    queryKey: ['workflows', 'release-report', workspaceId, name, version],
+    queryFn: () => metricsAPI.getReleaseReport(name, version).catch((e) => (e instanceof APIError && e.isNotFound ? null : Promise.reject(e))),
+    ...shared(workspaceId, name, !!version),
   });
 }
 

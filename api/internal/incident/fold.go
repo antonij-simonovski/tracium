@@ -3,6 +3,7 @@ package incident
 import (
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/tracium/api/internal/model"
@@ -34,8 +35,11 @@ const ResolvedLookback = 48 * time.Hour
 
 var dailyMetrics = map[string]bool{"cost": true, "error_rate": true, "runs": true, "latency_p95": true}
 
+// ReleaseMetric is a release report's regression; the report decides how long it stays current.
+const ReleaseMetric = "release_regression"
+
 // alwaysCurrent metrics describe now, and resolve as soon as they stop.
-var alwaysCurrent = map[string]bool{"heartbeat": true, "ingest_silence": true}
+var alwaysCurrent = map[string]bool{"heartbeat": true, "ingest_silence": true, ReleaseMetric: true}
 
 // Current reports whether an anomaly describes the present, so it may open or
 // extend an incident.
@@ -199,7 +203,7 @@ func merge(inc *Incident, group []model.Anomaly, signals []Signal, now time.Time
 		}
 	}
 	for _, a := range group {
-		if inc.VersionChange == nil && a.VersionChange != nil {
+		if a.VersionChange != nil && (inc.VersionChange == nil || a.Metric == ReleaseMetric) {
 			inc.VersionChange = a.VersionChange
 		}
 	}
@@ -257,6 +261,9 @@ func Title(scope, subject string, signals []Signal) string {
 	var title string
 	if noun, ok := metricNouns[top.Metric]; ok {
 		title = fmt.Sprintf("%s: %s at %s", name, noun, value)
+	} else if top.Metric == ReleaseMetric {
+		headline, _, _ := strings.Cut(top.Summary, ": ")
+		title = fmt.Sprintf("%s: %s", name, headline)
 	} else if top.Metric == "heartbeat" {
 		title = fmt.Sprintf("%s: silent for %s", name, value)
 	} else {

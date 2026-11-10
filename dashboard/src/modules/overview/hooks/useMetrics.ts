@@ -85,3 +85,12 @@ export function useRecentActivity() {
     refetchInterval: 5000,
   });
 }
+
+export function useReleaseReports() {
+  const { metricsAPI, workspaceId } = useAPIClient();
+  return useQuery({
+    queryKey: ['overview', 'release-reports', workspaceId],
+    queryFn: () => metricsAPI.listReleaseReports(20),
+    refetchInterval: 60_000,
+  });
+}

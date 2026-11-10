@@ -10,6 +10,7 @@ import (
 
 	"github.com/tracium/api/internal/model"
 	"github.com/tracium/api/internal/query"
+	"github.com/tracium/api/internal/release"
 )
 
 // overviewLimit caps the top-workflows and failures lists; the overview shows five of each.
@@ -23,14 +24,16 @@ const workflowsLimit = 200
 
 // MetricsHandler serves the aggregated metrics powering the dashboard overview.
 type MetricsHandler struct {
-	repo   query.MetricsRepository
-	access WorkspaceAccess
-	now    func() time.Time
+	repo    query.MetricsRepository
+	access  WorkspaceAccess
+	reports release.Store
+	now     func() time.Time
 }
 
-// NewMetricsHandler constructs a MetricsHandler scoped by the caller's workspace access.
-func NewMetricsHandler(repo query.MetricsRepository, access WorkspaceAccess) *MetricsHandler {
-	return &MetricsHandler{repo: repo, access: access, now: time.Now}
+// NewMetricsHandler constructs a MetricsHandler scoped by the caller's workspace
+// access. reports may be nil, leaving versions without verdicts.
+func NewMetricsHandler(repo query.MetricsRepository, access WorkspaceAccess, reports release.Store) *MetricsHandler {
+	return &MetricsHandler{repo: repo, access: access, reports: reports, now: time.Now}
 }
 
 type filterFunc func(http.ResponseWriter, *http.Request) (query.MetricsFilter, bool)
@@ -251,7 +254,17 @@ func (h *MetricsHandler) WorkflowDetail(w http.ResponseWriter, r *http.Request) 
 
 // WorkflowVersions handles GET /v1/metrics/workflows/{name}/versions.
 func (h *MetricsHandler) WorkflowVersions(w http.ResponseWriter, r *http.Request) {
-	serveList(w, r, workflowFilter(h.filter), "workflow versions", withLimit(h.repo.WorkflowVersions, workflowsLimit))
+	serveList(w, r, workflowFilter(h.filter), "workflow versions", func(ctx context.Context, f query.MetricsFilter) ([]model.WorkflowVersion, error) {
+		versions, err := h.repo.WorkflowVersions(ctx, f, workflowsLimit)
+		if err != nil || h.reports == nil || len(versions) == 0 {
+			return versions, err
+		}
+		verdicts, err := h.reports.Verdicts(ctx, f.WorkspaceIDs, f.Workflow)
+		for i := range versions {
+			versions[i].ReportVerdict = verdicts[versions[i].Version]
+		}
+		return versions, err
+	})
 }
 
 // Failures handles GET /v1/metrics/failures. Total counts every failed run in

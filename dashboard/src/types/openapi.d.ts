@@ -395,6 +395,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/metrics/workflows/{name}/versions/{version}/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Release report of a workflow version
+         * @description The stored comparison of a new workflow version's first runs with the version before it. A report is created when the version first appears, pending until it has enough runs, then final with a verdict.
+         */
+        get: operations["getReleaseReport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/release-reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Recent release reports
+         * @description Release reports in the caller's workspaces, newest first.
+         */
+        get: operations["listReleaseReports"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/metrics/failures": {
         parameters: {
             query?: never;
@@ -1718,6 +1758,57 @@ export interface components {
             error_rate: number;
             /** @description Mean input plus output tokens per run. */
             tokens_per_run: number;
+            /**
+             * @description The version's release report verdict, or pending while it gathers runs. Absent when the version has no report.
+             * @enum {string}
+             */
+            report_verdict?: "pending" | "ok" | "improved" | "regressed" | "insufficient";
+        };
+        ReleaseFinding: {
+            /** @enum {string} */
+            metric: "error_rate" | "truncation_rate" | "refusal_rate" | "tool_error_rate" | "cost_per_run" | "latency_p95" | "llm_calls_per_run" | "output_tokens_per_run" | "cache_hit_ratio";
+            /** @description The previous version's value; rates and cache_hit_ratio are fractions, cost in USD, latency in ms. */
+            prev: number;
+            /** @description The new version's value, in the same unit. */
+            next: number;
+            /** @enum {string} */
+            verdict: "regressed" | "improved" | "same";
+            /**
+             * @description Empty when the verdict is same.
+             * @enum {string}
+             */
+            severity: "" | "info" | "warning" | "critical";
+        };
+        ReleaseReport: {
+            workspace_id: string;
+            workflow: string;
+            version: string;
+            /** @description The version with the most runs in the 24 hours before this one appeared. */
+            prev_version: string;
+            /** Format: date-time */
+            first_seen_at: string;
+            /** @enum {string} */
+            status: "pending" | "final";
+            /**
+             * @description Empty while pending. A regressed verdict opens or extends the workflow's incident.
+             * @enum {string}
+             */
+            verdict: "" | "ok" | "improved" | "regressed" | "insufficient";
+            /** @description Runs of the new version compared. */
+            runs: number;
+            /** @description Runs of the previous version compared. */
+            prev_runs: number;
+            findings: components["schemas"]["ReleaseFinding"][];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            finalized_at: string | null;
+        };
+        PaginatedReleaseReportResponse: {
+            items: components["schemas"]["ReleaseReport"][];
+            total: number;
+            page: number;
+            page_size: number;
         };
         Failure: {
             /** @description Workflow name (the trace root span name). */
@@ -3324,6 +3415,94 @@ export interface operations {
             };
         };
     };
+    getReleaseReport: {
+        parameters: {
+            query?: {
+                /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
+                workspace_id?: components["parameters"]["WorkspaceFilter"];
+            };
+            header?: never;
+            path: {
+                /** @description The workflow name (the trace root span name). */
+                name: components["parameters"]["WorkflowName"];
+                version: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The report. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReleaseReport"];
+                };
+            };
+            /** @description The caller is not a member of workspace_id. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The version has no report in the caller's workspaces. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listReleaseReports: {
+        parameters: {
+            query?: {
+                /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
+                workspace_id?: components["parameters"]["WorkspaceFilter"];
+                status?: "pending" | "final";
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Reports ordered by created_at descending. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedReleaseReportResponse"];
+                };
+            };
+            /** @description Invalid status or limit. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The caller is not a member of workspace_id. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     getFailures: {
         parameters: {
             query?: {
@@ -3521,7 +3700,7 @@ export interface operations {
                     /** @enum {string} */
                     duration: "24h" | "7d" | "forever";
                     /**
-                     * @description Mute only this metric. Empty mutes every metric of the subject.
+                     * @description Mute only this metric (an anomaly metric or release_regression). Empty mutes every metric of the subject.
                      * @default
                      */
                     metric?: string;

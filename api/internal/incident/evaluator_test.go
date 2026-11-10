@@ -113,3 +113,46 @@ func TestEvaluatorSkipsTickWhenLockHeld(t *testing.T) {
 		t.Fatal("tick did not run after the lock was released")
 	}
 }
+
+type releaseSource []model.Anomaly
+
+func (s releaseSource) Anomalies(context.Context, string, time.Time) ([]model.Anomaly, error) {
+	return s, nil
+}
+
+func TestEvaluatorFoldsReleaseRegressions(t *testing.T) {
+	daily := &model.VersionChange{Workflow: "sf-truncation", Version: "v1", FirstSeenMs: 1}
+	old := truncation()
+	old.VersionChange = daily
+	regression := model.Anomaly{Metric: incident.ReleaseMetric, Scope: "workflow", Workflow: "sf-truncation", BucketMs: 5, Severity: "critical",
+		Summary:       "v2 regressed against v1: truncated LLM calls 24.6% on v2, 1.0% on v1 (38 runs against 400).",
+		VersionChange: &model.VersionChange{Workflow: "sf-truncation", Version: "v2", FirstSeenMs: 5}}
+	det := &fakeDetector{anomalies: map[string][]model.Anomaly{"a": {old}, "quiet": nil}}
+	store := &mocks.MockIncidentStore{}
+	e := incident.NewEvaluator(det, store, freeLock{}, workspaces{"a", "quiet"}, nil, config(), releaseSource{regression})
+	if err := e.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var subjects []string
+	for _, inc := range store.Incidents {
+		subjects = append(subjects, inc.WorkspaceID+"/"+inc.Subject)
+	}
+	if len(store.Incidents) != 2 {
+		t.Fatalf("incidents = %v, want one per workspace", subjects)
+	}
+	inc := store.Incidents[0]
+	if len(inc.Signals) != 2 || inc.VersionChange.Version != "v2" || inc.Title != "sf-truncation: v2 regressed against v1 (+1 more signal)" {
+		t.Errorf("incident = %+v", inc)
+	}
+
+	store.MuteList = []incident.Mute{{WorkspaceID: "quiet", Scope: "workflow", Subject: "sf-truncation", Metric: incident.ReleaseMetric}}
+	store.Incidents = nil
+	if err := e.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for _, inc := range store.Incidents {
+		if inc.WorkspaceID == "quiet" {
+			t.Errorf("muted release regression opened %+v", inc)
+		}
+	}
+}

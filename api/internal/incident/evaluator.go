@@ -18,6 +18,11 @@ type Detector interface {
 	ActiveWorkspaces(ctx context.Context, since time.Time) ([]string, error)
 }
 
+// SignalSource adds anomalies of its own to a workspace's evaluation, such as release regressions.
+type SignalSource interface {
+	Anomalies(ctx context.Context, workspaceID string, now time.Time) ([]model.Anomaly, error)
+}
+
 type WorkspaceLister interface {
 	AllIDs(ctx context.Context) ([]string, error)
 }
@@ -43,15 +48,16 @@ type Evaluator struct {
 	lock       Locker
 	workspaces WorkspaceLister
 	notifier   Notifier
+	sources    []SignalSource
 	now        func() time.Time
 	cfg        Config
 }
 
-func NewEvaluator(d Detector, s Store, l Locker, w WorkspaceLister, n Notifier, cfg Config) *Evaluator {
+func NewEvaluator(d Detector, s Store, l Locker, w WorkspaceLister, n Notifier, cfg Config, sources ...SignalSource) *Evaluator {
 	if n == nil {
 		n = NopNotifier{}
 	}
-	return &Evaluator{detector: d, store: s, lock: l, workspaces: w, notifier: n, now: time.Now, cfg: cfg}
+	return &Evaluator{detector: d, store: s, lock: l, workspaces: w, notifier: n, sources: sources, now: time.Now, cfg: cfg}
 }
 
 // Run evaluates on every interval until ctx is cancelled.
@@ -113,6 +119,14 @@ func (e *Evaluator) evaluate(ctx context.Context, workspaceID string, now time.T
 	if err != nil {
 		return err
 	}
+	var errs []error
+	for _, src := range e.sources {
+		extra, err := src.Anomalies(ctx, workspaceID, now)
+		if err != nil {
+			errs = append(errs, err)
+		}
+		anomalies = append(anomalies, extra...)
+	}
 	st := State{}
 	if st.Open, err = e.store.ListOpen(ctx, workspaceID); err != nil {
 		return err
@@ -142,7 +156,6 @@ func (e *Evaluator) evaluate(ctx context.Context, workspaceID string, now time.T
 		prior[inc.ID] = inc
 	}
 
-	var errs []error
 	for _, c := range Fold(workspaceID, now, anomalies, st, e.cfg.Fold) {
 		if err := e.sample(ctx, f, &c, prior[c.Incident.ID]); err != nil {
 			errs = append(errs, err)

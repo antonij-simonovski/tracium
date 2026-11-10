@@ -153,6 +153,33 @@ type WorkflowVersion struct {
 	P95LatencyMs *float64 `json:"p95_latency_ms"`
 	ErrorRate    float64  `json:"error_rate"`
 	TokensPerRun float64  `json:"tokens_per_run"`
+	// ReportVerdict is the version's release report verdict, "" when it has none.
+	ReportVerdict string `json:"report_verdict,omitempty"`
+}
+
+// NewVersion is a workflow version first seen recently, after PrevVersion.
+type NewVersion struct {
+	Workflow    string
+	Version     string
+	PrevVersion string
+	FirstSeenMs int64
+	Runs        int64
+}
+
+// VersionStats are one workflow version's runs in a window, computed per run.
+type VersionStats struct {
+	Runs                   int64
+	ErrorRuns              int64
+	TruncatedCalls         int64
+	RefusedCalls           int64
+	LLMCalls               int64
+	ToolErrors             int64
+	ToolCalls              int64
+	CostPerRunP50          float64
+	LatencyP50, LatencyP95 float64
+	LLMCallsPerRunP50      float64
+	OutputTokensPerRunP50  float64
+	CacheRead, InputTokens float64
 }
 
 // Failure aggregates errored runs for one workflow. Pct is the fraction of that

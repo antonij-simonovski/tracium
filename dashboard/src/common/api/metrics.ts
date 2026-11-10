@@ -19,7 +19,7 @@ import type {
   WorkflowUsage,
   AttributeUsage,
 } from '../../modules/usage/interfaces';
-import type { Workflow, WorkflowDetail, WorkflowVersion } from '../../modules/workflows/interfaces';
+import type { ReleaseReport, Workflow, WorkflowDetail, WorkflowVersion } from '../../modules/workflows/interfaces';
 
 // MetricsAPI reads the aggregated overview metrics. Each section is its own
 // endpoint so the dashboard can load and refresh them independently.
@@ -59,6 +59,14 @@ export class MetricsAPI extends BaseAPIClient {
 
   getWorkflowVersions(name: string, range: string): Promise<PaginatedResponse<WorkflowVersion>> {
     return this.get(`/metrics/workflows/${encodeURIComponent(name)}/versions`, { range });
+  }
+
+  getReleaseReport(name: string, version: string): Promise<ReleaseReport> {
+    return this.get(`/metrics/workflows/${encodeURIComponent(name)}/versions/${encodeURIComponent(version)}/report`);
+  }
+
+  listReleaseReports(limit: number): Promise<PaginatedResponse<ReleaseReport>> {
+    return this.get('/release-reports', { limit });
   }
 
   /** span is a span name; omitted means run reviews. */

@@ -30,6 +30,7 @@ import {
   OutlierChips,
   OutliersPanel,
   SetupChecks,
+  ReleaseLines,
 } from '../components';
 import {
   useKpis,
@@ -40,6 +41,7 @@ import {
   useFailures,
   useAnomalies,
   useSetupChecks,
+  useReleaseReports,
   useRecentActivity,
 } from '../hooks/useMetrics';
 import type { KpiSet, ActivityItem, Anomaly } from '../interfaces';
@@ -84,6 +86,7 @@ export function OverviewLivePage({ range, setView, setSelected }: OverviewLivePa
   const failures = useFailures(range);
   const errorSeries = useErrorSeries(range);
   const anomalies = useAnomalies(range);
+  const releases = useReleaseReports();
   const setupChecks = useSetupChecks();
   const { workspaceId } = useAPIClient();
   const activity = useRecentActivity();
@@ -179,7 +182,12 @@ export function OverviewLivePage({ range, setView, setSelected }: OverviewLivePa
           status={status}
         />
       }
-      setupChecks={setupChecksBlock}
+      setupChecks={
+        <>
+          {setupChecksBlock}
+          {releases.data && <ReleaseLines reports={releases.data.items} />}
+        </>
+      }
       kpis={
         <Section isLoading={kpis.isLoading} isError={kpis.isError}>
           {kpis.data && <KpiStrip items={toKpiItems(kpis.data, costPoints, latencyPoints, errorPoints, range)} />}

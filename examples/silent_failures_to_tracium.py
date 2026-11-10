@@ -14,6 +14,9 @@ baseline and an incident in the last complete hour:
     sf-latency      root spans 10x slower today               -> latency_p95 (daily)
     sf-heartbeat    client sf-steady stopped 3 days ago       -> heartbeat
                     client sf-weekly ran 6 days ago           -> not flagged
+    sf-release-bad  v2 truncates 25% of calls at 2x the cost  -> release report regressed
+    sf-release-good v2 behaves like v1                        -> release report ok
+    sf-release-thin v2 shipped 25h ago with 5 runs            -> release report insufficient
 
 Run the stack first (docker compose up -d), create an ingest key, then:
     export TRACIUM_API_KEY=trc_...
@@ -58,7 +61,7 @@ def attr(k, v):
     return {"key": k, "value": {"stringValue": v}}
 
 
-def span(trace, parent, name, start, dur, attrs, client=""):
+def span(trace, parent, name, start, dur, attrs, client="", version=""):
     s = {
         "traceId": trace,
         "spanId": hexid(8),
@@ -71,35 +74,35 @@ def span(trace, parent, name, start, dur, attrs, client=""):
     }
     if parent:
         s["parentSpanId"] = parent
-    resources.setdefault(client, []).append(s)
+    resources.setdefault((client, version), []).append(s)
     return s["spanId"]
 
 
 def run(workflow, start, llm_calls, client="", tools=(), finish="stop", output="Done.",
-        input_tokens=500, cache_read=0, root_dur=2.0):
+        input_tokens=500, cache_read=0, root_dur=2.0, version="", model="gpt-4o-mini"):
     """One run: a root agent span, its LLM calls, then its tool calls (name, output)."""
     trace = hexid(16)
     base = {"gen_ai.agent.name": f"{PREFIX}-{workflow}"}
-    root = span(trace, "", "agent", start, root_dur, {**base, "traceloop.span.kind": "workflow"}, client)
+    root = span(trace, "", "agent", start, root_dur, {**base, "traceloop.span.kind": "workflow"}, client, version)
     for i in range(llm_calls):
-        span(trace, root, "chat gpt-4o-mini", start + 0.01 * i, 0.5, {
+        span(trace, root, f"chat {model}", start + 0.01 * i, 0.5, {
             **base,
             "gen_ai.operation.name": "chat",
-            "gen_ai.request.model": "gpt-4o-mini",
+            "gen_ai.request.model": model,
             "gen_ai.usage.input_tokens": input_tokens,
             "gen_ai.usage.output_tokens": 50,
             "gen_ai.usage.cache_read_input_tokens": cache_read,
             "gen_ai.response.finish_reasons": [finish],
             "gen_ai.completion.0.role": "assistant",
             "gen_ai.completion.0.content": output,
-        }, client)
+        }, client, version)
     for i, (name, out) in enumerate(tools):
         span(trace, root, name, start + 1 + 0.01 * i, 0.2, {
             **base,
             "traceloop.span.kind": "tool",
             "traceloop.entity.name": name,
             "traceloop.entity.output": out,
-        }, client)
+        }, client, version)
 
 
 def baseline(workflow, per_hour=5, **kw):
@@ -162,11 +165,30 @@ for d in range(3, 23):
 for d in (6, 13, 20, 27):
     run("heartbeat", TODAY - d * DAY + 9 * HOUR, 1, client=f"{PREFIX}-weekly")
 
+# 8. Release reports: v1 for a day, then v2. gpt-4o keeps cost per run above the $0.01 floor.
+SHIP = NOW - 9000
+for wf in ("release-bad", "release-good"):
+    for h in range(1, 25):
+        for k in range(5):
+            run(wf, SHIP - h * HOUR + k * 60, 1, version="v1", model="gpt-4o", input_tokens=5000)
+for k in range(40):
+    run("release-bad", SHIP + k * 200, 1, version="v2", model="gpt-4o", input_tokens=10000,
+        finish="length" if k % 4 == 0 else "stop", output="The quarterly report covers" if k % 4 == 0 else "Done.")
+    run("release-good", SHIP + k * 200, 1, version="v2", model="gpt-4o", input_tokens=5000)
+THIN = NOW - 25 * HOUR
+for h in range(1, 25):
+    run("release-thin", THIN - h * HOUR, 1, version="v1")
+for k in range(5):
+    run("release-thin", THIN + k * 600, 1, version="v2")
 
-def post(spans, client):
+
+def post(spans, key):
+    client, version = key
     res = [attr("service.name", f"{PREFIX}-mock")]
     if client:
         res.append(attr("tracium.user.id", client))
+    if version:
+        res.append(attr("tracium.workflow.version", version))
     body = {"resourceSpans": [{"resource": {"attributes": res},
                                "scopeSpans": [{"scope": {"name": "silent-failure-mock"}, "spans": spans}]}]}
     req = urllib.request.Request(ENDPOINT, data=json.dumps(body).encode(), method="POST", headers={
@@ -175,8 +197,8 @@ def post(spans, client):
 
 
 total = 0
-for client, spans in resources.items():
+for key, spans in resources.items():
     for i in range(0, len(spans), 500):
-        post(spans[i:i + 500], client)
+        post(spans[i:i + 500], key)
         total += len(spans[i:i + 500])
 print(f"sent {total} spans to {ENDPOINT}; incident hour starts {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime(INCIDENT))}")

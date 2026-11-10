@@ -11,6 +11,7 @@ import (
 	"github.com/tracium/api/internal/model"
 	"github.com/tracium/api/internal/oauth"
 	"github.com/tracium/api/internal/query"
+	"github.com/tracium/api/internal/release"
 	"github.com/tracium/api/internal/review"
 	"github.com/tracium/api/internal/version"
 	"github.com/tracium/api/internal/workspace"
@@ -19,7 +20,7 @@ import (
 	"time"
 )
 
-func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, inviteStore workspace.InviteStore, userStore *auth.UserStore, authenticator middleware.Authenticator, authService *auth.Service, apiKeyService *apikey.Service, healthChecks []handler.DependencyCheck, opts Options, oauthService *oauth.Service, reviews review.Store, incidents incident.Store) http.Handler {
+func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, inviteStore workspace.InviteStore, userStore *auth.UserStore, authenticator middleware.Authenticator, authService *auth.Service, apiKeyService *apikey.Service, healthChecks []handler.DependencyCheck, opts Options, oauthService *oauth.Service, reviews review.Store, incidents incident.Store, reports release.Store) http.Handler {
 	authHandler := handler.NewAuthHandler(authService)
 	workspaceHandler := handler.NewWorkspaceHandler(wsStore, userStore, opts.Entitlements)
 	apiKeyHandler := handler.NewAPIKeyHandler(apiKeyService, wsStore)
@@ -29,7 +30,7 @@ func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, invit
 	traceHandler := handler.NewTraceHandler(repo, wsStore)
 	spanHandler := handler.NewSpanHandler(repo, wsStore)
 	reviewHandler := handler.NewReviewHandler(repo, reviews, wsStore)
-	metricsHandler := handler.NewMetricsHandler(repo, wsStore)
+	metricsHandler := handler.NewMetricsHandler(repo, wsStore, reports)
 	incidentHandler := handler.NewIncidentHandler(incidents, wsStore, opts.Notifier)
 	queryHandler := handler.NewQueryHandler(repo, repo, wsStore)
 	healthHandler := handler.NewHealthHandler(healthChecks...)
@@ -181,6 +182,8 @@ func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, invit
 		r.Get(version.Route(version.V1, "/metrics/workflows"), metricsHandler.Workflows)
 		r.Get(version.Route(version.V1, "/metrics/workflows/{name}"), metricsHandler.WorkflowDetail)
 		r.Get(version.Route(version.V1, "/metrics/workflows/{name}/versions"), metricsHandler.WorkflowVersions)
+		r.Get(version.Route(version.V1, "/metrics/workflows/{name}/versions/{version}/report"), metricsHandler.ReleaseReport)
+		r.Get(version.Route(version.V1, "/release-reports"), metricsHandler.ReleaseReports)
 		r.Get(version.Route(version.V1, "/metrics/failures"), metricsHandler.Failures)
 		r.Get(version.Route(version.V1, "/metrics/model-costs"), metricsHandler.ModelCosts)
 		r.Get(version.Route(version.V1, "/metrics/usage-users"), metricsHandler.UserUsage)

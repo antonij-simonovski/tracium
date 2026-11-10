@@ -1,6 +1,7 @@
 import { fmtDelta, fmtMs, fmtNum, relativeTime } from '../../../common';
 import type { VersionAccuracy } from '../../../common/interfaces';
 import type { WorkflowVersion } from '../interfaces';
+import { VerdictBadge } from './VerdictBadge';
 import { change, comparable, currentVersion, deltaColor, fmtPts, fmtRunCost, fmtSeen, previousVersion, ptsColor, versionLabel } from '../utils';
 
 interface VersionsTableProps {
@@ -97,6 +98,7 @@ export function VersionsTable({ versions, rangeLabel, onCompare, accuracy = [] }
                   {versionLabel(v.version)}
                 </span>
                 {v.version === current && <span style={{ fontSize: 12, color: 'var(--accent)' }}>current</span>}
+                <VerdictBadge verdict={v.report_verdict} />
               </span>
               <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 <span style={{ fontSize: 13.5, color: 'var(--foreground)' }}>{fmtSeen(v.first_seen_ms)}</span>

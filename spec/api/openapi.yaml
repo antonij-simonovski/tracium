@@ -967,6 +967,85 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /v1/metrics/workflows/{name}/versions/{version}/report:
+    get:
+      operationId: getReleaseReport
+      summary: Release report of a workflow version
+      description: >
+        The stored comparison of a new workflow version's first runs with the
+        version before it. A report is created when the version first appears,
+        pending until it has enough runs, then final with a verdict.
+      tags:
+        - Metrics
+      parameters:
+        - $ref: "#/components/parameters/WorkflowName"
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/WorkspaceFilter"
+      responses:
+        "200":
+          description: The report.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReleaseReport"
+        "403":
+          description: The caller is not a member of workspace_id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: The version has no report in the caller's workspaces.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/release-reports:
+    get:
+      operationId: listReleaseReports
+      summary: Recent release reports
+      description: Release reports in the caller's workspaces, newest first.
+      tags:
+        - Metrics
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceFilter"
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: ["pending", "final"]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: Reports ordered by created_at descending.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedReleaseReportResponse"
+        "400":
+          description: Invalid status or limit.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: The caller is not a member of workspace_id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /v1/metrics/failures:
     get:
       operationId: getFailures
@@ -1155,7 +1234,7 @@ paths:
                   enum: ["24h", "7d", "forever"]
                 metric:
                   type: string
-                  description: Mute only this metric. Empty mutes every metric of the subject.
+                  description: Mute only this metric (an anomaly metric or release_regression). Empty mutes every metric of the subject.
                   default: ""
       responses:
         "201":
@@ -3613,6 +3692,87 @@ components:
           type: number
           minimum: 0
           description: Mean input plus output tokens per run.
+        report_verdict:
+          type: string
+          enum: ["pending", "ok", "improved", "regressed", "insufficient"]
+          description: The version's release report verdict, or pending while it gathers runs. Absent when the version has no report.
+
+    ReleaseFinding:
+      type: object
+      required: [metric, prev, next, verdict, severity]
+      properties:
+        metric:
+          type: string
+          enum: ["error_rate", "truncation_rate", "refusal_rate", "tool_error_rate", "cost_per_run", "latency_p95", "llm_calls_per_run", "output_tokens_per_run", "cache_hit_ratio"]
+        prev:
+          type: number
+          description: The previous version's value; rates and cache_hit_ratio are fractions, cost in USD, latency in ms.
+        next:
+          type: number
+          description: The new version's value, in the same unit.
+        verdict:
+          type: string
+          enum: ["regressed", "improved", "same"]
+        severity:
+          type: string
+          enum: ["", "info", "warning", "critical"]
+          description: Empty when the verdict is same.
+
+    ReleaseReport:
+      type: object
+      required: [workspace_id, workflow, version, prev_version, first_seen_at, status, verdict, runs, prev_runs, findings, created_at, finalized_at]
+      properties:
+        workspace_id:
+          type: string
+        workflow:
+          type: string
+        version:
+          type: string
+        prev_version:
+          type: string
+          description: The version with the most runs in the 24 hours before this one appeared.
+        first_seen_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: ["pending", "final"]
+        verdict:
+          type: string
+          enum: ["", "ok", "improved", "regressed", "insufficient"]
+          description: Empty while pending. A regressed verdict opens or extends the workflow's incident.
+        runs:
+          type: integer
+          description: Runs of the new version compared.
+        prev_runs:
+          type: integer
+          description: Runs of the previous version compared.
+        findings:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReleaseFinding"
+        created_at:
+          type: string
+          format: date-time
+        finalized_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    PaginatedReleaseReportResponse:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReleaseReport"
+        total:
+          type: integer
+        page:
+          type: integer
+        page_size:
+          type: integer
 
     Failure:
       type: object
