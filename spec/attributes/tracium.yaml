@@ -57,6 +57,30 @@ attributes:
     type: string
     added_in_schema: 1
 
+  - name: tracium.context_ratio
+    description: >
+      The call's prompt tokens, cache reads and writes included, divided by the
+      model's max_input_tokens from the pricing table; 0 when the model or its
+      limit is unknown. Written by the collector, overwriting any sender value.
+      Stored as Span.context_ratio.
+    type: double
+    added_in_schema: 1
+
+  - name: tracium.input_hash
+    description: >
+      FNV-1a 64 hash (uint64 bits in an int) of an LLM call's prompt text,
+      trimmed and lower-cased, set only when it is at least 40 characters.
+      Computed before content is stripped. Stored as Span.input_hash.
+    type: integer
+    added_in_schema: 1
+
+  - name: tracium.output_hash
+    description: >
+      Like tracium.input_hash, for the completion text (OpenInference
+      output.value as fallback). Stored as Span.output_hash.
+    type: integer
+    added_in_schema: 1
+
   - name: tracium.available_tools
     description: >
       JSON-encoded array of the tools made available to the model on this span,
