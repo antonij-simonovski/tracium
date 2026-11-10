@@ -113,3 +113,20 @@ func TestEvaluatorSkipsTickWhenLockHeld(t *testing.T) {
 		t.Fatal("tick did not run after the lock was released")
 	}
 }
+
+type source []model.Anomaly
+
+func (s source) Anomalies(context.Context, string, time.Time) ([]model.Anomaly, error) { return s, nil }
+
+func TestEvaluatorFoldsSourceSignals(t *testing.T) {
+	det := &fakeDetector{anomalies: map[string][]model.Anomaly{"a": nil}}
+	store := &mocks.MockIncidentStore{}
+	budget := model.Anomaly{Metric: "budget", Scope: "client", Client: "acme", Severity: "critical", BucketMs: 0, Observed: 60, Expected: 50}
+	e := incident.NewEvaluator(det, store, freeLock{}, workspaces{"a"}, nil, config(), source{budget})
+	if err := e.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.Incidents) != 1 || store.Incidents[0].Subject != "acme" || store.Incidents[0].Signals[0].Metric != "budget" {
+		t.Fatalf("source signal not folded: %+v", store.Incidents)
+	}
+}

@@ -142,6 +142,10 @@ func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, invit
 		r.Delete(version.Route(version.V1, "/workspaces/{id}/alert-channels/{channelId}"), alerts.Delete)
 		r.With(middleware.NewRateLimiter(10, time.Minute, cfg.Auth.TrustedProxies).PerPrincipal()).
 			Post(version.Route(version.V1, "/workspaces/{id}/alert-channels/{channelId}/test"), alerts.Test)
+		r.Get(version.Route(version.V1, "/workspaces/{id}/alert-rules"), alerts.ListRules)
+		r.Post(version.Route(version.V1, "/workspaces/{id}/alert-rules"), alerts.CreateRule)
+		r.Patch(version.Route(version.V1, "/workspaces/{id}/alert-rules/{ruleId}"), alerts.UpdateRule)
+		r.Delete(version.Route(version.V1, "/workspaces/{id}/alert-rules/{ruleId}"), alerts.DeleteRule)
 
 		if oauthHandler != nil {
 			r.Get(version.Route(version.V1, "/oauth/authorize"), oauthHandler.AuthorizeInfo)

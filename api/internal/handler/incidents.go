@@ -147,8 +147,8 @@ func (h *IncidentHandler) Mute(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "BAD_REQUEST", "duration must be 24h, 7d or forever")
 		return
 	}
-	if req.Metric != "" && !validAnomalyMetrics[req.Metric] {
-		respondError(w, http.StatusBadRequest, "BAD_REQUEST", "metric must be empty or one of "+anomalyMetricList)
+	if req.Metric != "" && req.Metric != "budget" && !validAnomalyMetrics[req.Metric] {
+		respondError(w, http.StatusBadRequest, "BAD_REQUEST", "metric must be empty, budget or one of "+anomalyMetricList)
 		return
 	}
 	inc, ok := h.get(w, r)

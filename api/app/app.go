@@ -130,9 +130,9 @@ func New(ctx context.Context, cfg Config, opts Options) (*Application, error) {
 			Interval: time.Duration(cfg.Detection.IntervalSeconds) * time.Second,
 			Timeout:  time.Duration(cfg.Storage.QueryTimeout) * time.Second,
 			Fold:     fold,
-		})
+		}, alert.NewBudgets(alertStore, repo, alert.DefaultBudgetOptions()))
 	}
-	alertHandler := handler.NewAlertHandler(alertStore, alerts, incidents, workspaces, workspaces)
+	alertHandler := handler.NewAlertHandler(alertStore, alertStore, alerts, incidents, workspaces, workspaces)
 	return &Application{cfg: cfg, sessions: service, evaluator: evaluator, alerts: alerts,
 		Handler: newRouter(cfg, repo, workspaces, workspaces, users, service, service, apiKeyService, health, opts, oauthService, review.NewStore(pool), incidents, alertHandler),
 		close:   func() { pool.Close(); repo.Close() }}, nil

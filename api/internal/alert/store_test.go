@@ -91,3 +91,37 @@ func TestStore(t *testing.T) {
 		t.Fatal("deliveries outlived their channel")
 	}
 }
+
+func TestRuleStore(t *testing.T) {
+	pool := pgtest.NewPool(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `INSERT INTO workspaces (id, user_id, name, slug, env, role) VALUES ('ws', 'u', 'production', 'ws', 'prod', 'owner')`); err != nil {
+		t.Fatal(err)
+	}
+	s := alert.NewStore(pool)
+	r := alert.Rule{WorkspaceID: "ws", Scope: "client", Subject: "*", Period: "day", ThresholdUSD: 50, Enabled: true, CreatedBy: "u"}
+	if err := s.CreateRule(ctx, &r); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Rule(ctx, "other", r.ID); err != alert.ErrRuleNotFound {
+		t.Fatalf("rule visible from another workspace: %v", err)
+	}
+	if err := s.DeleteRule(ctx, "other", r.ID); err != alert.ErrRuleNotFound {
+		t.Fatalf("rule deleted from another workspace: %v", err)
+	}
+	r.ThresholdUSD, r.Enabled = 75, false
+	if err := s.UpdateRule(ctx, r); err != nil {
+		t.Fatal(err)
+	}
+	rules, err := s.Rules(ctx, "ws")
+	if err != nil || len(rules) != 1 || rules[0].ThresholdUSD != 75 || rules[0].Enabled {
+		t.Fatalf("rules %+v %v", rules, err)
+	}
+	bad := alert.Rule{WorkspaceID: "ws", Scope: "client", Period: "day", ThresholdUSD: 0, CreatedBy: "u"}
+	if err := s.CreateRule(ctx, &bad); err == nil {
+		t.Fatal("threshold 0 accepted")
+	}
+	if err := s.DeleteRule(ctx, "ws", r.ID); err != nil {
+		t.Fatal(err)
+	}
+}

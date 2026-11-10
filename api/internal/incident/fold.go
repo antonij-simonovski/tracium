@@ -35,7 +35,7 @@ const ResolvedLookback = 48 * time.Hour
 var dailyMetrics = map[string]bool{"cost": true, "error_rate": true, "runs": true, "latency_p95": true}
 
 // alwaysCurrent metrics describe now, and resolve as soon as they stop.
-var alwaysCurrent = map[string]bool{"heartbeat": true, "ingest_silence": true}
+var alwaysCurrent = map[string]bool{"heartbeat": true, "ingest_silence": true, "budget": true}
 
 // Current reports whether an anomaly describes the present, so it may open or
 // extend an incident.
@@ -259,6 +259,8 @@ func Title(scope, subject string, signals []Signal) string {
 		title = fmt.Sprintf("%s: %s at %s", name, noun, value)
 	} else if top.Metric == "heartbeat" {
 		title = fmt.Sprintf("%s: silent for %s", name, value)
+	} else if top.Metric == "budget" {
+		title = fmt.Sprintf("%s: spent $%.2f of $%.2f budget", name, top.Observed, top.Expected)
 	} else {
 		title = fmt.Sprintf("%s: %s", name, top.Metric)
 	}

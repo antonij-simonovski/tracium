@@ -13,6 +13,7 @@ const changePassword = vi.fn();
 const workspacesAPI = {
   members: vi.fn(), invites: vi.fn(), invite: vi.fn(), revokeInvite: vi.fn(), removeMember: vi.fn(),
   alertChannels: vi.fn(), createAlertChannel: vi.fn(), updateAlertChannel: vi.fn(), deleteAlertChannel: vi.fn(), testAlertChannel: vi.fn(),
+  alertRules: vi.fn(), createAlertRule: vi.fn(), updateAlertRule: vi.fn(), deleteAlertRule: vi.fn(),
 };
 const apiKeysAPI = { listRead: vi.fn(() => Promise.resolve([])), createRead: vi.fn(), revokeRead: vi.fn() };
 vi.mock('../../../common/providers/APIProvider', () => ({
@@ -303,6 +304,7 @@ describe('alerts', () => {
   beforeEach(() => {
     Object.values(workspacesAPI).forEach(fn => fn.mockReset());
     workspacesAPI.alertChannels.mockResolvedValue({ items: [hook], email_enabled: false });
+    workspacesAPI.alertRules.mockResolvedValue({ items: [] });
   });
 
   function openAlerts() {
@@ -332,5 +334,16 @@ describe('alerts', () => {
     expect(workspacesAPI.createAlertChannel).toHaveBeenCalledWith(workspace.id, expect.objectContaining({ kind: 'webhook', name: 'Ops', target: 'https://example.com/hook' }));
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
     expect(screen.queryByText('whsec_abc')).not.toBeInTheDocument();
+  });
+
+  it('adds a budget rule for each client', async () => {
+    workspacesAPI.createAlertRule.mockResolvedValue({});
+    openAlerts();
+    await screen.findByRole('list', { name: 'Alert channels' });
+    fireEvent.click(screen.getByRole('button', { name: 'Client' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Rule subject' }), { target: { value: '*' } });
+    fireEvent.change(screen.getByLabelText('Limit in USD'), { target: { value: '50' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add rule' }));
+    await waitFor(() => expect(workspacesAPI.createAlertRule).toHaveBeenCalledWith(workspace.id, { scope: 'client', subject: '*', period: 'day', threshold_usd: 50, enabled: true }));
   });
 });

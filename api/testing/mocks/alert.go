@@ -15,6 +15,7 @@ type MockAlertStore struct {
 	ChannelSet []alert.Channel
 	Queue      []alert.Delivery
 	Names      map[string]string
+	RuleSet    []alert.Rule
 	Err        error
 	nextID     int
 }
@@ -141,4 +142,60 @@ func (m *MockAlertStore) Deliveries(_ context.Context, incidentID string) ([]ale
 		}
 	}
 	return out, m.Err
+}
+
+func (m *MockAlertStore) Rules(_ context.Context, workspaceID string) ([]alert.Rule, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := []alert.Rule{}
+	for _, r := range m.RuleSet {
+		if r.WorkspaceID == workspaceID {
+			out = append(out, r)
+		}
+	}
+	return out, m.Err
+}
+
+func (m *MockAlertStore) Rule(_ context.Context, workspaceID, id string) (*alert.Rule, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, r := range m.RuleSet {
+		if r.ID == id && r.WorkspaceID == workspaceID {
+			return &r, m.Err
+		}
+	}
+	return nil, alert.ErrRuleNotFound
+}
+
+func (m *MockAlertStore) CreateRule(_ context.Context, r *alert.Rule) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.nextID++
+	r.ID = fmt.Sprintf("rule-%d", m.nextID)
+	m.RuleSet = append(m.RuleSet, *r)
+	return m.Err
+}
+
+func (m *MockAlertStore) UpdateRule(_ context.Context, r alert.Rule) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.RuleSet {
+		if m.RuleSet[i].ID == r.ID && m.RuleSet[i].WorkspaceID == r.WorkspaceID {
+			m.RuleSet[i] = r
+			return m.Err
+		}
+	}
+	return alert.ErrRuleNotFound
+}
+
+func (m *MockAlertStore) DeleteRule(_ context.Context, workspaceID, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, r := range m.RuleSet {
+		if r.ID == id && r.WorkspaceID == workspaceID {
+			m.RuleSet = append(m.RuleSet[:i], m.RuleSet[i+1:]...)
+			return m.Err
+		}
+	}
+	return alert.ErrRuleNotFound
 }
