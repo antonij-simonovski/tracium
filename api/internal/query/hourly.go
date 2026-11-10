@@ -464,7 +464,7 @@ FROM (
         if(empty(counts), '', names[indexOf(counts, rep)]) AS tool,
         countIf(parent_span_id = '') > 0              AS has_root,
         max(end_time_ms) < ?                          AS settled,
-        if(has_root, arrayFilter(n -> NOT match(n, '[0-9]{6}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-'), groupUniqArray(name)), []) AS steps
+        if(has_root, arrayFilter(n -> NOT match(n, '[0-9]{6}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-'), groupUniqArrayIf(name, kind != 'llm')), []) AS steps
     FROM tracium.spans WHERE source = 'span' AND %s
     GROUP BY trace_id
 )
