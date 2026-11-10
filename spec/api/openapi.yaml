@@ -1089,6 +1089,55 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /v1/incidents/backtest:
+    get:
+      operationId: backtestIncidents
+      summary: What Tracium would have alerted on
+      description: >
+        Replays detection over a past range, hour by hour, through the same
+        rules the background evaluator uses, from an empty state and without
+        mutes. Nothing is stored. Results are cached for an hour per workspace
+        and range; a 30d run can take several seconds.
+      tags: [Incidents]
+      parameters:
+        - name: workspace_id
+          in: query
+          required: true
+          description: The workspace to replay. The caller must be a member.
+          schema:
+            type: string
+        - name: range
+          in: query
+          schema:
+            type: string
+            enum: ["7d", "30d"]
+            default: 30d
+      responses:
+        "200":
+          description: The incidents that would have opened.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncidentBacktest"
+        "400":
+          description: Missing workspace_id or invalid range.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: The caller is not a member of workspace_id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "504":
+          description: The replay took longer than 60 seconds (code BACKTEST_TIMEOUT).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /v1/incidents/{id}:
     get:
       operationId: getIncident
@@ -3929,6 +3978,62 @@ components:
           items:
             type: string
           description: Up to three example runs from the signal's bucket. Empty for runs and heartbeat.
+
+    IncidentBacktest:
+      type: object
+      required: [range, incidents, by_severity, by_metric, items]
+      properties:
+        range:
+          type: string
+          enum: ["7d", "30d"]
+        incidents:
+          type: integer
+          description: How many incidents would have opened.
+        by_severity:
+          type: object
+          additionalProperties:
+            type: integer
+          description: Incidents by their highest severity.
+        by_metric:
+          type: object
+          additionalProperties:
+            type: integer
+          description: Incidents by the metric of their most severe signal.
+        items:
+          type: array
+          maxItems: 50
+          description: The incidents, most severe first, then newest.
+          items:
+            $ref: "#/components/schemas/IncidentBacktestItem"
+
+    IncidentBacktestItem:
+      type: object
+      required: [scope, subject, severity, title, opened_at, resolved_at, signals, version_change]
+      properties:
+        scope:
+          type: string
+          enum: ["workspace", "workflow", "client", "service"]
+        subject:
+          type: string
+        severity:
+          type: string
+          enum: ["info", "warning", "critical"]
+        title:
+          type: string
+        opened_at:
+          type: string
+          format: date-time
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Null when it would still be open.
+        signals:
+          type: integer
+        version_change:
+          allOf:
+            - $ref: "#/components/schemas/VersionChange"
+          nullable: true
 
     IncidentMute:
       type: object

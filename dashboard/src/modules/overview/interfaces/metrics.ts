@@ -95,6 +95,25 @@ export interface VersionChange {
   first_seen_ms: number; // UTC midnight
 }
 
+export interface IncidentBacktestItem {
+  scope: AnomalyScope | 'service';
+  subject: string;
+  severity: AnomalySeverity;
+  title: string;
+  opened_at: string;
+  resolved_at: string | null; // null when it would still be open
+  signals: number;
+  version_change: VersionChange | null;
+}
+
+export interface IncidentBacktest {
+  range: '7d' | '30d';
+  incidents: number;
+  by_severity: Partial<Record<AnomalySeverity, number>>;
+  by_metric: Partial<Record<AnomalyMetric, number>>;
+  items: IncidentBacktestItem[]; // at most 50, most severe first
+}
+
 export interface SetupCheck extends SetupIssue {
   spans: number;
   share: number; // fraction of the window's spans

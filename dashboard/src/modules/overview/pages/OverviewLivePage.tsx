@@ -30,6 +30,7 @@ import {
   OutlierChips,
   OutliersPanel,
   SetupChecks,
+  BacktestCard,
 } from '../components';
 import {
   useKpis,
@@ -179,7 +180,12 @@ export function OverviewLivePage({ range, setView, setSelected }: OverviewLivePa
           status={status}
         />
       }
-      setupChecks={setupChecksBlock}
+      setupChecks={
+        <>
+          {setupChecksBlock}
+          {workspaceId && <BacktestCard key={workspaceId} />}
+        </>
+      }
       kpis={
         <Section isLoading={kpis.isLoading} isError={kpis.isError}>
           {kpis.data && <KpiStrip items={toKpiItems(kpis.data, costPoints, latencyPoints, errorPoints, range)} />}

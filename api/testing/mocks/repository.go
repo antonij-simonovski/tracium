@@ -195,6 +195,10 @@ func (m *MockMetricsRepository) Anomalies(_ context.Context, _ query.MetricsFilt
 	return m.AnomalyItems, m.Err
 }
 
+func (m *MockMetricsRepository) Heartbeats(_ context.Context, _ query.MetricsFilter, ticks []int64) ([][]model.Anomaly, error) {
+	return make([][]model.Anomaly, len(ticks)), m.Err
+}
+
 func (m *MockMetricsRepository) SetupChecks(_ context.Context, _ query.MetricsFilter) ([]model.SetupCheck, error) {
 	return m.Checks, m.Err
 }

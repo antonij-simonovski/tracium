@@ -8,5 +8,6 @@ export type { TopWorkflowRow } from './TopWorkflows';
 export { ActivityFeed } from './ActivityFeed';
 export { OverviewLayout } from './OverviewLayout';
 export { SetupChecks } from './SetupChecks';
+export { BacktestCard } from './BacktestCard';
 export { OutlierChips } from './outliers/OutlierChips';
 export { OutliersPanel } from './outliers/OutliersPanel';

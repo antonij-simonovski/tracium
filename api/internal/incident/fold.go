@@ -241,13 +241,10 @@ func Title(scope, subject string, signals []Signal) string {
 	if len(signals) == 0 {
 		return ""
 	}
-	top := signals[0]
+	top := topSignal(signals)
 	metrics := map[string]bool{}
 	for _, s := range signals {
 		metrics[s.Metric] = true
-		if r, t := severityRank(s.Severity), severityRank(top.Severity); r > t || (r == t && math.Abs(s.Score) > math.Abs(top.Score)) {
-			top = s
-		}
 	}
 	name := subject
 	if scope == "workspace" || name == "" {
@@ -269,6 +266,17 @@ func Title(scope, subject string, signals []Signal) string {
 		title += fmt.Sprintf(" (+%d more signals)", n)
 	}
 	return title
+}
+
+// topSignal is the most severe signal, the strongest among equals.
+func topSignal(signals []Signal) Signal {
+	top := signals[0]
+	for _, s := range signals {
+		if r, t := severityRank(s.Severity), severityRank(top.Severity); r > t || (r == t && math.Abs(s.Score) > math.Abs(top.Score)) {
+			top = s
+		}
+	}
+	return top
 }
 
 func severityRank(s string) int {
