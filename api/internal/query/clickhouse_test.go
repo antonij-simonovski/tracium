@@ -101,3 +101,26 @@ func TestTraceDetailsRequireWorkspaceScope(t *testing.T) {
 		}
 	}
 }
+
+func TestTraceFilterSQLSilentFailure(t *testing.T) {
+	for flag, want := range map[string]string{
+		"truncated":  "HAVING countIf(silent_failure = ?) > 0",
+		"tool_error": "HAVING countIf(silent_failure = ?) > 0",
+		"any":        "HAVING countIf(silent_failure != '') > 0",
+	} {
+		f := TraceFilter{SilentFailure: flag}
+		if err := f.Validate(); err != nil {
+			t.Fatalf("%s: %v", flag, err)
+		}
+		clause, args := traceFilterSQL(f)
+		if !strings.Contains(clause, want) {
+			t.Errorf("%s: clause = %q", flag, clause)
+		}
+		if last := args[len(args)-1]; flag != "any" && last != flag {
+			t.Errorf("%s: last arg = %v", flag, last)
+		}
+	}
+	if err := (&TraceFilter{SilentFailure: "error"}).Validate(); err == nil {
+		t.Error("unknown silent_failure accepted")
+	}
+}

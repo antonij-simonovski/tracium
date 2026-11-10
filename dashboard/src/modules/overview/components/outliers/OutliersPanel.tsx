@@ -25,6 +25,9 @@ interface OutliersPanelProps {
   onDismiss: (a: Anomaly) => void;
   onRestoreAll?: () => void;
   onInspect?: (a: Anomaly) => void;
+  /** The open incident this outlier's subject is part of, if any. */
+  incidentFor?: (a: Anomaly) => string | undefined;
+  onOpenIncident?: (id: string) => void;
 }
 
 type ViewMode = 'list' | 'grouped';
@@ -49,6 +52,8 @@ export function OutliersPanel({
   onDismiss,
   onRestoreAll,
   onInspect,
+  incidentFor,
+  onOpenIncident,
 }: OutliersPanelProps) {
   const ref = useRef<HTMLDivElement>(null);
   const width = useResize(ref);
@@ -99,6 +104,8 @@ export function OutliersPanel({
                 onToggle={() => onSelectKey(expanded ? null : anomalyKey(a))}
                 onDismiss={onDismiss}
                 onInspect={onInspect}
+                incidentId={incidentFor?.(a)}
+                onOpenIncident={onOpenIncident}
               />
             );
           })}
@@ -226,6 +233,8 @@ function OutlierRow({
   onToggle,
   onDismiss,
   onInspect,
+  incidentId,
+  onOpenIncident,
 }: {
   anomaly: Anomaly;
   range: string;
@@ -234,6 +243,8 @@ function OutlierRow({
   onToggle: () => void;
   onDismiss: (a: Anomaly) => void;
   onInspect?: (a: Anomaly) => void;
+  incidentId?: string;
+  onOpenIncident?: (id: string) => void;
 }) {
   const rowRef = useScrollIntoView<HTMLDivElement>(expanded);
   const meta = SEVERITY_META[a.severity];
@@ -307,6 +318,11 @@ function OutlierRow({
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, flex: '1 1 220px', minWidth: 200 }}>
               <span style={{ fontSize: 14, color: 'var(--muted)', lineHeight: 1.5 }}>{a.summary}</span>
               <RowActions anomaly={a} onDismiss={onDismiss} onInspect={onInspect} />
+              {incidentId && onOpenIncident && (
+                <button onClick={() => onOpenIncident(incidentId)} style={{ ...linkBtn, color: 'var(--accent)', alignSelf: 'flex-start' }}>
+                  Became incident →
+                </button>
+              )}
             </div>
           </div>
         </div>

@@ -7,18 +7,19 @@ import (
 
 // TraceFilter holds all optional filtering criteria for listing traces.
 type TraceFilter struct {
-	UserID       string   // optional: the operator's end-client (a business dimension, not an access boundary)
-	WorkspaceIDs []string // access scope: the workspaces the caller may read. Empty means "no accessible workspace" and matches nothing (see workspaceScope). Set by the handler from the caller's memberships.
-	Model        string   // optional model filter
-	Workflow     string   // optional: restrict to one derived workflow (see workflowExpr), e.g. a workflow's recent runs
-	Version      string   // optional: restrict to one derived workflow version (see versionExpr)
-	HasError     *bool    // pointer to distinguish false from unset
-	AttrKey      string   // optional: with AttrValue, only traces with a span whose custom attribute AttrKey equals AttrValue
-	AttrValue    string
-	StartAfter   time.Time // optional lower bound on trace start time
-	StartBefore  time.Time // optional upper bound on trace start time
-	Page         int       // 1-indexed, default 1
-	PageSize     int       // default 50, max 200
+	UserID        string   // optional: the operator's end-client (a business dimension, not an access boundary)
+	WorkspaceIDs  []string // access scope: the workspaces the caller may read. Empty means "no accessible workspace" and matches nothing (see workspaceScope). Set by the handler from the caller's memberships.
+	Model         string   // optional model filter
+	Workflow      string   // optional: restrict to one derived workflow (see workflowExpr), e.g. a workflow's recent runs
+	Version       string   // optional: restrict to one derived workflow version (see versionExpr)
+	HasError      *bool    // pointer to distinguish false from unset
+	SilentFailure string   // optional: truncated, refused, tool_error, or any
+	AttrKey       string   // optional: with AttrValue, only traces with a span whose custom attribute AttrKey equals AttrValue
+	AttrValue     string
+	StartAfter    time.Time // optional lower bound on trace start time
+	StartBefore   time.Time // optional upper bound on trace start time
+	Page          int       // 1-indexed, default 1
+	PageSize      int       // default 50, max 200
 }
 
 // defaultTraceWindow bounds a listing that arrives without an explicit lower
@@ -32,6 +33,11 @@ const defaultTraceWindow = 30 * 24 * time.Hour
 func (f *TraceFilter) Validate() error {
 	if f.PageSize > 200 {
 		return fmt.Errorf("page_size must be <= 200")
+	}
+	switch f.SilentFailure {
+	case "", "truncated", "refused", "tool_error", "any":
+	default:
+		return fmt.Errorf("silent_failure must be truncated, refused, tool_error or any")
 	}
 	if f.PageSize <= 0 {
 		f.PageSize = 50

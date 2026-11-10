@@ -53,6 +53,12 @@ paths:
           description: Filter to traces that have at least one error span.
           schema:
             type: boolean
+        - name: silent_failure
+          in: query
+          description: Filter to traces with a span flagged as this silent failure; any matches every flag.
+          schema:
+            type: string
+            enum: [truncated, refused, tool_error, any]
         - name: start_after
           in: query
           description: Return traces whose start_time_ms is after this ISO 8601 date-time.
@@ -2994,6 +3000,10 @@ components:
         error_message:
           type: string
           description: "Added in schema v2. Human-readable error message if the span failed."
+        silent_failure:
+          type: string
+          enum: [truncated, refused, tool_error]
+          description: The silent failure the collector flagged on this span. Omitted when none.
         kind:
           type: string
           enum: ["agent", "llm", "tool", "chain", "retriever", "embedding"]
@@ -3053,6 +3063,12 @@ components:
           type: number
           minimum: 0
           description: Sum of cost_usd across all spans in this trace.
+        silent_failures:
+          type: array
+          items:
+            type: string
+            enum: [truncated, refused, tool_error]
+          description: The distinct silent-failure flags on the trace's spans, sorted. Empty when none.
         schema_version:
           type: integer
           minimum: 1

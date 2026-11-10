@@ -1431,6 +1431,11 @@ export interface components {
             /** @description Added in schema v2. Human-readable error message if the span failed. */
             error_message?: string;
             /**
+             * @description The silent failure the collector flagged on this span. Omitted when none.
+             * @enum {string}
+             */
+            silent_failure?: "truncated" | "refused" | "tool_error";
+            /**
              * @description Normalized span role, derived by the collector from instrumentation attributes (OpenInference openinference.span.kind, Traceloop traceloop.span.kind, or the OTel GenAI gen_ai.operation.name). Optional: omitted when the collector could not classify the span, in which case consumers infer the role from the span's context.
              * @enum {string}
              */
@@ -1461,6 +1466,8 @@ export interface components {
             has_error?: boolean;
             /** @description Sum of cost_usd across all spans in this trace. */
             total_cost_usd?: number;
+            /** @description The distinct silent-failure flags on the trace's spans, sorted. Empty when none. */
+            silent_failures?: ("truncated" | "refused" | "tool_error")[];
             /** @description Schema version of this trace record. */
             schema_version?: number;
         };
@@ -2181,6 +2188,8 @@ export interface operations {
                 version?: string;
                 /** @description Filter to traces that have at least one error span. */
                 has_error?: boolean;
+                /** @description Filter to traces with a span flagged as this silent failure; any matches every flag. */
+                silent_failure?: "truncated" | "refused" | "tool_error" | "any";
                 /** @description Return traces whose start_time_ms is after this ISO 8601 date-time. */
                 start_after?: string;
                 /** @description Return traces whose start_time_ms is before this ISO 8601 date-time. */

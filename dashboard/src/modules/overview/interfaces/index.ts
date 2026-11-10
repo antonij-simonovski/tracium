@@ -13,5 +13,6 @@ export type {
   AnomalyDirection,
   AnomalySeverity,
   Anomaly,
+  VersionChange,
   SetupCheck,
 } from './metrics';

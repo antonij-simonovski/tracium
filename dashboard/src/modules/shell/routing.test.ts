@@ -28,3 +28,12 @@ describe('version compare routing', () => {
     expect(pathToState('/workflows/checkout/compare/v1')).toEqual({ view: 'workflows', selected: { workflow: 'checkout' } });
   });
 });
+
+describe('incidents routing', () => {
+  it('round-trips the list and one incident', () => {
+    expect(stateToPath('incidents', {})).toBe('/incidents');
+    expect(pathToState('/incidents')).toEqual({ view: 'incidents', selected: {} });
+    expect(stateToPath('incidents', { incident: 'inc 1' })).toBe('/incidents/inc%201');
+    expect(pathToState('/incidents/inc%201')).toEqual({ view: 'incidents', selected: { incident: 'inc 1' } });
+  });
+});

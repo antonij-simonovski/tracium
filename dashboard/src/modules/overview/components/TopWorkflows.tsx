@@ -1,4 +1,4 @@
-import { Sparkline, fmtNum, fmtCost, rangeLabel } from '../../../common';
+import { SeverityTag, Sparkline, fmtNum, fmtCost, rangeLabel, type Severity } from '../../../common';
 import hover from '../../../common/styles/hover.module.css';
 import { SectionRule } from './SectionRule';
 
@@ -13,10 +13,13 @@ export function TopWorkflows({
   workflows,
   onSelectWorkflow,
   range = '7d',
+  status = {},
 }: {
   workflows: TopWorkflowRow[];
   onSelectWorkflow: (name: string) => void;
   range?: string;
+  /** Open-incident severity by workflow name. */
+  status?: Record<string, Severity>;
 }) {
   const maxCalls = Math.max(...workflows.map((a) => a.calls), 1);
 
@@ -45,7 +48,10 @@ export function TopWorkflows({
               }}
             >
               <div style={{ display: 'flex', flexDirection: 'column', gap: 7, minWidth: 0 }}>
-                <span style={{ fontSize: 14.5, fontWeight: 500, color: 'var(--foreground)' }}>{a.name}</span>
+                <span style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '2px 10px' }}>
+                  <span style={{ fontSize: 14.5, fontWeight: 500, color: 'var(--foreground)' }}>{a.name}</span>
+                  {status[a.name] && <SeverityTag severity={status[a.name]} compact />}
+                </span>
                 <div
                   style={{
                     position: 'relative',

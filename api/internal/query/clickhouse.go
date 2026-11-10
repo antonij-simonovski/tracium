@@ -77,7 +77,8 @@ SELECT
     max(end_time_ms) - min(start_time_ms) AS dur_ms,
     toInt64(count())                      AS spans,
     max(` + spanErrored + `)              AS errored,
-    sum(cost_usd)                         AS total_cost
+    sum(cost_usd)                         AS total_cost,
+    arraySort(arrayFilter(x -> x != '', groupUniqArray(silent_failure))) AS flags
 FROM ` + tableCalls
 
 // scanTrace reads one aggregated trace row. Works with both *sql.Row and *sql.Rows.
@@ -86,7 +87,10 @@ func scanTrace(s interface{ Scan(...any) error }) (model.Trace, error) {
 	var hasError uint8
 	var spanCount int64
 	err := s.Scan(&t.TraceID, &t.Name, &t.WorkflowVersion, &t.UserID, &t.WorkspaceID, &t.StartTimeMs, &t.EndTimeMs,
-		&t.DurationMs, &spanCount, &hasError, &t.TotalCostUSD)
+		&t.DurationMs, &spanCount, &hasError, &t.TotalCostUSD, &t.SilentFailures)
+	if t.SilentFailures == nil {
+		t.SilentFailures = []string{}
+	}
 	t.HasError = hasError != 0
 	t.SpanCount = int(spanCount)
 	return t, err
@@ -155,6 +159,12 @@ func traceFilterSQL(filter TraceFilter) (string, []any) {
 		having = append(having, "max("+spanErrored+") = ?")
 		args = append(args, hasError)
 	}
+	if filter.SilentFailure == "any" {
+		having = append(having, "countIf(silent_failure != '') > 0")
+	} else if filter.SilentFailure != "" {
+		having = append(having, "countIf(silent_failure = ?) > 0")
+		args = append(args, filter.SilentFailure)
+	}
 	if len(having) > 0 {
 		clause += "\nHAVING " + strings.Join(having, " AND ")
 	}
@@ -218,7 +228,7 @@ func (r *ClickHouseRepository) GetTrace(ctx context.Context, traceID string, wor
 var spanSelect = `
 SELECT trace_id, span_id, parent_span_id, name, start_time_ms, end_time_ms, duration_ms,
        model, model_normalized, input_tokens, output_tokens, cost_usd, user_id, workspace_id,
-       finish_reason, error_type, error_message, schema_version,
+       finish_reason, error_type, error_message, silent_failure, schema_version,
        input, output, available_tools, kind, ` + spanIssuesSQL + `
 FROM ` + tableCalls
 
@@ -242,7 +252,7 @@ func (r *ClickHouseRepository) GetSpans(ctx context.Context, traceID string, wor
 		if err := rows.Scan(&s.TraceID, &s.SpanID, &s.ParentSpanID, &s.Name,
 			&s.StartTimeMs, &s.EndTimeMs, &s.DurationMs, &s.Model, &s.ModelNormalized,
 			&s.InputTokens, &s.OutputTokens, &s.CostUSD, &s.UserID, &s.WorkspaceID, &s.FinishReason,
-			&s.ErrorType, &s.ErrorMessage, &s.SchemaVersion,
+			&s.ErrorType, &s.ErrorMessage, &s.SilentFailure, &s.SchemaVersion,
 			&s.Input, &s.Output, &tools, &s.Kind, &issues); err != nil {
 			return nil, fmt.Errorf("clickhouse: scan span: %w", err)
 		}

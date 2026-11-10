@@ -31,7 +31,7 @@ func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, invit
 	reviewHandler := handler.NewReviewHandler(repo, reviews, wsStore)
 	metricsHandler := handler.NewMetricsHandler(repo, wsStore)
 	incidentHandler := handler.NewIncidentHandler(incidents, wsStore, opts.Notifier)
-	queryHandler := handler.NewQueryHandler(repo, repo, wsStore)
+	queryHandler := handler.NewQueryHandler(repo, repo, incidents, wsStore)
 	healthHandler := handler.NewHealthHandler(healthChecks...)
 	var oauthHandler *handler.OAuthHandler
 	if oauthService != nil {
