@@ -71,6 +71,18 @@ type Span struct {
 	// failed (truncated, refused, tool_error), or empty.
 	SilentFailure string
 
+	// ContextRatio is the prompt, cached tokens included, over the model's
+	// max_input_tokens; 0 when the limit is unknown.
+	ContextRatio float32
+
+	// ResponseModel is gen_ai.response.model normalized like ModelNormalized.
+	ResponseModel string
+
+	// OutputHash and InputHash are genai.ContentHashes of an LLM call, 0 when
+	// the text is absent or too short to compare.
+	OutputHash uint64
+	InputHash  uint64
+
 	// Attributes holds the custom resource and span attributes not promoted to a
 	// typed field (gen_ai.*, tracium.*, llm.*, traceloop.* and service.name are excluded).
 	Attributes map[string]string

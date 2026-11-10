@@ -280,3 +280,19 @@ func TestFromOTLP_IgnoresClientReportedCost(t *testing.T) {
 		t.Errorf("cost = %v, want 0", row.CostUSD)
 	}
 }
+
+func TestFromOTLP_DetectorColumns(t *testing.T) {
+	s := ptrace.NewSpan()
+	a := s.Attributes()
+	a.PutStr(attrModelRequest, "gpt-4o")
+	a.PutStr(attrModelResponse, " GPT-4o-2024-08-06 ")
+	a.PutDouble(attrContextRatio, 0.5)
+	a.PutInt(attrOutputHash, -1)
+	a.PutInt(attrInputHash, 7)
+
+	row := fromOTLP(s, "", pcommon.NewMap())
+	if row.ResponseModel != "gpt-4o-2024-08-06" || row.ContextRatio != 0.5 ||
+		row.OutputHash != ^uint64(0) || row.InputHash != 7 {
+		t.Errorf("row = %q %v %d %d", row.ResponseModel, row.ContextRatio, row.OutputHash, row.InputHash)
+	}
+}

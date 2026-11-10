@@ -77,6 +77,9 @@ const (
 	attrAvailableTools  = "tracium.available_tools"
 	attrUnmetered       = "tracium.usage.unmetered"
 	attrSilentFailure   = "tracium.silent_failure"
+	attrContextRatio    = "tracium.context_ratio"
+	attrInputHash       = "tracium.input_hash"
+	attrOutputHash      = "tracium.output_hash"
 
 	attrServiceName       = "service.name"
 	attrGenAIAgentName    = "gen_ai.agent.name"
@@ -114,6 +117,10 @@ func fromOTLP(s ptrace.Span, serviceName string, resourceAttrs pcommon.Map) *spa
 		OutputTokens:    usage.OutputTokens,
 		CacheReadTokens: usage.CacheReadTokens,
 		SilentFailure:   strAttr(attrs, attrSilentFailure),
+		ContextRatio:    float32(floatAttr(attrs, attrContextRatio)),
+		ResponseModel:   ingest.NormalizeModel(strAttr(attrs, attrModelResponse)),
+		InputHash:       uint64(intAttr(attrs, attrInputHash)),
+		OutputHash:      uint64(intAttr(attrs, attrOutputHash)),
 		// Both flags are metering provenance, not usage: they say how much of the
 		// count above is trustworthy. Stored so a $0 span is distinguishable from
 		// a genuinely free one.
