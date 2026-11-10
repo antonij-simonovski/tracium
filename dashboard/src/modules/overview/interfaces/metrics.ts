@@ -72,7 +72,10 @@ export type AnomalyMetric =
   | 'ingest_silence'
   | 'ingest_rejected'
   | 'missing_step'
-  | 'stuck_runs';
+  | 'stuck_runs'
+  | 'context_pressure'
+  | 'model_mix'
+  | 'duplicate_output';
 export type AnomalyScope = 'workspace' | 'workflow' | 'client' | 'service';
 export type AnomalyDirection = 'spike' | 'drop';
 export type AnomalySeverity = Severity;

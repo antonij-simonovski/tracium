@@ -142,6 +142,11 @@ func (r *ClickHouseRepository) Anomalies(ctx context.Context, f MetricsFilter) (
 			return nil, err
 		}
 		attachVersionChanges(out, changes, byWorkflow)
+		models, err := r.modelChanges(ctx, f)
+		if err != nil {
+			return nil, err
+		}
+		attachModelChanges(out, models)
 	}
 
 	sortAnomalies(out)
@@ -451,6 +456,62 @@ func attachVersionChanges(anomalies []model.Anomaly, changes []model.VersionChan
 	}
 }
 
+type modelChange struct {
+	workflow string
+	model.ModelChange
+}
+
+// modelChanges returns the response models each workflow was first answered by
+// in the hourly checks' range, against the week before it, earliest first. A
+// workflow's first response model is skipped, as for versions.
+func (r *ClickHouseRepository) modelChanges(ctx context.Context, f MetricsFilter) ([]modelChange, error) {
+	from := hourlyFrom(f)
+	clause, args := window("", f.WorkspaceIDs, from-runFallbackHours*anomaly.HourMs, f.End.UnixMilli())
+	q := fmt.Sprintf(`SELECT workflow_name, response_model, first_seen FROM (
+    SELECT workflow_name, response_model, first_seen, min(first_seen) OVER (PARTITION BY workflow_name) AS adopted
+    FROM (SELECT workflow_name, response_model, min(intDiv(start_time_ms, 3600000) * 3600000) AS first_seen
+        FROM tracium.spans WHERE source = 'span' AND kind = 'llm' AND workflow_name != '' AND response_model != '' AND %s
+        GROUP BY workflow_name, response_model)
+)
+WHERE first_seen > adopted AND first_seen >= ?
+ORDER BY first_seen, workflow_name, response_model`, clause)
+
+	rows, err := r.db.QueryContext(ctx, q, append(args, from-versionLeadMs)...)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse: model changes: %w", err)
+	}
+	defer rows.Close()
+	var out []modelChange
+	for rows.Next() {
+		var c modelChange
+		if err := rows.Scan(&c.workflow, &c.Model, &c.FirstSeenMs); err != nil {
+			return nil, fmt.Errorf("clickhouse: scan model change: %w", err)
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// attachModelChanges gives each workflow anomaly the latest response model its
+// workflow was first answered by within versionLeadMs before its bucket.
+func attachModelChanges(anomalies []model.Anomaly, changes []modelChange) {
+	for i := range anomalies {
+		a := &anomalies[i]
+		for j, c := range changes {
+			if c.FirstSeenMs > a.BucketMs {
+				break
+			}
+			if c.FirstSeenMs >= a.BucketMs-versionLeadMs && c.workflow == a.Workflow && a.Scope == "workflow" {
+				a.ModelChange = &changes[j].ModelChange
+			}
+		}
+		if a.ModelChange != nil {
+			a.Summary += fmt.Sprintf(" Started near a new response model %s (first seen %s).", a.ModelChange.Model,
+				time.UnixMilli(a.ModelChange.FirstSeenMs).UTC().Format("2006-01-02 15:04 UTC"))
+		}
+	}
+}
+
 // topWorkflow is the workflow that carried the most of metric on the day at bucketMs
 // (errored runs for error_rate), ties broken by name; "" when none did.
 func topWorkflow(byWorkflow map[string]map[int64]dailyAgg, bucketMs int64, metric string) string {
@@ -523,7 +584,8 @@ func formatAnomalyValue(metric string, v float64) string {
 	switch metric {
 	case "cost":
 		return fmt.Sprintf("$%.2f", v)
-	case "error_rate", "truncation_rate", "refusal_rate", "tool_error_rate", "cache_hit_ratio", "stuck_runs", "missing_step":
+	case "error_rate", "truncation_rate", "refusal_rate", "tool_error_rate", "cache_hit_ratio", "stuck_runs", "missing_step",
+		"context_pressure", "model_mix", "duplicate_output":
 		return fmt.Sprintf("%.1f%%", v*100)
 	case "latency_p95":
 		if v >= 1000 {

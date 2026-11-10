@@ -378,3 +378,105 @@ func TestPresenceDrop(t *testing.T) {
 		t.Errorf("steps outside TopSteps flagged: %+v", got)
 	}
 }
+
+func TestLevelCross(t *testing.T) {
+	o := CrossOptions{DetectFromMs: 168 * HourMs, LagHours: 168, MinN: 10, Above: 0.85, Below: 0.7}
+	series := make([]Level, 169)
+	for i := range series {
+		series[i] = Level{BucketMs: int64(i) * HourMs, N: 20, Value: 0.5}
+	}
+	series[168].Value = 0.9
+	if got := LevelCross(series, o); len(got) != 1 || got[0].Severity != SeverityWarning || got[0].Expected != 0.5 {
+		t.Fatalf("p95 0.5 -> 0.9 = %+v, want one warning", got)
+	}
+
+	series[0].Value = 0.8
+	if got := LevelCross(series, o); len(got) != 0 {
+		t.Errorf("already at 0.8 a week ago flagged: %+v", got)
+	}
+
+	series[0] = Level{BucketMs: 0}
+	if got := LevelCross(series, o); len(got) != 0 {
+		t.Errorf("no calls a week ago flagged: %+v", got)
+	}
+}
+
+func sharesFrom(n int, f func(i int) Shares) []Shares {
+	out := make([]Shares, n)
+	for i := range out {
+		out[i] = f(i)
+		out[i].BucketMs = int64(i) * HourMs
+	}
+	return out
+}
+
+func TestShareShift(t *testing.T) {
+	o := ShareOptions{BaselineHours: 24, DetectFromMs: 24 * HourMs, MinBaseTotal: 20,
+		MaxBaseShare: 0.02, MinShare: 0.2, MinCount: 10, Critical: 0.5}
+	steady := func(int) Shares { return Shares{Total: 20, By: map[string]int64{"gpt-4o": 20}} }
+
+	fallback := sharesFrom(25, steady)
+	fallback[24].Total, fallback[24].By = 20, map[string]int64{"gpt-4o": 8, "gpt-4o-mini": 12}
+	got := ShareShift(fallback, o)
+	if len(got) != 1 || got[0].Key != "gpt-4o-mini" || got[0].Severity != SeverityCritical || got[0].Observed != 0.6 {
+		t.Fatalf("fallback to gpt-4o-mini = %+v, want one critical at 60%%", got)
+	}
+
+	fallback[24].By = map[string]int64{"gpt-4o": 15, "gpt-4o-mini": 5}
+	if got := ShareShift(fallback, o); len(got) != 0 {
+		t.Errorf("5 calls under MinCount flagged: %+v", got)
+	}
+
+	mixed := sharesFrom(25, func(int) Shares { return Shares{Total: 20, By: map[string]int64{"gpt-4o": 14, "gpt-4o-mini": 6}} })
+	mixed[24].By = map[string]int64{"gpt-4o": 6, "gpt-4o-mini": 14}
+	if got := ShareShift(mixed, o); len(got) != 0 {
+		t.Errorf("model already 30%% of the baseline flagged: %+v", got)
+	}
+
+	fresh := sharesFrom(25, func(int) Shares { return Shares{} })
+	fresh[24] = Shares{BucketMs: 24 * HourMs, Total: 20, By: map[string]int64{"gpt-4o": 20}}
+	if got := ShareShift(fresh, o); len(got) != 0 {
+		t.Errorf("new workflow with no baseline flagged: %+v", got)
+	}
+}
+
+func outputsFrom(n int, f func(i int) Outputs) []Outputs {
+	out := make([]Outputs, n)
+	for i := range out {
+		out[i] = f(i)
+		out[i].BucketMs = int64(i) * HourMs
+	}
+	return out
+}
+
+func TestDuplicateShare(t *testing.T) {
+	o := DuplicateOptions{BaselineHours: 24, DetectFromMs: 24 * HourMs, MinBaseTotal: 20,
+		MinCalls: 10, MinInputs: 5, MinShare: 0.3, MaxBaseShare: 0.1, Critical: 0.7}
+	varied := func(int) Outputs { return Outputs{Total: 10} }
+
+	stuck := outputsFrom(25, varied)
+	stuck[24].Total, stuck[24].Repeats = 20, map[uint64]Repeat{7: {Dup: 15, Inputs: 16}}
+	got := DuplicateShare(stuck, o)
+	if len(got) != 1 || got[0].Hash != 7 || got[0].Severity != SeverityCritical || got[0].Observed != 0.75 {
+		t.Fatalf("canned answer for 16 inputs = %+v, want one critical at 75%%", got)
+	}
+
+	stuck[24].Repeats = map[uint64]Repeat{7: {Dup: 15, Inputs: 2}}
+	if got := DuplicateShare(stuck, o); len(got) != 0 {
+		t.Errorf("same answer for 2 distinct inputs flagged: %+v", got)
+	}
+
+	classifier := outputsFrom(25, func(int) Outputs {
+		return Outputs{Total: 10, Repeats: map[uint64]Repeat{1: {Dup: 5, Inputs: 6}, 2: {Dup: 3, Inputs: 4}}}
+	})
+	classifier[24].Repeats = map[uint64]Repeat{1: {Dup: 8, Inputs: 9}}
+	if got := DuplicateShare(classifier, o); len(got) != 0 {
+		t.Errorf("classifier with fixed answers flagged: %+v", got)
+	}
+
+	few := outputsFrom(25, varied)
+	few[24].Total, few[24].Repeats = 8, map[uint64]Repeat{7: {Dup: 7, Inputs: 8}}
+	if got := DuplicateShare(few, o); len(got) != 0 {
+		t.Errorf("8 calls under MinCalls flagged: %+v", got)
+	}
+}

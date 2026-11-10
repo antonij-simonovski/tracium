@@ -9,7 +9,8 @@ package model
 // robust z-score. Hourly metrics ("truncation_rate" | "refusal_rate" |
 // "tool_error_rate" | "llm_calls_per_run" | "tool_repeat" | "cache_hit_ratio" |
 // "heartbeat" | "ingest_silence" | "ingest_rejected" | "missing_step" |
-// "stuck_runs") compare an hour with the hours before it; Score is the signed
+// "stuck_runs" | "context_pressure" | "model_mix" | "duplicate_output") compare
+// an hour with the hours before it; Score is the signed
 // multiple of the baseline. Scope is "workspace", "workflow" (Workflow names
 // which one), "client" (heartbeat; Client names the user_id) or "service"
 // (ingest_silence; Service names the service_name). Direction is
@@ -33,7 +34,14 @@ type Anomaly struct {
 	Summary   string  `json:"summary"`
 
 	VersionChange *VersionChange `json:"version_change"`
+	ModelChange   *ModelChange   `json:"model_change"`
 	TraceIDs      []string       `json:"trace_ids"`
+}
+
+// ModelChange is a response model a workflow was first answered by in the hour at FirstSeenMs.
+type ModelChange struct {
+	Model       string `json:"model"`
+	FirstSeenMs int64  `json:"first_seen_ms"`
 }
 
 // VersionChange is a workflow version and the day it was first seen.

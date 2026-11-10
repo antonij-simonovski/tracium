@@ -461,3 +461,182 @@ func topSteps(steps map[string]int64, n int) []string {
 	})
 	return names[:min(n, len(names))]
 }
+
+// Level is one hour's value of a statistic over N observations (e.g. p95
+// context use over N LLM calls).
+type Level struct {
+	BucketMs int64
+	N        int64
+	Value    float64
+}
+
+type CrossOptions struct {
+	DetectFromMs int64
+	// LagHours is how far back the earlier value is read, both hours needing MinN.
+	LagHours int
+	MinN     int64
+	Above    float64
+	Below    float64
+}
+
+// LevelCross flags hours whose value reached Above while it was under Below
+// LagHours earlier, as a warning. Expected is the earlier value.
+func LevelCross(series []Level, o CrossOptions) []Result {
+	var out []Result
+	for i, p := range series {
+		if p.BucketMs < o.DetectFromMs || i < o.LagHours || p.N < o.MinN || p.Value < o.Above {
+			continue
+		}
+		then := series[i-o.LagHours]
+		if then.N < o.MinN || then.Value >= o.Below {
+			continue
+		}
+		out = append(out, Result{BucketMs: p.BucketMs, Observed: p.Value, Expected: then.Value,
+			Deviation: p.Value - then.Value, Score: p.Value / math.Max(then.Value, 0.01), Direction: Spike, Severity: SeverityWarning})
+	}
+	return out
+}
+
+// Shares is one hour's calls, in total and per key (e.g. per model).
+type Shares struct {
+	BucketMs int64
+	Total    int64
+	By       map[string]int64
+}
+
+type ShareOptions struct {
+	BaselineHours int
+	DetectFromMs  int64
+	MinBaseTotal  int64
+	// A key is new when its baseline share is under MaxBaseShare, and flagged
+	// once it holds MinShare and MinCount calls of an hour.
+	MaxBaseShare float64
+	MinShare     float64
+	MinCount     int64
+	Critical     float64
+}
+
+// ShareResult is the key that took over: Observed is its share of the hour,
+// Expected its baseline share.
+type ShareResult struct {
+	Key string
+	Result
+}
+
+// ShareShift flags hours in which a key that was rare over the baseline took a
+// large share: one warning per hour, for the largest, critical from Critical.
+func ShareShift(series []Shares, o ShareOptions) []ShareResult {
+	var out []ShareResult
+	for i, p := range series {
+		if p.BucketMs < o.DetectFromMs || p.Total == 0 {
+			continue
+		}
+		var total int64
+		by := map[string]int64{}
+		for _, b := range series[max(0, i-o.BaselineHours):i] {
+			total += b.Total
+			for k, n := range b.By {
+				by[k] += n
+			}
+		}
+		if total < max(o.MinBaseTotal, 1) {
+			continue
+		}
+		var res *ShareResult
+		for k, n := range p.By {
+			cur, base := float64(n)/float64(p.Total), float64(by[k])/float64(total)
+			if k == "" || n < o.MinCount || cur < o.MinShare || base >= o.MaxBaseShare {
+				continue
+			}
+			if res == nil || cur > res.Observed || (cur == res.Observed && k < res.Key) {
+				res = &ShareResult{Key: k, Result: Result{BucketMs: p.BucketMs, Observed: cur, Expected: base,
+					Deviation: cur - base, Score: cur / math.Max(base, 0.01), Direction: Spike, Severity: SeverityWarning}}
+			}
+		}
+		if res != nil {
+			if res.Observed >= o.Critical {
+				res.Severity = SeverityCritical
+			}
+			out = append(out, *res)
+		}
+	}
+	return out
+}
+
+// Repeat is one output returned in an hour: Dup counts the calls that returned
+// it for an input other than its most common one, Inputs its distinct inputs.
+type Repeat struct {
+	Dup, Inputs int64
+}
+
+// Outputs is one hour's calls with a hashed output, and the outputs repeated
+// across inputs, by hash.
+type Outputs struct {
+	BucketMs int64
+	Total    int64
+	Repeats  map[uint64]Repeat
+}
+
+type DuplicateOptions struct {
+	BaselineHours int
+	DetectFromMs  int64
+	MinBaseTotal  int64
+	MinCalls      int64
+	MinInputs     int64
+	MinShare      float64
+	MaxBaseShare  float64
+	Critical      float64
+}
+
+// DuplicateResult is the output repeated most: Observed is its share of the
+// hour's calls, Expected the most repeated output's share over the baseline.
+type DuplicateResult struct {
+	Hash uint64
+	Result
+}
+
+// DuplicateShare flags hours in which one output was returned for many
+// different inputs while no output was over the baseline, so workflows with a
+// few fixed answers never fire.
+func DuplicateShare(series []Outputs, o DuplicateOptions) []DuplicateResult {
+	var out []DuplicateResult
+	for i, p := range series {
+		if p.BucketMs < o.DetectFromMs || p.Total < o.MinCalls {
+			continue
+		}
+		var hash uint64
+		var top int64
+		for h, r := range p.Repeats {
+			if r.Inputs >= o.MinInputs && (r.Dup > top || (r.Dup == top && h < hash)) {
+				hash, top = h, r.Dup
+			}
+		}
+		cur := float64(top) / float64(p.Total)
+		if top == 0 || cur < o.MinShare {
+			continue
+		}
+		var total, baseTop int64
+		dup := map[uint64]int64{}
+		for _, b := range series[max(0, i-o.BaselineHours):i] {
+			total += b.Total
+			for h, r := range b.Repeats {
+				dup[h] += r.Dup
+				baseTop = max(baseTop, dup[h])
+			}
+		}
+		if total < max(o.MinBaseTotal, 1) {
+			continue
+		}
+		base := float64(baseTop) / float64(total)
+		if base >= o.MaxBaseShare {
+			continue
+		}
+		res := DuplicateResult{Hash: hash, Result: Result{BucketMs: p.BucketMs, Observed: cur, Expected: base,
+			Deviation: cur - base, Score: cur / math.Max(base, 0.01), Direction: Spike, Severity: SeverityWarning}}
+		if cur >= o.Critical {
+			res.Severity = SeverityCritical
+		}
+		out = append(out, res)
+	}
+	return out
+}

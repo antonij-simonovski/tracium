@@ -182,7 +182,7 @@ var mcpTools = []mcpTool{
   "type": "object",
   "properties": {
     "range": {"type": "string", "enum": ["7d", "30d", "90d"], "description": "Defaults to 30d."},
-    "metric": {"type": "string", "enum": ["cost", "error_rate", "runs", "latency_p95", "truncation_rate", "refusal_rate", "tool_error_rate", "llm_calls_per_run", "tool_repeat", "cache_hit_ratio", "heartbeat", "ingest_silence", "ingest_rejected", "missing_step", "stuck_runs"]},
+    "metric": {"type": "string", "enum": ["cost", "error_rate", "runs", "latency_p95", "truncation_rate", "refusal_rate", "tool_error_rate", "llm_calls_per_run", "tool_repeat", "cache_hit_ratio", "heartbeat", "ingest_silence", "ingest_rejected", "missing_step", "stuck_runs", "context_pressure", "model_mix", "duplicate_output"]},
     "min_severity": {"type": "string", "enum": ["info", "warning", "critical"]},
     ` + workspaceProp + `
   }

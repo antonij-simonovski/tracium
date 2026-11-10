@@ -21,6 +21,16 @@ baseline and an incident in the last complete hour:
     service sf-svc-gone  hourly for 3 weeks, silent for 4h    -> ingest_silence
     service sf-svc-live  hourly for 3 weeks, still sending    -> not flagged
     25 spans that end before they start                       -> ingest_rejected (current hour)
+    sf-context      prompts jump from 39% to 94% of the window -> context_pressure
+    sf-context-trend p95 at 94%, 39% the same hour a week ago -> context_pressure (trend)
+    sf-context-ok   always at 94% of the window               -> not flagged
+    sf-fallback     gpt-4o requests switch to gpt-4o-mini     -> model_mix
+    sf-alias        gpt-4o answered by gpt-4o-mini            -> model_mix (mismatch, model_change)
+    sf-snapshot-ok  gpt-4o answered by a new gpt-4o snapshot  -> not flagged
+    sf-models-ok    steady gpt-4o / gpt-4o-mini split         -> not flagged
+    sf-canned       one answer for 12 different prompts       -> duplicate_output
+    sf-classifier   two fixed labels for every prompt         -> not flagged
+    sf-same-prompt  same prompt, same answer                  -> not flagged
 
 Run the stack first (docker compose up -d), create an ingest key, then:
     export TRACIUM_API_KEY=trc_...
@@ -84,7 +94,8 @@ def span(trace, parent, name, start, dur, attrs, client="", service=""):
 
 
 def run(workflow, start, llm_calls, client="", tools=(), finish="stop", output="Done.",
-        input_tokens=500, cache_read=0, root_dur=2.0, root=True, service=""):
+        input_tokens=500, cache_read=0, root_dur=2.0, root=True, service="",
+        model="gpt-4o-mini", response_model="", prompt=""):
     """One run: a root agent span, its LLM calls, then its tool calls (name, output)."""
     trace = hexid(16)
     base = {"gen_ai.agent.name": f"{PREFIX}-{workflow}"}
@@ -93,10 +104,14 @@ def run(workflow, start, llm_calls, client="", tools=(), finish="stop", output="
     else:
         root = hexid(8)
     for i in range(llm_calls):
+        extra = {"gen_ai.response.model": response_model} if response_model else {}
+        if prompt:
+            extra |= {"gen_ai.prompt.0.role": "user", "gen_ai.prompt.0.content": prompt}
         span(trace, root, "chat gpt-4o-mini", start + 0.01 * i, 0.5, {
             **base,
+            **extra,
             "gen_ai.operation.name": "chat",
-            "gen_ai.request.model": "gpt-4o-mini",
+            "gen_ai.request.model": model,
             "gen_ai.usage.input_tokens": input_tokens,
             "gen_ai.usage.output_tokens": 50,
             "gen_ai.usage.cache_read_input_tokens": cache_read,
@@ -201,6 +216,48 @@ run("svc", NOW - 60, 1, service=f"{PREFIX}-svc-live")
 for k in range(25):
     span(hexid(16), "", "bad clock", NOW - 120 + k, -1, {"gen_ai.agent.name": f"{PREFIX}-rejected"},
          service=f"{PREFIX}-rejected")
+
+# 12. Context pressure: gpt-4o-mini has a 128k window; 50k tokens is 39%, 120k is 94%.
+baseline("context", input_tokens=50_000, llm_calls=1)
+incident("context", 10, lambda k: dict(llm_calls=1, input_tokens=120_000))
+baseline("context-ok", input_tokens=120_000, llm_calls=1)
+incident("context-ok", 10, lambda k: dict(llm_calls=1, input_tokens=120_000))
+baseline("context-trend", llm_calls=1, input_tokens=50_000)
+incident("context-trend", 10, lambda k: dict(llm_calls=1, input_tokens=120_000 if k < 2 else 50_000))
+for k in range(10):
+    run("context-trend", INCIDENT - 7 * DAY + 60 + k * 60, 1, input_tokens=50_000)
+for h in range(1, 25):
+    run("context-trend", INCIDENT - h * HOUR + 30, 1, input_tokens=120_000)
+
+# 13. Model substitution: a fallback model takes over, or an alias answers with another family.
+baseline("fallback", llm_calls=1, model="gpt-4o")
+incident("fallback", 12, lambda k: dict(llm_calls=1, model="gpt-4o-mini"))
+baseline("alias", llm_calls=1, model="gpt-4o", response_model="gpt-4o-2024-08-06")
+incident("alias", 12, lambda k: dict(llm_calls=1, model="gpt-4o", response_model="gpt-4o-mini-2024-07-18"))
+baseline("snapshot-ok", llm_calls=1, model="gpt-4o", response_model="gpt-4o-2024-08-06")
+incident("snapshot-ok", 12, lambda k: dict(llm_calls=1, model="gpt-4o", response_model="gpt-4o-2024-11-20"))
+for h in range(1, 25):
+    for k in range(6):
+        run("models-ok", INCIDENT - h * HOUR + k * 60, 1, model=["gpt-4o", "gpt-4o-mini"][k % 2])
+incident("models-ok", 12, lambda k: dict(llm_calls=1, model=["gpt-4o", "gpt-4o-mini"][k % 2]))
+
+# 14. Identical outputs (hashed from 40 characters). Fixed labels and repeated prompts are legitimate.
+CANNED = "I could not find an answer to that question in the documents."
+LABELS = ["Category: billing question, route to the billing team.", "Category: technical issue, route to the support team."]
+tickets = iter(range(10**6))
+def unique(k):
+    n = next(tickets)
+    return dict(llm_calls=1, prompt=f"Summarize customer ticket number {n} about order {n * 7}.",
+                output=f"Ticket {n} is about a delayed order {n * 7}; a refund was offered.")
+for h in range(1, 25):
+    for k in range(5):
+        run("canned", INCIDENT - h * HOUR + k * 60, **unique(k))
+incident("canned", 12, lambda k: {**unique(k), "output": CANNED})
+for h in range(0, 25):
+    for k in range(12):
+        run("classifier", INCIDENT - h * HOUR + 60 + k * 60, **{**unique(k), "output": LABELS[k % 2]})
+baseline("same-prompt", llm_calls=1, prompt="What are your opening hours on public holidays?", output="Doors open at nine and close at five.")
+incident("same-prompt", 12, lambda k: dict(llm_calls=1, prompt="What are your opening hours on public holidays?", output=CANNED))
 
 
 def post(spans, client, service):

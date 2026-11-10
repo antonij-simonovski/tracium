@@ -18,6 +18,9 @@ export const METRIC_META: Record<AnomalyMetric, { noun: string; kind: string; ho
   ingest_rejected: { noun: 'Rejected spans', kind: 'Rejected spans', hourly: true },
   missing_step: { noun: 'Runs with step', kind: 'Missing step', hourly: true },
   stuck_runs: { noun: 'Stuck runs', kind: 'Stuck runs', hourly: true },
+  context_pressure: { noun: 'Calls near context limit', kind: 'Context pressure', hourly: true },
+  model_mix: { noun: 'Calls on another model', kind: 'Model change', hourly: true },
+  duplicate_output: { noun: 'Identical outputs', kind: 'Identical outputs', hourly: true },
 };
 
 export function anomalyValue(metric: AnomalyMetric, v: number): string {
@@ -31,6 +34,9 @@ export function anomalyValue(metric: AnomalyMetric, v: number): string {
     case 'cache_hit_ratio':
     case 'missing_step':
     case 'stuck_runs':
+    case 'context_pressure':
+    case 'model_mix':
+    case 'duplicate_output':
       return fmtPct(v * 100);
     case 'latency_p95':
       return fmtMs(v);
@@ -100,6 +106,9 @@ const CHIP_DEFS: { metric: AnomalyMetric; noun: string; sev: AnomalySeverity }[]
   { metric: 'ingest_rejected', noun: 'rejected span spike', sev: 'critical' },
   { metric: 'missing_step', noun: 'missing step', sev: 'warning' },
   { metric: 'stuck_runs', noun: 'stuck run spike', sev: 'critical' },
+  { metric: 'context_pressure', noun: 'context pressure warning', sev: 'warning' },
+  { metric: 'model_mix', noun: 'model change', sev: 'warning' },
+  { metric: 'duplicate_output', noun: 'identical output spike', sev: 'warning' },
 ];
 
 export function anomalyChips(anomalies: Anomaly[]): AnomalyChip[] {

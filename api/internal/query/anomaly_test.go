@@ -178,3 +178,61 @@ func TestNewDetectorSummaries(t *testing.T) {
 		t.Errorf("ingest_rejected summary = %q", got)
 	}
 }
+
+func TestModelFamily(t *testing.T) {
+	same := [][2]string{
+		{"gpt-4o", "gpt-4o-2024-08-06"},
+		{"claude-3-5-sonnet-latest", "claude-3-5-sonnet-20241022"},
+		{"gpt-4", "gpt-4-0613"},
+		{"anthropic.claude-3-5-sonnet-20241022-v2:0", "anthropic.claude-3-5-sonnet"},
+		{"openai/gpt-4o-mini", "gpt-4o-mini-2024-07-18"},
+	}
+	for _, p := range same {
+		if modelFamily(p[0]) != modelFamily(p[1]) {
+			t.Errorf("%s and %s should be one family: %q vs %q", p[0], p[1], modelFamily(p[0]), modelFamily(p[1]))
+		}
+	}
+	for _, p := range [][2]string{{"gpt-4o", "gpt-4o-mini"}, {"gpt-4", "gpt-4o"}, {"claude-sonnet-4-5", "claude-haiku-4-5"}} {
+		if modelFamily(p[0]) == modelFamily(p[1]) {
+			t.Errorf("%s and %s should differ", p[0], p[1])
+		}
+	}
+}
+
+func TestAttachModelChanges(t *testing.T) {
+	const hour = 3600_000
+	changes := []modelChange{
+		{workflow: "rag", ModelChange: model.ModelChange{Model: "gpt-4o-2024-11-20", FirstSeenMs: 10 * hour}},
+	}
+	got := []model.Anomaly{
+		{Metric: "duplicate_output", Scope: "workflow", Workflow: "rag", BucketMs: 12 * hour},
+		{Metric: "duplicate_output", Scope: "workflow", Workflow: "other", BucketMs: 12 * hour},
+		{Metric: "duplicate_output", Scope: "workflow", Workflow: "rag", BucketMs: 40 * hour},
+		{Metric: "duplicate_output", Scope: "workflow", Workflow: "rag", BucketMs: 9 * hour},
+		{Metric: "runs", Scope: "workspace", BucketMs: 12 * hour},
+	}
+	attachModelChanges(got, changes)
+	if got[0].ModelChange == nil || !strings.Contains(got[0].Summary, "new response model gpt-4o-2024-11-20") {
+		t.Errorf("change 2h before = %+v", got[0])
+	}
+	for _, i := range []int{1, 2, 3, 4} {
+		if got[i].ModelChange != nil {
+			t.Errorf("anomaly %d got a model change: %+v", i, got[i])
+		}
+	}
+}
+
+func TestModelAndOutputSummaries(t *testing.T) {
+	a := model.Anomaly{Metric: "model_mix", Workflow: "rag", Observed: 0.43, Expected: 0}
+	if got := modelMixSummary(a, "gpt-4o-mini"); got != `Workflow "rag": 43.0% of LLM calls used gpt-4o-mini in the hour from 1970-01-01 00:00 UTC; it was 0.0% over the prior 24h.` {
+		t.Errorf("model_mix summary = %q", got)
+	}
+	c := model.Anomaly{Metric: "context_pressure", Workflow: "rag", Observed: 0.91, Expected: 0.62}
+	if got := contextTrendSummary(c); !strings.Contains(got, "p95 LLM call used 91.0%") || !strings.Contains(got, "62.0% a week earlier") {
+		t.Errorf("context trend summary = %q", got)
+	}
+	d := model.Anomaly{Metric: "duplicate_output", Workflow: "rag", Observed: 0.45, Expected: 0.02}
+	if got := hourlySummary(d, "t1", ""); !strings.Contains(got, "45.0% of LLM calls returned the same output for different inputs") {
+		t.Errorf("duplicate_output summary = %q", got)
+	}
+}

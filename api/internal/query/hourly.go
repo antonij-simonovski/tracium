@@ -3,6 +3,8 @@ package query
 import (
 	"context"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/tracium/api/internal/anomaly"
@@ -18,6 +20,7 @@ const (
 	hourlyLookback      = 7 * 24 * time.Hour
 	heartbeatHistory    = 28 * 24 * time.Hour
 	stuckAfter          = 30 * time.Minute
+	contextHigh         = 0.85
 )
 
 var (
@@ -59,6 +62,21 @@ var (
 		MinBaseTotal: 20, MaxBaseRate: 0.05,
 		Bands: anomaly.Bands{Info: 3, Warning: 5, Critical: 10},
 	}
+	contextTrendOpts = anomaly.CrossOptions{LagHours: 7 * 24, MinN: 10, Above: contextHigh, Below: 0.7}
+	modelMixOpts     = anomaly.ShareOptions{
+		BaselineHours: hourlyBaselineHours, MinBaseTotal: 20, MaxBaseShare: 0.02, MinShare: 0.2, MinCount: 10, Critical: 0.5,
+	}
+	// A workflow that always runs near its context limit, or always on a deployment
+	// name, has no baseline in its first hour and must not fire then.
+	seasonedRateOpts = func() anomaly.RateOptions {
+		o := rateOpts
+		o.MinBaseTotal = 20
+		return o
+	}()
+	duplicateOpts = anomaly.DuplicateOptions{
+		BaselineHours: hourlyBaselineHours, MinBaseTotal: 20, MinCalls: 10, MinInputs: 5,
+		MinShare: 0.3, MaxBaseShare: 0.1, Critical: 0.7,
+	}
 	presenceOpts = anomaly.PresenceOptions{
 		BaselineHours: hourlyBaselineHours, FallbackBaselineHours: runFallbackHours,
 		MinBaseRuns: 20, MinRuns: 5, Expected: 0.9, TopSteps: 30, Warning: 0.5, Critical: 0.1,
@@ -68,6 +86,8 @@ var (
 type hourAgg struct {
 	llm, truncated, refused, tools, toolErrors int64
 	cacheRead, input                           float64
+	ctxCalls, ctxHigh, hashed                  int64
+	ctxP95                                     float64
 }
 
 type runAgg struct {
@@ -97,11 +117,11 @@ func wants(f MetricsFilter, metrics ...string) bool {
 }
 
 func (r *ClickHouseRepository) hourlyAnomalies(ctx context.Context, f MetricsFilter, minSev int) ([]model.Anomaly, error) {
-	end := f.End.UnixMilli()
-	from := max(f.Start.UnixMilli(), end-hourlyLookback.Milliseconds())
-	from = from / anomaly.HourMs * anomaly.HourMs
+	end, from := f.End.UnixMilli(), hourlyFrom(f)
 	lo := from - hourlyBaselineHours*anomaly.HourMs
 	axis := hourAxis(lo, end)
+	runLo := from - runFallbackHours*anomaly.HourMs
+	runAxis := hourAxis(runLo, end)
 
 	var out []model.Anomaly
 	keep := func(a model.Anomaly, run, tool string) {
@@ -116,16 +136,19 @@ func (r *ClickHouseRepository) hourlyAnomalies(ctx context.Context, f MetricsFil
 		}
 	}
 
-	if wants(f, "truncation_rate", "refusal_rate", "tool_error_rate", "cache_hit_ratio") {
-		byWorkflow, err := r.hourlyFlags(ctx, f, lo, end)
+	var hashed map[string]map[int64]hourAgg
+	if wants(f, "truncation_rate", "refusal_rate", "tool_error_rate", "cache_hit_ratio", "context_pressure", "duplicate_output") {
+		// From runLo: the context trend compares an hour with the same hour a week earlier.
+		byWorkflow, err := r.hourlyFlags(ctx, f, runLo, end)
 		if err != nil {
 			return nil, err
 		}
+		hashed = byWorkflow
 		for _, name := range sortedKeys(byWorkflow) {
 			hours := byWorkflow[name]
 			counts := func(pick func(hourAgg) (int64, int64)) []anomaly.Count {
-				s := make([]anomaly.Count, len(axis))
-				for i, h := range axis {
+				s := make([]anomaly.Count, len(runAxis))
+				for i, h := range runAxis {
 					s[i].BucketMs = h
 					s[i].Hits, s[i].Total = pick(hours[h])
 				}
@@ -142,8 +165,28 @@ func (r *ClickHouseRepository) hourlyAnomalies(ctx context.Context, f MetricsFil
 					keep(hourlyAnomaly(metric, name, res), "", "")
 				}
 			}
-			ratios := make([]anomaly.Ratio, len(axis))
-			for i, h := range axis {
+			spiked := map[int64]bool{}
+			so := seasonedRateOpts
+			so.DetectFromMs = from
+			for _, res := range anomaly.RateSpike(counts(func(a hourAgg) (int64, int64) { return a.ctxHigh, a.ctxCalls }), so) {
+				spiked[res.BucketMs] = true
+				keep(hourlyAnomaly("context_pressure", name, res), "", "")
+			}
+			levels := make([]anomaly.Level, len(runAxis))
+			for i, h := range runAxis {
+				levels[i] = anomaly.Level{BucketMs: h, N: hours[h].ctxCalls, Value: hours[h].ctxP95}
+			}
+			to := contextTrendOpts
+			to.DetectFromMs = from
+			for _, res := range anomaly.LevelCross(levels, to) {
+				if !spiked[res.BucketMs] {
+					a := hourlyAnomaly("context_pressure", name, res)
+					a.Summary = contextTrendSummary(a)
+					keep(a, "", "")
+				}
+			}
+			ratios := make([]anomaly.Ratio, len(runAxis))
+			for i, h := range runAxis {
 				ratios[i] = anomaly.Ratio{BucketMs: h, Num: hours[h].cacheRead, Den: hours[h].input}
 			}
 			co := cacheOpts
@@ -154,9 +197,60 @@ func (r *ClickHouseRepository) hourlyAnomalies(ctx context.Context, f MetricsFil
 		}
 	}
 
+	if wants(f, "model_mix") {
+		byWorkflow, err := r.hourlyModels(ctx, f, lo, end)
+		if err != nil {
+			return nil, err
+		}
+		for _, name := range sortedKeys(byWorkflow) {
+			hours := byWorkflow[name]
+			shares := make([]anomaly.Shares, len(axis))
+			mismatch := make([]anomaly.Count, len(axis))
+			for i, h := range axis {
+				a := hours[h]
+				shares[i] = anomaly.Shares{BucketMs: h, Total: a.calls, By: a.byModel}
+				mismatch[i] = anomaly.Count{BucketMs: h, Hits: a.mismatched, Total: a.responded}
+			}
+			o := modelMixOpts
+			o.DetectFromMs = from
+			shifted := map[int64]bool{}
+			for _, res := range anomaly.ShareShift(shares, o) {
+				shifted[res.BucketMs] = true
+				a := hourlyAnomaly("model_mix", name, res.Result)
+				a.Summary = modelMixSummary(a, res.Key)
+				keep(a, "", "")
+			}
+			mo := seasonedRateOpts
+			mo.DetectFromMs = from
+			for _, res := range anomaly.RateSpike(mismatch, mo) {
+				if !shifted[res.BucketMs] {
+					a := hourlyAnomaly("model_mix", name, res)
+					a.Summary = modelMismatchSummary(a, hours[res.BucketMs].topPair)
+					keep(a, "", "")
+				}
+			}
+		}
+	}
+
+	if wants(f, "duplicate_output") {
+		byWorkflow, err := r.hourlyOutputs(ctx, f, lo, end)
+		if err != nil {
+			return nil, err
+		}
+		for _, name := range sortedKeys(hashed) {
+			series := make([]anomaly.Outputs, len(axis))
+			for i, h := range axis {
+				series[i] = anomaly.Outputs{BucketMs: h, Total: hashed[name][h].hashed, Repeats: byWorkflow[name][h].repeats}
+			}
+			o := duplicateOpts
+			o.DetectFromMs = from
+			for _, res := range anomaly.DuplicateShare(series, o) {
+				keep(hourlyAnomaly("duplicate_output", name, res.Result), byWorkflow[name][res.BucketMs].traces[res.Hash], "")
+			}
+		}
+	}
+
 	if wants(f, "llm_calls_per_run", "tool_repeat", "missing_step", "stuck_runs") {
-		runLo := from - runFallbackHours*anomaly.HourMs
-		runAxis := hourAxis(runLo, end)
 		byWorkflow, err := r.hourlyRuns(ctx, f, runLo, end)
 		if err != nil {
 			return nil, err
@@ -266,6 +360,12 @@ func (r *ClickHouseRepository) hourlyAnomalies(ctx context.Context, f MetricsFil
 	return out, nil
 }
 
+// hourlyFrom is the first hour hourly checks report: the window's last week at most.
+func hourlyFrom(f MetricsFilter) int64 {
+	from := max(f.Start.UnixMilli(), f.End.UnixMilli()-hourlyLookback.Milliseconds())
+	return from / anomaly.HourMs * anomaly.HourMs
+}
+
 func hourAxis(lo, hi int64) []int64 {
 	axis := make([]int64, 0, (hi-lo)/anomaly.HourMs+1)
 	for h := lo; h < hi; h += anomaly.HourMs {
@@ -300,11 +400,15 @@ func (r *ClickHouseRepository) hourlyFlags(ctx context.Context, f MetricsFilter,
     toInt64(countIf(kind = 'tool'))                       AS tools,
     toInt64(countIf(silent_failure = 'tool_error'))       AS tool_errors,
     toFloat64(sumIf(cache_read_tokens, kind = 'llm'))     AS cache_read,
-    toFloat64(sumIf(input_tokens, kind = 'llm'))          AS input
+    toFloat64(sumIf(input_tokens, kind = 'llm'))          AS input,
+    toInt64(countIf(kind = 'llm' AND context_ratio > 0))  AS ctx_calls,
+    toInt64(countIf(kind = 'llm' AND context_ratio >= ?)) AS ctx_high,
+    toFloat64(quantileIf(0.95)(context_ratio, kind = 'llm' AND context_ratio > 0)) AS ctx_p95,
+    toInt64(countIf(output_hash != 0))                    AS hashed
 FROM tracium.spans WHERE source = 'span' AND workflow_name != '' AND %s
 GROUP BY workflow_name, h`, clause)
 
-	rows, err := r.db.QueryContext(ctx, q, args...)
+	rows, err := r.db.QueryContext(ctx, q, append([]any{contextHigh}, args...)...)
 	if err != nil {
 		return nil, fmt.Errorf("clickhouse: hourly flags: %w", err)
 	}
@@ -314,9 +418,11 @@ GROUP BY workflow_name, h`, clause)
 		var name string
 		var h int64
 		var a hourAgg
-		if err := rows.Scan(&name, &h, &a.llm, &a.truncated, &a.refused, &a.tools, &a.toolErrors, &a.cacheRead, &a.input); err != nil {
+		if err := rows.Scan(&name, &h, &a.llm, &a.truncated, &a.refused, &a.tools, &a.toolErrors, &a.cacheRead, &a.input,
+			&a.ctxCalls, &a.ctxHigh, &a.ctxP95, &a.hashed); err != nil {
 			return nil, fmt.Errorf("clickhouse: scan hourly flags: %w", err)
 		}
+		a.ctxP95 = sanitize(a.ctxP95)
 		if out[name] == nil {
 			out[name] = make(map[int64]hourAgg)
 		}
@@ -391,6 +497,109 @@ GROUP BY wf, h`, clause)
 			out[name] = make(map[int64]runAgg)
 		}
 		out[name][h] = a
+	}
+	return out, rows.Err()
+}
+
+type modelAgg struct {
+	calls, responded, mismatched int64
+	byModel                      map[string]int64
+	// topPair is the most common "requested → answered" pair among mismatches.
+	topPair string
+	pairN   int64
+}
+
+// Snapshot and version suffixes (-2024-08-06, -20241022, -0613, -v2:0, -latest)
+// name the same model family.
+var modelSuffix = regexp.MustCompile(`([-@](\d{4}-\d{2}-\d{2}|\d{8}|\d{3,4}|v\d+(:\d+)?|latest|preview))+$`)
+
+func modelFamily(m string) string {
+	return modelSuffix.ReplaceAllString(m[strings.LastIndex(m, "/")+1:], "")
+}
+
+// hourlyModels counts LLM calls per workflow and hour by requested model, and
+// those answered by a model of another family.
+func (r *ClickHouseRepository) hourlyModels(ctx context.Context, f MetricsFilter, lo, hi int64) (map[string]map[int64]modelAgg, error) {
+	clause, args := window(f.UserID, f.WorkspaceIDs, lo, hi)
+	q := fmt.Sprintf(`SELECT workflow_name, intDiv(start_time_ms, 3600000) * 3600000 AS h, model_normalized, response_model, toInt64(count())
+FROM tracium.spans WHERE source = 'span' AND kind = 'llm' AND workflow_name != '' AND %s
+GROUP BY workflow_name, h, model_normalized, response_model`, clause)
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse: hourly models: %w", err)
+	}
+	defer rows.Close()
+	out := make(map[string]map[int64]modelAgg)
+	for rows.Next() {
+		var name, requested, answered string
+		var h, n int64
+		if err := rows.Scan(&name, &h, &requested, &answered, &n); err != nil {
+			return nil, fmt.Errorf("clickhouse: scan hourly models: %w", err)
+		}
+		if out[name] == nil {
+			out[name] = make(map[int64]modelAgg)
+		}
+		a := out[name][h]
+		if a.byModel == nil {
+			a.byModel = map[string]int64{}
+		}
+		a.calls += n
+		a.byModel[requested] += n
+		if requested != "" && answered != "" {
+			a.responded += n
+			if modelFamily(requested) != modelFamily(answered) {
+				a.mismatched += n
+				if n > a.pairN {
+					a.topPair, a.pairN = requested+" answered by "+answered, n
+				}
+			}
+		}
+		out[name][h] = a
+	}
+	return out, rows.Err()
+}
+
+type outputAgg struct {
+	repeats map[uint64]anomaly.Repeat
+	traces  map[uint64]string
+}
+
+// hourlyOutputs finds, per workflow and hour, the outputs returned for more
+// than one input: the calls not on its most common input, its distinct inputs,
+// and one trace that returned it.
+func (r *ClickHouseRepository) hourlyOutputs(ctx context.Context, f MetricsFilter, lo, hi int64) (map[string]map[int64]outputAgg, error) {
+	clause, args := window(f.UserID, f.WorkspaceIDs, lo, hi)
+	q := fmt.Sprintf(`SELECT wf, h, oh, toInt64(sum(c) - max(c)) AS dup, toInt64(count()) AS inputs, any(t)
+FROM (
+    SELECT workflow_name AS wf, intDiv(start_time_ms, 3600000) * 3600000 AS h, output_hash AS oh, input_hash,
+        count() AS c, any(trace_id) AS t
+    FROM tracium.spans WHERE source = 'span' AND output_hash != 0 AND workflow_name != '' AND %s
+    GROUP BY wf, h, oh, input_hash
+)
+GROUP BY wf, h, oh HAVING inputs > 1`, clause)
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse: hourly outputs: %w", err)
+	}
+	defer rows.Close()
+	out := make(map[string]map[int64]outputAgg)
+	for rows.Next() {
+		var name, trace string
+		var h int64
+		var hash uint64
+		var rep anomaly.Repeat
+		if err := rows.Scan(&name, &h, &hash, &rep.Dup, &rep.Inputs, &trace); err != nil {
+			return nil, fmt.Errorf("clickhouse: scan hourly outputs: %w", err)
+		}
+		if out[name] == nil {
+			out[name] = make(map[int64]outputAgg)
+		}
+		a, ok := out[name][h]
+		if !ok {
+			a = outputAgg{repeats: map[uint64]anomaly.Repeat{}, traces: map[uint64]string{}}
+			out[name][h] = a
+		}
+		a.repeats[hash], a.traces[hash] = rep, trace
 	}
 	return out, rows.Err()
 }
@@ -506,11 +715,30 @@ func hourlySummary(a model.Anomaly, run, tool string) string {
 		return fmt.Sprintf("%s cache hit ratio fell to %s in the hour from %s, from %s over the prior 24h.", subject, obs, at, exp)
 	case "heartbeat":
 		return fmt.Sprintf("Client %q has been silent for %s; it usually runs every %s.", a.Client, obs, exp)
+	case "context_pressure":
+		return fmt.Sprintf("%s: %s of LLM calls used over 85%% of the model's context window in the hour from %s, from %s over the prior 24h.", subject, obs, at, exp)
+	case "duplicate_output":
+		return fmt.Sprintf("%s: %s of LLM calls returned the same output for different inputs in the hour from %s, from %s over the prior 24h.", subject, obs, at, exp)
 	case "stuck_runs":
 		return fmt.Sprintf("%s runs that started and never finished rose to %s in the hour from %s, from %s over the prior 24h.", subject, obs, at, exp)
 	}
 	noun := map[string]string{"truncation_rate": "truncated LLM calls", "refusal_rate": "refused LLM calls", "tool_error_rate": "tool calls that returned an error"}[a.Metric]
 	return fmt.Sprintf("%s %s rose to %s in the hour from %s, from %s over the prior 24h.", subject, noun, obs, at, exp)
+}
+
+func contextTrendSummary(a model.Anomaly) string {
+	return fmt.Sprintf("Workflow %q: p95 LLM call used %s of the model's context window in the hour from %s; it was %s a week earlier.",
+		a.Workflow, formatAnomalyValue(a.Metric, a.Observed), time.UnixMilli(a.BucketMs).UTC().Format("2006-01-02 15:04 UTC"), formatAnomalyValue(a.Metric, a.Expected))
+}
+
+func modelMixSummary(a model.Anomaly, m string) string {
+	return fmt.Sprintf("Workflow %q: %s of LLM calls used %s in the hour from %s; it was %s over the prior 24h.",
+		a.Workflow, formatAnomalyValue(a.Metric, a.Observed), m, time.UnixMilli(a.BucketMs).UTC().Format("2006-01-02 15:04 UTC"), formatAnomalyValue(a.Metric, a.Expected))
+}
+
+func modelMismatchSummary(a model.Anomaly, pair string) string {
+	return fmt.Sprintf("Workflow %q: %s of LLM calls were answered by another model than requested (%s) in the hour from %s, from %s over the prior 24h.",
+		a.Workflow, formatAnomalyValue(a.Metric, a.Observed), pair, time.UnixMilli(a.BucketMs).UTC().Format("2006-01-02 15:04 UTC"), formatAnomalyValue(a.Metric, a.Expected))
 }
 
 func missingStepSummary(a model.Anomaly, step string, others int) string {
