@@ -67,7 +67,7 @@ echo 'PASS: legacy upgrade rejects unsafe defaults, preserves expired rollup his
 
 # 1.0.4 -> migration 014: put the version-less rollup and views back, then upgrade.
 "${compose[@]}" stop api collector
-ch 'DROP VIEW tracium.metrics_daily_mv; DROP VIEW tracium.calls; DROP VIEW tracium.usage_metrics;
+ch 'DROP VIEW tracium.metrics_daily_latency_mv; DROP VIEW tracium.metrics_daily_mv; DROP VIEW tracium.calls; DROP VIEW tracium.usage_metrics;
     DROP TABLE tracium.metrics_daily; DROP TABLE IF EXISTS tracium.metrics_daily_pre_version;
     ALTER TABLE tracium.spans DROP COLUMN workflow_version;'
 for file in deploy/tests/fixtures/pre_version/*.sql collector/schema/009_create_calls_view.sql collector/schema/010_create_usage_metrics_view.sql; do
@@ -77,9 +77,10 @@ ch "INSERT INTO tracium.spans (trace_id,span_id,name,start_time_ms,end_time_ms,u
     VALUES ('pre-version','four','old-run',toUnixTimestamp64Milli(now64()),toUnixTimestamp64Milli(now64()),'customer','legacy-upgrade-check',11,'span')"
 rollup_totals='SELECT sum(cost), sum(span_count), uniqMerge(runs) FROM tracium.metrics_daily'
 before=$(ch "$rollup_totals")
-pg "DELETE FROM schema_migrations WHERE filename='014_workflow_version.sh'"
+pg "DELETE FROM schema_migrations WHERE filename IN ('014_workflow_version.sh', '018_create_metrics_daily_latency_mv.sql')"
 "${compose[@]}" run --rm migrate
 assert_equal "$(ch "$rollup_totals")" "$before"
+assert_equal "$(ch "SELECT count() FROM system.tables WHERE database='tracium' AND name='metrics_daily_latency_mv'")" '1'
 assert_equal "$(ch "SELECT count() FROM system.columns WHERE database='tracium' AND table IN ('metrics_daily','calls','usage_metrics') AND name = 'workflow_version'")" '3'
 assert_equal "$(ch "SELECT countIf(workflow_version != '') FROM tracium.metrics_daily")" '0'
 
