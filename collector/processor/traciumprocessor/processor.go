@@ -62,8 +62,10 @@ func (p *traciumProcessor) processTraces(ctx context.Context, td ptrace.Traces) 
 					return true
 				}
 				writeBack(otelSpan, model)
-				// Before stripping: tool-call signals live in the completion.
+				// Before stripping: tool-call signals and silent failures live in the content.
 				stampAvailableTools(otelSpan, attrs)
+				stampSilentFailure(otelSpan, attrs, model)
+				stampContentHashes(otelSpan, attrs, model)
 				if !p.captureContent {
 					stripContent(otelSpan)
 				}
@@ -139,6 +141,10 @@ const (
 	attrSchemaVersion   = "tracium.schema_version"
 	attrAvailableTools  = "tracium.available_tools"
 	attrUnmetered       = "tracium.usage.unmetered"
+	attrSilentFailure   = "tracium.silent_failure"
+	attrContextRatio    = "tracium.context_ratio"
+	attrInputHash       = "tracium.input_hash"
+	attrOutputHash      = "tracium.output_hash"
 )
 
 // toSpanModel extracts the fields the enrichment chain needs from an OTLP span.
@@ -200,6 +206,7 @@ func writeBack(s ptrace.Span, m *spanmodel.Span) {
 	attrs := s.Attributes()
 	attrs.PutDouble(attrCostUSD, m.CostUSD)
 	attrs.PutStr(attrModelNormalized, m.ModelNormalized)
+	attrs.PutDouble(attrContextRatio, float64(m.ContextRatio))
 	attrs.PutInt(attrSchemaVersion, int64(m.SchemaVersion))
 	if m.UserID != "" {
 		attrs.PutStr(attrUserID, m.UserID)
@@ -219,6 +226,33 @@ func writeBack(s ptrace.Span, m *spanmodel.Span) {
 func stampAvailableTools(s ptrace.Span, attrs map[string]string) {
 	if tools := genai.ToolsJSON(attrs); tools != "" {
 		s.Attributes().PutStr(attrAvailableTools, tools)
+	}
+}
+
+// stampSilentFailure overwrites any sender-supplied value so only the collector's verdict is stored.
+func stampSilentFailure(s ptrace.Span, attrs map[string]string, m *spanmodel.Span) {
+	kind := genai.Kind(attrs, m.Model, m.InputTokens, m.OutputTokens)
+	reason := genai.SilentFailure(attrs, kind, m.FinishReason, s.Status().Code() == ptrace.StatusCodeError)
+	if reason == "" {
+		s.Attributes().Remove(attrSilentFailure)
+		return
+	}
+	s.Attributes().PutStr(attrSilentFailure, reason)
+}
+
+// stampContentHashes overwrites any sender-supplied hash; hashes are stored as
+// int64 attributes carrying the uint64 bits.
+func stampContentHashes(s ptrace.Span, attrs map[string]string, m *spanmodel.Span) {
+	var in, out uint64
+	if genai.Kind(attrs, m.Model, m.InputTokens, m.OutputTokens) == "llm" {
+		in, out = genai.ContentHashes(attrs)
+	}
+	for key, h := range map[string]uint64{attrInputHash: in, attrOutputHash: out} {
+		if h == 0 {
+			s.Attributes().Remove(key)
+		} else {
+			s.Attributes().PutInt(key, int64(h))
+		}
 	}
 }
 

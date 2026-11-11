@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tracium/api/internal/incident"
 	"github.com/tracium/api/internal/model"
 	"github.com/tracium/api/internal/query"
 	"github.com/tracium/api/testing/mocks"
@@ -38,7 +39,7 @@ func TestMCPProtocol(t *testing.T) {
 		QueryResult: model.QueryResult{Columns: []string{"cost"}, Rows: []map[string]any{{"cost": 1.5}}},
 		QueryCols:   query.Columns{"cost_usd": "number", "input": "text"},
 	}
-	h := NewQueryHandler(mocks.NewMockTraceRepository(), metrics, directory{})
+	h := NewQueryHandler(mocks.NewMockTraceRepository(), metrics, &mocks.MockIncidentStore{}, directory{})
 
 	code, out := mcpCall(t, h, `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}`)
 	result, _ := out["result"].(map[string]any)
@@ -104,7 +105,7 @@ func TestMCPProtocol(t *testing.T) {
 	traces := mocks.NewMockTraceRepository()
 	traces.AddTrace(model.Trace{TraceID: "t1", Name: "checkout", WorkspaceID: "ws-test", TotalCostUSD: 0.5},
 		[]model.Span{{TraceID: "t1", SpanID: "s1", Model: "gpt-4o", Input: "hello", WorkspaceID: "ws-test"}})
-	h = NewQueryHandler(traces, metrics, directory{})
+	h = NewQueryHandler(traces, metrics, &mocks.MockIncidentStore{}, directory{})
 	_, out = mcpCall(t, h, `{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"get_trace","arguments":{"trace_id":"t1","fields":["name"],"span_fields":["model","input"]}}}`)
 	got, _ = json.Marshal(toolJSON(t, out))
 	if string(got) != `{"span_page":1,"spans":[{"input":"hello","model":"gpt-4o"}],"total_spans":1,"trace":{"name":"checkout"}}` {
@@ -139,7 +140,7 @@ func TestMCPProtocol(t *testing.T) {
 
 func TestMCPGetTraceClipsContent(t *testing.T) {
 	traces := mocks.NewMockTraceRepository()
-	h := NewQueryHandler(traces, &mocks.MockMetricsRepository{}, directory{})
+	h := NewQueryHandler(traces, &mocks.MockMetricsRepository{}, &mocks.MockIncidentStore{}, directory{})
 	_, out := mcpCall(t, h, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_trace","arguments":{"trace_id":"missing"}}}`)
 	if out["result"].(map[string]any)["isError"] != true {
 		t.Fatalf("missing trace: %v", out)
@@ -166,7 +167,7 @@ func toolJSON(t *testing.T, out map[string]any) map[string]any {
 }
 
 func TestMCPRefusesForeignOrigins(t *testing.T) {
-	h := NewQueryHandler(mocks.NewMockTraceRepository(), &mocks.MockMetricsRepository{}, directory{})
+	h := NewQueryHandler(mocks.NewMockTraceRepository(), &mocks.MockMetricsRepository{}, &mocks.MockIncidentStore{}, directory{})
 	for origin, want := range map[string]int{
 		"":                       http.StatusOK,
 		"https://tracium.test":   http.StatusOK,
@@ -187,7 +188,7 @@ func TestMCPRefusesForeignOrigins(t *testing.T) {
 }
 
 func TestMCPToolsAreAnnotatedReadOnly(t *testing.T) {
-	h := NewQueryHandler(mocks.NewMockTraceRepository(), &mocks.MockMetricsRepository{}, directory{})
+	h := NewQueryHandler(mocks.NewMockTraceRepository(), &mocks.MockMetricsRepository{}, &mocks.MockIncidentStore{}, directory{})
 	_, out := mcpCall(t, h, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
 	for _, tool := range out["result"].(map[string]any)["tools"].([]any) {
 		tool := tool.(map[string]any)
@@ -199,5 +200,36 @@ func TestMCPToolsAreAnnotatedReadOnly(t *testing.T) {
 	_, out = mcpCall(t, h, `{"jsonrpc":"2.0","id":2,"method":"initialize","params":{"protocolVersion":"2025-03-26"}}`)
 	if v := out["result"].(map[string]any)["protocolVersion"]; v == "2025-03-26" {
 		t.Fatal("2025-03-26 allows batches and must not be negotiated")
+	}
+}
+
+func TestMCPIncidentToolsStayInScope(t *testing.T) {
+	store := &mocks.MockIncidentStore{Incidents: []incident.Incident{
+		{ID: "mine", WorkspaceID: "ws-test", Status: incident.StatusOpen, Severity: "critical", Signals: []incident.Signal{{Metric: "truncation_rate", TraceIDs: []string{"t1"}}}},
+		{ID: "mild", WorkspaceID: "ws-test", Status: incident.StatusOpen, Severity: "warning"},
+		{ID: "old", WorkspaceID: "ws-test", Status: incident.StatusResolved, Severity: "warning"},
+		{ID: "theirs", WorkspaceID: "ws-other", Status: incident.StatusOpen, Severity: "critical"},
+	}}
+	h := NewQueryHandler(mocks.NewMockTraceRepository(), &mocks.MockMetricsRepository{}, store, directory{})
+	ids := func(args string) string {
+		_, out := mcpCall(t, h, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_incidents","arguments":`+args+`}}`)
+		var got []string
+		for _, inc := range toolJSON(t, out)["incidents"].([]any) {
+			got = append(got, inc.(map[string]any)["id"].(string))
+		}
+		return strings.Join(got, ",")
+	}
+	for args, want := range map[string]string{`{}`: "mine,mild", `{"status":"all"}`: "mine,mild,old", `{"min_severity":"critical"}`: "mine"} {
+		if got := ids(args); got != want {
+			t.Errorf("list_incidents %s = %s, want %s", args, got, want)
+		}
+	}
+	_, out := mcpCall(t, h, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_incident","arguments":{"id":"mine"}}}`)
+	if inc := toolJSON(t, out)["incident"].(map[string]any); inc["signals"].([]any)[0].(map[string]any)["trace_ids"].([]any)[0] != "t1" {
+		t.Fatalf("get_incident: %v", inc)
+	}
+	_, out = mcpCall(t, h, `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_incident","arguments":{"id":"theirs"}}}`)
+	if out["result"].(map[string]any)["isError"] != true {
+		t.Fatalf("another workspace's incident was returned: %v", out)
 	}
 }

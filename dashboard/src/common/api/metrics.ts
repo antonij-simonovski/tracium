@@ -12,6 +12,7 @@ import type {
   AnomalyMetric,
   AnomalySeverity,
   SetupCheck,
+  IncidentBacktest,
 } from '../../modules/overview/interfaces';
 import type {
   ModelCost,
@@ -19,7 +20,7 @@ import type {
   WorkflowUsage,
   AttributeUsage,
 } from '../../modules/usage/interfaces';
-import type { Workflow, WorkflowDetail, WorkflowVersion } from '../../modules/workflows/interfaces';
+import type { ReleaseReport, Workflow, WorkflowDetail, WorkflowVersion } from '../../modules/workflows/interfaces';
 
 // MetricsAPI reads the aggregated overview metrics. Each section is its own
 // endpoint so the dashboard can load and refresh them independently.
@@ -59,6 +60,14 @@ export class MetricsAPI extends BaseAPIClient {
 
   getWorkflowVersions(name: string, range: string): Promise<PaginatedResponse<WorkflowVersion>> {
     return this.get(`/metrics/workflows/${encodeURIComponent(name)}/versions`, { range });
+  }
+
+  getReleaseReport(name: string, version: string): Promise<ReleaseReport> {
+    return this.get(`/metrics/workflows/${encodeURIComponent(name)}/versions/${encodeURIComponent(version)}/report`);
+  }
+
+  listReleaseReports(limit: number): Promise<PaginatedResponse<ReleaseReport>> {
+    return this.get('/release-reports', { limit });
   }
 
   /** span is a span name; omitted means run reviews. */
@@ -101,6 +110,11 @@ export class MetricsAPI extends BaseAPIClient {
     opts?: { metric?: AnomalyMetric; min_severity?: AnomalySeverity },
   ): Promise<PaginatedResponse<Anomaly>> {
     return this.get('/metrics/anomalies', { range, metric: opts?.metric, min_severity: opts?.min_severity });
+  }
+
+  // The server allows a replay 60 seconds, longer than the default client timeout.
+  getIncidentBacktest(range: '7d' | '30d'): Promise<IncidentBacktest> {
+    return this.get('/incidents/backtest', { range }, 65_000);
   }
 
   getSetupChecks(range: string): Promise<PaginatedResponse<SetupCheck>> {

@@ -23,7 +23,7 @@ func TestMCPOAuthFlow(t *testing.T) {
 	read, _ := keys.CreateRead(t.Context(), "user", "pasted")
 	repo := repository{mocks.NewMockTraceRepository(), &mocks.MockMetricsRepository{}}
 	svc := oauth.NewService(mocks.NewOAuthStore(), keys, cfg.Server.PublicURL+"/v1/mcp")
-	router := newRouter(cfg, repo, &mocks.MockWorkspaceStore{}, nil, nil, tokenAuth{"session": "user"}, nil, keys, nil, Options{}, svc, nil)
+	router := newRouter(cfg, repo, &mocks.MockWorkspaceStore{}, nil, nil, tokenAuth{"session": "user"}, nil, keys, nil, Options{}, svc, nil, nil, nil, nil)
 
 	do := func(method, path, token, contentType, body string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, path, strings.NewReader(body))
@@ -125,7 +125,7 @@ func TestOAuthOffWithoutPublicURL(t *testing.T) {
 	var cfg Config
 	cfg.Default()
 	repo := repository{mocks.NewMockTraceRepository(), &mocks.MockMetricsRepository{}}
-	router := newRouter(cfg, repo, &mocks.MockWorkspaceStore{}, nil, nil, tokenAuth{}, nil, apikey.NewService(keyStore{}), nil, Options{}, nil, nil)
+	router := newRouter(cfg, repo, &mocks.MockWorkspaceStore{}, nil, nil, tokenAuth{}, nil, apikey.NewService(keyStore{}), nil, Options{}, nil, nil, nil, nil, nil)
 	for _, path := range []string{"/.well-known/oauth-authorization-server", "/.well-known/oauth-protected-resource/v1/mcp"} {
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, httptest.NewRequest("GET", path, nil))
@@ -148,7 +148,7 @@ func TestOAuthRateLimitIsSeparateFromLogin(t *testing.T) {
 	repo := repository{mocks.NewMockTraceRepository(), &mocks.MockMetricsRepository{}}
 	keys := apikey.NewService(keyStore{})
 	svc := oauth.NewService(mocks.NewOAuthStore(), keys, cfg.Server.PublicURL+"/v1/mcp")
-	router := newRouter(cfg, repo, &mocks.MockWorkspaceStore{}, nil, nil, tokenAuth{}, nil, keys, nil, Options{}, svc, nil)
+	router := newRouter(cfg, repo, &mocks.MockWorkspaceStore{}, nil, nil, tokenAuth{}, nil, keys, nil, Options{}, svc, nil, nil, nil, nil)
 	for i := 0; i < 3; i++ {
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, httptest.NewRequest("POST", "/v1/oauth/register", strings.NewReader(`{"redirect_uris":["https://claude.ai/cb"]}`)))

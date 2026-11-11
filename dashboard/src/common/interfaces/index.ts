@@ -6,4 +6,4 @@ export type { ErrorPoint } from './ErrorPoint';
 export type { ChartMarker } from './ChartMarker';
 export type { SetupIssue } from './SetupIssue';
 export type { AvailableTool } from './AvailableTool';
-export type { Verdict, ReviewField, RunReview, ReviewInput, VersionAccuracy, FieldAccuracy, ReviewedSpan } from './Review';
+export type { Verdict, ReviewField, RunReview, ReviewInput, QueueReason, ReviewQueueItem, VersionAccuracy, FieldAccuracy, ReviewedSpan } from './Review';

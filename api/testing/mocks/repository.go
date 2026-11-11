@@ -23,6 +23,7 @@ type MockTraceRepository struct {
 
 	// Call counters — inspect these in tests.
 	ListCallCount int
+	LastFilter    query.TraceFilter
 	GetCallCount  int
 	SpanCallCount int
 }
@@ -45,6 +46,7 @@ func (m *MockTraceRepository) AddTrace(trace model.Trace, spans []model.Span) {
 // equals the number of returned traces.
 func (m *MockTraceRepository) ListTraces(_ context.Context, filter query.TraceFilter) ([]model.Trace, int64, error) {
 	m.ListCallCount++
+	m.LastFilter = filter
 	if m.ListErr != nil {
 		return nil, 0, m.ListErr
 	}
@@ -55,6 +57,12 @@ func (m *MockTraceRepository) ListTraces(_ context.Context, filter query.TraceFi
 			continue
 		}
 		if filter.AttrKey != "" && m.TraceAttributes[t.TraceID][filter.AttrKey] != filter.AttrValue {
+			continue
+		}
+		if len(filter.WorkspaceIDs) > 0 && !slices.Contains(filter.WorkspaceIDs, t.WorkspaceID) {
+			continue
+		}
+		if f := filter.SilentFailure; f != "" && !(f == "any" && len(t.SilentFailures) > 0) && !slices.Contains(t.SilentFailures, f) {
 			continue
 		}
 		result = append(result, t)
@@ -193,6 +201,10 @@ func (m *MockMetricsRepository) UsageByAttribute(_ context.Context, _ query.Metr
 
 func (m *MockMetricsRepository) Anomalies(_ context.Context, _ query.MetricsFilter) ([]model.Anomaly, error) {
 	return m.AnomalyItems, m.Err
+}
+
+func (m *MockMetricsRepository) Heartbeats(_ context.Context, _ query.MetricsFilter, ticks []int64) ([][]model.Anomaly, error) {
+	return make([][]model.Anomaly, len(ticks)), m.Err
 }
 
 func (m *MockMetricsRepository) SetupChecks(_ context.Context, _ query.MetricsFilter) ([]model.SetupCheck, error) {

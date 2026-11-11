@@ -17,9 +17,11 @@ import {
   useWorkflowErrorSeries,
   useWorkflowLatencySeries,
   useWorkflowTokenSeries,
+  useReleaseReport,
   useWorkflowVersions,
 } from '../hooks/useWorkflowDetail';
 import { useFieldAccuracy, useReviewedSpans, useWorkflowAccuracy } from '../hooks/useReviews';
+import { ReleaseFindings } from '../components/ReleaseFindings';
 import { TrafficStrip } from '../components/TrafficStrip';
 import { VersionDropdown } from '../components/VersionDropdown';
 import { SECOND_METRIC_COLOR, VersionLineChart } from '../components/VersionLineChart';
@@ -152,6 +154,7 @@ export function VersionCompareLivePage({ workflowName, base, candidate, range, o
   const long = isLongRange(range);
   const versionsQuery = useWorkflowVersions(workflowName, range);
   const versions = versionsQuery.data?.items ?? [];
+  const report = useReleaseReport(workflowName, candidate).data;
 
   // Latency isn't tracked over long ranges, so it isn't charted there. The error
   // series doubles as the per-bucket run count.
@@ -322,6 +325,8 @@ export function VersionCompareLivePage({ workflowName, base, candidate, range, o
         <VersionCell v={A} label="Base" versions={versions} exclude={B.version} onChange={(v) => onSelect(v, candidate)} color="var(--foreground)" opacity={0.5} />
         <VersionCell v={B} label="Candidate" versions={versions} exclude={A.version} onChange={(v) => onSelect(base, v)} color="var(--accent)" divided />
       </div>
+
+      {report && report.prev_version === base && <ReleaseFindings report={report} />}
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '28px 40px', alignItems: 'flex-start' }}>
         <div style={{ flex: '1 1 340px', maxWidth: 520 }}>

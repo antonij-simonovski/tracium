@@ -12,6 +12,7 @@ import {
   IconCopy,
   IconPlus,
   IconUsers,
+  IconAlert,
   SectionHead,
   formatDate,
   useCopy,
@@ -21,7 +22,8 @@ import {
 } from '../../../common';
 import { useAPIClient } from '../../../common/providers/APIProvider';
 import { ReadKeysSection } from '../../api-keys';
-import { APIError, inviteLink, type CreatedInvite, type WorkspaceMember } from '../../../common/api';
+import { useIncidentBacktest } from '../../overview/hooks/useMetrics';
+import { APIError, inviteLink, type AlertChannel, type AlertRule, type AlertTestResult, type CreatedInvite, type WorkspaceMember } from '../../../common/api';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 export interface WorkspaceDraft {
@@ -42,6 +44,8 @@ export interface SettingsPageProps {
   onCancelCreate?: () => void;
   /** When true, the Workspace tab opens on a create-workspace form. */
   createMode?: boolean;
+  /** The tab to open on, from a deep link such as /settings/alerts. */
+  initialTab?: TabId;
   /** When true, render the rich demo data (logged-out auth-page preview). */
   demo?: boolean;
   /** The real signed-in workspace. Used when not in demo mode. */
@@ -92,6 +96,7 @@ const SET_TABS: TabDef[] = [
   { id: 'account',       label: 'Account',        icon: <IconUser size={14} /> },
   { id: 'workspace',     label: 'Workspace',      icon: <IconBuilding size={14} /> },
   { id: 'members',       label: 'Members',        icon: <IconUsers size={14} /> },
+  { id: 'alerts',        label: 'Alerts',         icon: <IconAlert size={14} /> },
   { id: 'danger',        label: 'Danger zone',    icon: <IconTrash size={14} /> },
 ];
 
@@ -213,14 +218,17 @@ function Input({ value, onChange, placeholder, type = 'text', mono = false, pref
 interface ToggleProps {
   on: boolean;
   onChange: (v: boolean) => void;
+  label?: string;
 }
 
-function Toggle({ on, onChange }: ToggleProps) {
+function Toggle({ on, onChange, label }: ToggleProps) {
   return (
     <button
+      type="button"
       onClick={() => onChange(!on)}
       role="switch"
       aria-checked={on}
+      aria-label={label}
       style={{
         width: 36, height: 20,
         background: on ? 'var(--accent)' : 'var(--surface-alt)',
@@ -296,7 +304,7 @@ function TabRail({ sections, tab, setTab, horizontal = false, demo = false }: Ta
         <div style={{ fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 500, padding: '0 10px 10px' }}>Settings</div>
       )}
       <nav style={{ display: 'flex', flexDirection: horizontal ? 'row' : 'column', gap: horizontal ? 4 : 1 }}>
-        {[...SET_TABS.filter(t => demo ? t.id !== 'members' : t.id !== 'danger'), ...sections.map(t => ({...t, icon: t.icon ?? null}))].map(t => {
+        {[...SET_TABS.filter(t => demo ? t.id !== 'members' && t.id !== 'alerts' : t.id !== 'danger'), ...sections.map(t => ({...t, icon: t.icon ?? null}))].map(t => {
           const active = t.id === tab;
           const danger = t.id === 'danger';
           return (
@@ -803,6 +811,244 @@ function MembersView({ workspace, account }: MembersViewProps) {
   </div>;
 }
 
+const SLACK_WEBHOOK_DOCS = 'https://api.slack.com/messaging/webhooks';
+
+const TARGET_PLACEHOLDER: Record<AlertChannel['kind'], string> = {
+  slack: 'https://hooks.slack.com/services/…',
+  webhook: 'https://example.com/tracium-alerts',
+  email: 'oncall@example.com, lead@example.com',
+};
+
+function AlertsView({ workspace }: { workspace: Workspace }) {
+  const { workspacesAPI } = useAPIClient();
+  const queryClient = useQueryClient();
+  const isOwner = workspace.role.toLowerCase() === 'owner';
+  const key = ['alert-channels', workspace.id];
+  const channels = useQuery({ queryKey: key, queryFn: () => workspacesAPI.alertChannels(workspace.id) });
+  const refresh = () => void queryClient.invalidateQueries({ queryKey: key });
+
+  const [kind, setKind] = useState<AlertChannel['kind']>('slack');
+  const [name, setName] = useState('');
+  const [target, setTarget] = useState('');
+  const [minSeverity, setMinSeverity] = useState<AlertChannel['min_severity']>('warning');
+  const [creating, setCreating] = useState(false);
+  const [formError, setFormError] = useState('');
+  const [secret, setSecret] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState('');
+  const [results, setResults] = useState<Record<string, AlertTestResult>>({});
+
+  const backtest = useIncidentBacktest('30d', channels.data?.items.length === 0);
+  const emailEnabled = channels.data?.email_enabled ?? false;
+  const kinds = [
+    { id: 'slack', label: 'Slack' },
+    { id: 'webhook', label: 'Webhook' },
+    ...(emailEnabled ? [{ id: 'email', label: 'Email' }] : []),
+  ];
+
+  const create = async () => {
+    setCreating(true);
+    setFormError('');
+    try {
+      const created = await workspacesAPI.createAlertChannel(workspace.id, { kind, name: name.trim(), target: target.trim(), min_severity: minSeverity, notify_resolved: true, notify_healthy_releases: false, enabled: true });
+      setSecret(created.secret ?? null);
+      setName('');
+      setTarget('');
+      refresh();
+    } catch (err) {
+      setFormError(errorMessage(err, 'Could not add the channel. Please try again.'));
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const run = async (id: string, action: () => Promise<void>, fallback: string) => {
+    setBusyId(id);
+    setActionError('');
+    try {
+      await action();
+    } catch (err) {
+      setActionError(errorMessage(err, fallback));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const divider = '1px solid color-mix(in srgb, var(--border) 50%, transparent)';
+  const row: React.CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px 24px', flexWrap: 'wrap', padding: '14px 0', borderBottom: divider };
+  const meta: React.CSSProperties = { fontSize: 13, color: 'var(--muted)' };
+  const kindLabel = (k: string) => k === 'slack' ? 'Slack' : k === 'webhook' ? 'Webhook' : 'Email';
+
+  return <div>
+    <SectionHead
+      first
+      title="Alerts"
+      hint={isOwner
+        ? `Where Tracium sends a message when an incident in ${workspace.name} opens, escalates or resolves.`
+        : `Where Tracium sends a message when an incident in ${workspace.name} opens, escalates or resolves. Only the workspace owner can change channels.`}
+    />
+
+    {actionError && <p role="alert" style={{ color: 'var(--error)', fontSize: 14 }}>{actionError}</p>}
+    {channels.isLoading && <p style={meta}>Loading channels…</p>}
+    {channels.isError && <p role="alert" style={{ color: 'var(--error)', fontSize: 14 }}>{errorMessage(channels.error, 'Could not load alert channels.')}</p>}
+    {channels.data && channels.data.items.length === 0 && backtest.data && <p style={{ fontSize: 14, margin: '0 0 8px' }}>
+      {backtest.data.incidents === 0
+        ? 'Nothing would have fired in the last 30 days.'
+        : `In the last 30 days Tracium would have alerted you ${backtest.data.incidents} time${backtest.data.incidents === 1 ? '' : 's'}.`}
+    </p>}
+    {channels.data && channels.data.items.length === 0 && <p style={{ ...meta, fontSize: 14, lineHeight: 1.6, maxWidth: 620 }}>
+      No channels yet. Each alert names the workflow or client, lists the signals that crossed their baseline, the release that likely caused it, and links to example runs and the incident.
+      For Slack, create an <a href={SLACK_WEBHOOK_DOCS} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>incoming webhook</a> and paste its URL below.
+    </p>}
+    {channels.data && channels.data.items.length > 0 && <ul aria-label="Alert channels" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+      {channels.data.items.map(c => {
+        const result = results[c.id];
+        return <li key={c.id} style={row}>
+          <div style={{ minWidth: 0, flex: '1 1 260px' }}>
+            <div style={{ fontSize: 14.5, fontWeight: 500, overflowWrap: 'anywhere' }}>{c.name}</div>
+            <div style={{ ...meta, overflowWrap: 'anywhere' }}>{kindLabel(c.kind)} · {c.target}</div>
+            <div style={meta}>{c.min_severity === 'critical' ? 'Critical only' : 'Warning and critical'}{c.notify_resolved ? ' · resolved too' : ''}{c.notify_healthy_releases ? ' · healthy releases' : ''}</div>
+            {result && <div role="status" style={{ fontSize: 13, marginTop: 4, color: result.ok ? 'var(--accent)' : 'var(--error)' }}>
+              {result.ok ? 'Test message sent.' : `Test failed: ${result.error ?? 'unknown error'}`}
+            </div>}
+          </div>
+          {isOwner && <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, ...meta }} title="Also say when a new version looks healthy after its first runs">
+              <Toggle on={c.notify_healthy_releases} label={`${c.notify_healthy_releases ? 'Stop' : 'Start'} healthy release notices to ${c.name}`} onChange={v => void run(c.id, async () => { await workspacesAPI.updateAlertChannel(workspace.id, c.id, { notify_healthy_releases: v }); refresh(); }, 'Could not update the channel.')} />
+              Healthy releases
+            </label>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, ...meta }}>
+              <Toggle on={c.enabled} label={`${c.enabled ? 'Disable' : 'Enable'} ${c.name}`} onChange={v => void run(c.id, async () => { await workspacesAPI.updateAlertChannel(workspace.id, c.id, { enabled: v }); refresh(); }, 'Could not update the channel.')} />
+              {c.enabled ? 'On' : 'Off'}
+            </label>
+            <Btn disabled={busyId === c.id} title={`Send a test message to ${c.name}`} onClick={() => void run(c.id, async () => {
+              const r = await workspacesAPI.testAlertChannel(workspace.id, c.id);
+              setResults(prev => ({ ...prev, [c.id]: r }));
+            }, 'Could not send the test message.')}>{busyId === c.id ? 'Sending…' : 'Send test'}</Btn>
+            <Btn variant="ghost" disabled={busyId === c.id} title={`Delete ${c.name}`}
+              onClick={() => { if (window.confirm(`Delete ${c.name}? It stops receiving alerts.`)) void run(c.id, async () => { await workspacesAPI.deleteAlertChannel(workspace.id, c.id); refresh(); }, 'Could not delete the channel.'); }}>Delete</Btn>
+          </div>}
+        </li>;
+      })}
+    </ul>}
+
+    {secret && <div role="status" style={{ padding: '14px 16px', margin: '16px 0 8px', borderRadius: 8, border: '1px solid color-mix(in srgb, var(--accent) 35%, transparent)', background: 'color-mix(in srgb, var(--accent) 8%, transparent)' }}>
+      <p style={{ fontSize: 14, margin: '0 0 10px', lineHeight: 1.55 }}>
+        Signing secret for the webhook. It is shown only once. Verify each request&apos;s <code>X-Tracium-Signature</code>: <code>sha256=</code> HMAC-SHA256 of <code>&lt;X-Tracium-Timestamp&gt;.&lt;body&gt;</code> with this secret.
+      </p>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px 16px', flexWrap: 'wrap' }}>
+        <code style={{ flex: '1 1 280px', minWidth: 0, overflowWrap: 'anywhere', fontSize: 13, fontFamily: 'var(--font-mono)' }}>{secret}</code>
+        <CopyButton key={secret} value={secret} label="Copy secret" />
+      </div>
+      <div style={{ marginTop: 4 }}><Btn variant="ghost" onClick={() => setSecret(null)}>Done</Btn></div>
+    </div>}
+
+    {isOwner && <>
+      <SectionHead title="Add channel" />
+      <form onSubmit={e => { e.preventDefault(); if (name.trim() && target.trim()) void create(); }} aria-busy={creating}>
+        <fieldset disabled={creating} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+          <Field label="Kind" hint={kind === 'webhook' ? 'A signed JSON POST, for PagerDuty, Teams or your own service.' : kind === 'email' ? 'Comma-separated addresses.' : 'A Slack incoming webhook URL.'}>
+            <Segmented value={kind} onChange={v => setKind(v as AlertChannel['kind'])} options={kinds} />
+          </Field>
+          <Field label="Name">
+            <Input label="Channel name" value={name} onChange={e => setName(e.target.value)} placeholder="#oncall" />
+          </Field>
+          <Field label={kind === 'email' ? 'Addresses' : 'URL'}>
+            <Input label="Channel target" mono value={target} onChange={e => setTarget(e.target.value)} placeholder={TARGET_PLACEHOLDER[kind]} autoComplete="off" />
+          </Field>
+          <Field label="Minimum severity" hint="Incidents below it are not sent." last
+            right={<Btn variant="primary" type="submit" disabled={creating || !name.trim() || !target.trim()}><IconPlus size={13} />{creating ? 'Adding…' : 'Add channel'}</Btn>}>
+            <Segmented value={minSeverity} onChange={v => setMinSeverity(v as AlertChannel['min_severity'])} options={[{ id: 'warning', label: 'Warning' }, { id: 'critical', label: 'Critical' }]} />
+          </Field>
+        </fieldset>
+        {formError && <p role="alert" style={{ color: 'var(--error)', fontSize: 14, margin: '0 0 12px' }}>{formError}</p>}
+      </form>
+      <BudgetRules workspace={workspace} />
+    </>}
+  </div>;
+}
+
+const SCOPE_LABEL: Record<AlertRule['scope'], string> = { workspace: 'Workspace', workflow: 'Workflow', client: 'Client' };
+
+function ruleLabel(r: AlertRule) {
+  const who = r.scope === 'workspace' ? 'Workspace' : r.subject === '*' ? `Each ${r.scope}` : `${SCOPE_LABEL[r.scope]} ${r.subject}`;
+  return `${who} · $${r.threshold_usd.toFixed(2)} per ${r.period}`;
+}
+
+function BudgetRules({ workspace }: { workspace: Workspace }) {
+  const { workspacesAPI } = useAPIClient();
+  const queryClient = useQueryClient();
+  const key = ['alert-rules', workspace.id];
+  const rules = useQuery({ queryKey: key, queryFn: () => workspacesAPI.alertRules(workspace.id) });
+  const refresh = () => void queryClient.invalidateQueries({ queryKey: key });
+
+  const [scope, setScope] = useState<AlertRule['scope']>('workspace');
+  const [subject, setSubject] = useState('');
+  const [period, setPeriod] = useState<AlertRule['period']>('day');
+  const [limit, setLimit] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const amount = Number(limit);
+  const valid = amount > 0 && Number.isFinite(amount) && (scope === 'workspace' || subject.trim() !== '');
+
+  const act = async (action: () => Promise<unknown>, fallback: string) => {
+    setBusy(true);
+    setError('');
+    try {
+      await action();
+      refresh();
+    } catch (err) {
+      setError(errorMessage(err, fallback));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const create = () => act(async () => {
+    await workspacesAPI.createAlertRule(workspace.id, { scope, subject: scope === 'workspace' ? '' : subject.trim(), period, threshold_usd: amount, enabled: true });
+    setSubject('');
+    setLimit('');
+  }, 'Could not add the budget rule.');
+
+  const meta: React.CSSProperties = { fontSize: 13, color: 'var(--muted)' };
+  return <>
+    <SectionHead title="Budget rules" hint="A fixed spend limit per UTC day or month. It warns at 80% and goes critical at 100%, once per period, through the channels above." />
+    {error && <p role="alert" style={{ color: 'var(--error)', fontSize: 14 }}>{error}</p>}
+    {rules.isError && <p role="alert" style={{ color: 'var(--error)', fontSize: 14 }}>{errorMessage(rules.error, 'Could not load budget rules.')}</p>}
+    {rules.data && rules.data.items.length > 0 && <ul aria-label="Budget rules" style={{ listStyle: 'none', margin: '0 0 8px', padding: 0 }}>
+      {rules.data.items.map(r => <li key={r.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px 24px', flexWrap: 'wrap', padding: '12px 0', borderBottom: '1px solid color-mix(in srgb, var(--border) 50%, transparent)' }}>
+        <div style={{ fontSize: 14.5, overflowWrap: 'anywhere', minWidth: 0 }}>{ruleLabel(r)}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, ...meta }}>
+            <Toggle on={r.enabled} label={`${r.enabled ? 'Disable' : 'Enable'} ${ruleLabel(r)}`} onChange={v => void act(() => workspacesAPI.updateAlertRule(workspace.id, r.id, { enabled: v }), 'Could not update the rule.')} />
+            {r.enabled ? 'On' : 'Off'}
+          </label>
+          <Btn variant="ghost" disabled={busy} title={`Delete ${ruleLabel(r)}`}
+            onClick={() => { if (window.confirm(`Delete the rule ${ruleLabel(r)}?`)) void act(() => workspacesAPI.deleteAlertRule(workspace.id, r.id), 'Could not delete the rule.'); }}>Delete</Btn>
+        </div>
+      </li>)}
+    </ul>}
+    <form onSubmit={e => { e.preventDefault(); if (valid) void create(); }} aria-busy={busy}>
+      <fieldset disabled={busy} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+        <Field label="Applies to">
+          <Segmented value={scope} onChange={v => setScope(v as AlertRule['scope'])} options={[{ id: 'workspace', label: 'Workspace' }, { id: 'workflow', label: 'Workflow' }, { id: 'client', label: 'Client' }]} />
+        </Field>
+        {scope !== 'workspace' && <Field label={scope === 'workflow' ? 'Workflow' : 'Client'} hint={`A ${scope} name, or * for each ${scope} separately.`}>
+          <Input label="Rule subject" mono value={subject} onChange={e => setSubject(e.target.value)} placeholder="*" />
+        </Field>}
+        <Field label="Period">
+          <Segmented value={period} onChange={v => setPeriod(v as AlertRule['period'])} options={[{ id: 'day', label: 'Day' }, { id: 'month', label: 'Month' }]} />
+        </Field>
+        <Field label="Limit" last
+          right={<Btn variant="primary" type="submit" disabled={busy || !valid}><IconPlus size={13} />Add rule</Btn>}>
+          <Input label="Limit in USD" type="number" prefix="$" value={limit} onChange={e => setLimit(e.target.value)} placeholder="50" />
+        </Field>
+      </fieldset>
+    </form>
+  </>;
+}
+
 type DangerVariant = 'secondary' | 'danger';
 
 interface DangerItem {
@@ -869,12 +1115,13 @@ export default function SettingsPage({
   ingestEndpoint,
   onCancelCreate,
   createMode = false,
+  initialTab,
   demo = false,
   workspace = null,
   account = null,
   onSessionRenewed,
 }: SettingsPageProps): React.JSX.Element {
-  const [tab, setTab] = useState<TabId>(createMode || !demo ? 'workspace' : 'account');
+  const [tab, setTab] = useState<TabId>(createMode ? 'workspace' : initialTab ?? (!demo ? 'workspace' : 'account'));
   const [creating, setCreating] = useState(createMode);
   const [createdId, setCreatedId] = useState<string | null>(null);
   const [prevCreateMode, setPrevCreateMode] = useState(createMode);
@@ -933,6 +1180,9 @@ export default function SettingsPage({
     members:   workspace
       ? <MembersView key={workspace.id} workspace={workspace} account={account} />
       : <SectionHead first title="Members" hint="Create a workspace to invite people to it." />,
+    alerts:    workspace
+      ? <AlertsView key={workspace.id} workspace={workspace} />
+      : <SectionHead first title="Alerts" hint="Create a workspace to send its incidents to Slack, a webhook or email." />,
     danger:    <DangerView />,
   };
 

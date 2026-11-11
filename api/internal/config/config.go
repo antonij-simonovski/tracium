@@ -64,11 +64,27 @@ type AuthConfig struct {
 	TrustedProxies []string `yaml:"trusted_proxies"`
 }
 
+// DetectionConfig controls the background evaluator that opens incidents.
+type DetectionConfig struct {
+	Enabled         *bool  `yaml:"enabled"`
+	IntervalSeconds int    `yaml:"interval_seconds"`
+	MinSeverity     string `yaml:"min_severity"` // lowest severity that opens an incident
+}
+
+// AlertsConfig controls outbound alert delivery.
+type AlertsConfig struct {
+	// AllowPrivateURLs lets webhook and Slack channels post over http and to
+	// private, loopback and link-local addresses, for self-hosted internal services.
+	AllowPrivateURLs bool `yaml:"allow_private_urls"`
+}
+
 // Config is the top-level application configuration.
 type Config struct {
-	Server  ServerConfig  `yaml:"server"`
-	Storage StorageConfig `yaml:"storage"`
-	Auth    AuthConfig    `yaml:"auth"`
+	Server    ServerConfig    `yaml:"server"`
+	Storage   StorageConfig   `yaml:"storage"`
+	Auth      AuthConfig      `yaml:"auth"`
+	Detection DetectionConfig `yaml:"detection"`
+	Alerts    AlertsConfig    `yaml:"alerts"`
 }
 
 // Default fills every unset field that has a default.
@@ -98,6 +114,30 @@ func (c *Config) Default() {
 	if c.Auth.QueryRateLimitPerMinute == 0 {
 		c.Auth.QueryRateLimitPerMinute = 120
 	}
+	if c.Detection.Enabled == nil {
+		enabled := true
+		c.Detection.Enabled = &enabled
+	}
+	if c.Detection.IntervalSeconds == 0 {
+		c.Detection.IntervalSeconds = 300
+	}
+	if c.Detection.MinSeverity == "" {
+		c.Detection.MinSeverity = "warning"
+	}
+}
+
+// Validate checks the detection settings.
+func (c *DetectionConfig) Validate() error {
+	var errs []error
+	if c.IntervalSeconds <= 0 {
+		errs = append(errs, errors.New("config: detection.interval_seconds must be positive (set DETECTION_INTERVAL_SECONDS)"))
+	}
+	switch c.MinSeverity {
+	case "info", "warning", "critical":
+	default:
+		errs = append(errs, fmt.Errorf("config: detection.min_severity must be info, warning or critical, got %q (set DETECTION_MIN_SEVERITY)", c.MinSeverity))
+	}
+	return errors.Join(errs...)
 }
 
 // Validate checks the HTTP server settings.
@@ -160,6 +200,7 @@ func (c *Config) Validate() error {
 		c.Server.Validate(),
 		c.Storage.Validate(),
 		c.Auth.Validate(),
+		c.Detection.Validate(),
 	)
 }
 
@@ -217,6 +258,26 @@ func (c *Config) ApplyEnv() error {
 	}
 	if v := os.Getenv("LISTEN_ADDR"); v != "" {
 		c.Server.Addr = v
+	}
+	if v := os.Getenv("DETECTION_ENABLED"); v != "" {
+		enabled, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("config: DETECTION_ENABLED must be true or false, got %q", v)
+		}
+		c.Detection.Enabled = &enabled
+	}
+	if err := envInt("DETECTION_INTERVAL_SECONDS", &c.Detection.IntervalSeconds); err != nil {
+		return err
+	}
+	if v := os.Getenv("DETECTION_MIN_SEVERITY"); v != "" {
+		c.Detection.MinSeverity = v
+	}
+	if v := os.Getenv("ALERTS_ALLOW_PRIVATE_URLS"); v != "" {
+		allow, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("config: ALERTS_ALLOW_PRIVATE_URLS must be true or false, got %q", v)
+		}
+		c.Alerts.AllowPrivateURLs = allow
 	}
 	return nil
 }

@@ -64,6 +64,7 @@ export abstract class BaseAPIClient {
   protected async get<T>(
     path: string,
     params?: Record<string, string | number | boolean | undefined>,
+    timeoutMs?: number,
   ): Promise<T> {
     const url = new URL(`/${API_VERSION}${path}`, this.config.baseUrl);
 
@@ -84,7 +85,7 @@ export abstract class BaseAPIClient {
 
     return this.request<T>(url.toString(), {
       method: 'GET',
-    });
+    }, timeoutMs);
   }
 
   protected async post<T>(path: string, body: unknown): Promise<T> {
@@ -107,14 +108,24 @@ export abstract class BaseAPIClient {
     });
   }
 
+  protected async patch<T>(path: string, body: unknown): Promise<T> {
+    const url = new URL(`/${API_VERSION}${path}`, this.config.baseUrl);
+
+    return this.request<T>(url.toString(), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
   protected async delete<T = void>(path: string): Promise<T> {
     const url = new URL(`/${API_VERSION}${path}`, this.config.baseUrl);
 
     return this.request<T>(url.toString(), { method: 'DELETE' });
   }
 
-  private async request<T>(url: string, init: RequestInit): Promise<T> {
-    const timeoutMs = this.config.timeoutMs ?? 10_000;
+  private async request<T>(url: string, init: RequestInit, timeoutOverrideMs?: number): Promise<T> {
+    const timeoutMs = timeoutOverrideMs ?? this.config.timeoutMs ?? 10_000;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 

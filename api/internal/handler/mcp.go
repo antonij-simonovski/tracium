@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tracium/api/internal/incident"
 	"github.com/tracium/api/internal/middleware"
 	"github.com/tracium/api/internal/model"
 	"github.com/tracium/api/internal/query"
@@ -31,6 +32,7 @@ Call describe_schema before writing a query: it lists the views, metrics, dimens
 Pass fields (and span_fields on get_trace) to return only what you need; it saves tokens.
 Results are paged: when a result carries next_page (next_span_page on get_trace), pass it as page (span_page) to read more.
 Use query for any question about the data: it aggregates any column (<func>:<field> metrics such as max:cost_usd, formulas, having, any-of filters), reaches a call's run and parent span (run.<field>, parent.<column>), or, with columns, lists matching calls or runs. Use list_traces to find example runs, get_trace to read one run, and detect_anomalies to explain spikes.
+When asked whether anything is wrong, call list_incidents first: incidents are what Tracium's background detection found and still holds open, with example trace ids.
 Cost: meta.cost_source "reconciled" matches the dashboard; "spans" counts span cost only.`
 
 const (
@@ -155,6 +157,7 @@ var mcpTools = []mcpTool{
     "user": {"type": "string"},
     "model": {"type": "string"},
     "has_error": {"type": "boolean"},
+    "silent_failure": {"type": "string", "enum": ["truncated", "refused", "tool_error", "any"], "description": "Only runs with a span flagged this way."},
     "from": {"type": "string", "format": "date-time", "description": "RFC 3339. Defaults to 30 days ago."},
     "to": {"type": "string", "format": "date-time", "description": "RFC 3339. Defaults to now."},
     "limit": {"type": "integer", "minimum": 1, "maximum": 50, "description": "Runs per page. Defaults to 20."},
@@ -177,16 +180,37 @@ var mcpTools = []mcpTool{
 		Name:        "detect_anomalies",
 		Title:       "Detect anomalies",
 		Annotations: readOnly,
-		Description: "Finds statistically significant daily changes in cost, error rate or run volume, workspace-wide and per busy workflow, with the workflow versions that shipped around them.",
+		Description: "Finds daily outliers in cost, error rate, run volume and p95 latency, and hourly silent failures (truncated, refused or failing tool calls, runaway LLM or tool calls per run, cache hit ratio drops, clients gone quiet), with the workflow versions that shipped around them.",
 		InputSchema: json.RawMessage(`{
   "type": "object",
   "properties": {
     "range": {"type": "string", "enum": ["7d", "30d", "90d"], "description": "Defaults to 30d."},
-    "metric": {"type": "string", "enum": ["cost", "error_rate", "runs"]},
+    "metric": {"type": "string", "enum": ["cost", "error_rate", "runs", "latency_p95", "truncation_rate", "refusal_rate", "tool_error_rate", "llm_calls_per_run", "tool_repeat", "cache_hit_ratio", "heartbeat", "ingest_silence", "ingest_rejected", "missing_step", "stuck_runs", "context_pressure", "model_mix", "duplicate_output"]},
     "min_severity": {"type": "string", "enum": ["info", "warning", "critical"]},
     ` + workspaceProp + `
   }
 }`),
+	},
+	{
+		Name:        "list_incidents",
+		Title:       "List incidents",
+		Annotations: readOnly,
+		Description: "Call this first when asked whether anything is wrong. Lists the incidents Tracium's background detection opened: one per workflow, client or workspace, each with its signals (metric, observed against expected, summary), the version change that likely caused it and example trace ids for get_trace. Open incidents by default, most recent first.",
+		InputSchema: json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "status": {"type": "string", "enum": ["open", "resolved", "all"], "description": "Defaults to open."},
+    "min_severity": {"type": "string", "enum": ["info", "warning", "critical"]},
+    ` + workspaceProp + `
+  }
+}`),
+	},
+	{
+		Name:        "get_incident",
+		Title:       "Read an incident",
+		Annotations: readOnly,
+		Description: "Reads one incident in full: its signals, likely-cause version change and example trace ids.",
+		InputSchema: json.RawMessage(`{"type": "object", "required": ["id"], "properties": {"id": {"type": "string"}, ` + workspaceProp + `}}`),
 	},
 }
 
@@ -342,6 +366,10 @@ func (h *QueryHandler) callTool(ctx context.Context, name string, raw json.RawMe
 		return h.getTrace(ctx, scope, raw)
 	case "detect_anomalies":
 		return h.anomalies(ctx, scope, raw)
+	case "list_incidents":
+		return h.listIncidents(ctx, scope, raw)
+	case "get_incident":
+		return h.getIncident(ctx, scope, raw)
 	}
 	return nil, errUnknownTool
 }
@@ -368,16 +396,17 @@ func (h *QueryHandler) listWorkspaces(ctx context.Context, scope []string) (any,
 
 func (h *QueryHandler) listTraces(ctx context.Context, scope []string, raw json.RawMessage) (any, error) {
 	var a struct {
-		Workflow string    `json:"workflow"`
-		Version  string    `json:"version"`
-		User     string    `json:"user"`
-		Model    string    `json:"model"`
-		HasError *bool     `json:"has_error"`
-		From     time.Time `json:"from"`
-		To       time.Time `json:"to"`
-		Limit    int       `json:"limit"`
-		Page     int       `json:"page"`
-		Fields   []string  `json:"fields"`
+		Workflow      string    `json:"workflow"`
+		Version       string    `json:"version"`
+		User          string    `json:"user"`
+		Model         string    `json:"model"`
+		HasError      *bool     `json:"has_error"`
+		SilentFailure string    `json:"silent_failure"`
+		From          time.Time `json:"from"`
+		To            time.Time `json:"to"`
+		Limit         int       `json:"limit"`
+		Page          int       `json:"page"`
+		Fields        []string  `json:"fields"`
 	}
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return nil, toolError{"invalid arguments: " + err.Error()}
@@ -390,7 +419,7 @@ func (h *QueryHandler) listTraces(ctx context.Context, scope []string, raw json.
 	}
 	f := query.TraceFilter{
 		UserID: a.User, WorkspaceIDs: scope, Model: a.Model, Workflow: a.Workflow, Version: a.Version,
-		HasError: a.HasError, StartAfter: a.From, StartBefore: a.To, PageSize: a.Limit, Page: a.Page,
+		HasError: a.HasError, SilentFailure: a.SilentFailure, StartAfter: a.From, StartBefore: a.To, PageSize: a.Limit, Page: a.Page,
 	}
 	if err := f.Validate(); err != nil {
 		return nil, toolError{err.Error()}
@@ -517,7 +546,7 @@ func (h *QueryHandler) anomalies(ctx context.Context, scope []string, raw json.R
 		return nil, toolError{"range must be one of 7d, 30d, 90d"}
 	}
 	if a.Metric != "" && !validAnomalyMetrics[a.Metric] {
-		return nil, toolError{"metric must be one of cost, error_rate, runs"}
+		return nil, toolError{"metric must be one of " + anomalyMetricList}
 	}
 	if a.MinSeverity != "" && !validAnomalySeverities[a.MinSeverity] {
 		return nil, toolError{"min_severity must be one of info, warning, critical"}
@@ -533,4 +562,63 @@ func (h *QueryHandler) anomalies(ctx context.Context, scope []string, raw json.R
 		found = []model.Anomaly{}
 	}
 	return map[string]any{"anomalies": found}, nil
+}
+
+var severityOrder = []string{"info", "warning", "critical"}
+
+// shortcut: reads the newest 100 incidents and filters by severity after, enough until a workspace keeps more open.
+func (h *QueryHandler) listIncidents(ctx context.Context, scope []string, raw json.RawMessage) (any, error) {
+	var a struct {
+		Status      string `json:"status"`
+		MinSeverity string `json:"min_severity"`
+	}
+	if err := json.Unmarshal(raw, &a); err != nil {
+		return nil, toolError{"invalid arguments: " + err.Error()}
+	}
+	var status incident.Status
+	switch a.Status {
+	case "", "open":
+		status = incident.StatusOpen
+	case "resolved":
+		status = incident.StatusResolved
+	case "all":
+	default:
+		return nil, toolError{"status must be one of open, resolved, all"}
+	}
+	if a.MinSeverity != "" && !validAnomalySeverities[a.MinSeverity] {
+		return nil, toolError{"min_severity must be one of info, warning, critical"}
+	}
+	items, total, err := h.incidents.List(ctx, scope, status, 1, 100)
+	if err != nil {
+		return nil, err
+	}
+	floor := slices.Index(severityOrder, a.MinSeverity)
+	out := []incident.Incident{}
+	for _, inc := range items {
+		if slices.Index(severityOrder, inc.Severity) >= floor {
+			out = append(out, inc)
+		}
+	}
+	last, err := h.incidents.LastEvaluated(ctx, scope)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"incidents": out, "total": total, "last_evaluated_at": last}, nil
+}
+
+func (h *QueryHandler) getIncident(ctx context.Context, scope []string, raw json.RawMessage) (any, error) {
+	var a struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(raw, &a); err != nil || a.ID == "" {
+		return nil, toolError{"id is required"}
+	}
+	inc, err := h.incidents.Get(ctx, scope, a.ID)
+	if errors.Is(err, incident.ErrNotFound) {
+		return nil, toolError{"incident not found"}
+	}
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"incident": inc}, nil
 }

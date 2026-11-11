@@ -175,6 +175,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/reviews/queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Runs to review next
+         * @description Unreviewed runs worth a reviewer's time: example runs of open incidents,
+         *     then runs with a silent-failure flag in the last 7 days. Every fifth item
+         *     is a random unflagged run from the last 24 hours, so accuracy is not
+         *     measured only on suspicious runs; either kind fills the list when the
+         *     other runs out.
+         */
+        get: operations["getReviewQueue"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/workflows/{name}/review-spans": {
         parameters: {
             query?: never;
@@ -395,6 +419,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/metrics/workflows/{name}/versions/{version}/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Release report of a workflow version
+         * @description The stored comparison of a new workflow version's first runs with the version before it. A report is created when the version first appears, pending until it has enough runs, then final with a verdict.
+         */
+        get: operations["getReleaseReport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/release-reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Recent release reports
+         * @description Release reports in the caller's workspaces, newest first.
+         */
+        get: operations["listReleaseReports"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/metrics/failures": {
         parameters: {
             query?: never;
@@ -424,7 +488,7 @@ export interface paths {
         };
         /**
          * Statistical anomalies
-         * @description Buckets that deviated significantly from their own recent history, for cost, error rate, and run volume, workspace-wide and per busy workflow. Detection is daily and robust (median + MAD over a trailing 28-day baseline), served entirely from the daily rollup, so a range of 7d or longer is required (24h is rejected with a 400). Results are ordered most severe first.
+         * @description Buckets that deviated significantly from their own recent history. Cost, error rate, run volume and p95 latency are detected daily and robustly (median + MAD over a trailing 28-day baseline) from the daily rollups, workspace-wide and per busy workflow, so a range of 7d or longer is required (24h is rejected with a 400). Silent failures are checked hourly per workflow over the last 7 days of the range, each hour against the 24 before it, and clients that went quiet are checked as of the end of the range. Results are ordered most severe first.
          */
         get: operations["getAnomalies"];
         put?: never;
@@ -433,6 +497,275 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/v1/incidents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List incidents
+         * @description Incidents opened by the background evaluator, which groups current anomalies by subject (a workflow, a client or the workspace) every few minutes. Open incidents come first, then newest first.
+         */
+        get: operations["listIncidents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/incidents/backtest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What Tracium would have alerted on
+         * @description Replays detection over a past range, hour by hour, through the same rules the background evaluator uses, from an empty state and without mutes. Nothing is stored. Results are cached for an hour per workspace and range; a 30d run can take several seconds.
+         */
+        get: operations["backtestIncidents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/incidents/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get an incident */
+        get: operations["getIncident"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/incidents/{id}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolve an incident
+         * @description Resolves the incident as the caller and emits a resolved event. Resolving a resolved incident changes nothing.
+         */
+        post: operations["resolveIncident"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/incidents/{id}/mute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mute an incident's subject
+         * @description Mutes the incident's subject, or one metric of it, so its anomalies open no incident, and resolves the incident without a notification.
+         */
+        post: operations["muteIncident"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspaces/{id}/incident-mutes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List a workspace's active mutes */
+        get: operations["listIncidentMutes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspaces/{id}/incident-mutes/{muteId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove a mute */
+        delete: operations["deleteIncidentMute"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/incidents/{id}/deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Alert deliveries of an incident
+         * @description One entry per event and channel, with its delivery status. Message content is not returned.
+         */
+        get: operations["listIncidentDeliveries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspaces/{id}/alert-channels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List alert channels
+         * @description Any member can list. Slack and webhook targets are masked.
+         */
+        get: operations["listAlertChannels"];
+        put?: never;
+        /**
+         * Create an alert channel
+         * @description Owner only. When an incident opens, escalates or resolves, every enabled channel whose `min_severity` the incident reaches gets one message; failed sends are retried 4 times (after 30s, 2m, 10m and 1h, or the destination's `Retry-After` up to 1h) on 5xx, 408, 429, timeouts and connection errors. Other 4xx answers and blocked targets fail at once. Slack and webhook URLs must be https and reach a public address (Slack: `hooks.slack.com`) unless the deployment sets `ALERTS_ALLOW_PRIVATE_URLS=true`. Email needs a deployment that sends mail (`EMAIL_DISABLED` otherwise).
+         *
+         *     A webhook gets a JSON POST of `{version, event, incident}` with headers `X-Tracium-Event`, `X-Tracium-Timestamp` (unix seconds) and `X-Tracium-Signature: sha256=<hex>`, the HMAC-SHA256 of `<timestamp>.<raw body>` keyed with the channel's `secret`. To verify, recompute it over the raw body, compare in constant time, and reject timestamps more than 5 minutes old. The secret is returned only in this response. A `release_healthy` notice carries the same body with an `incident` that has no `id` and severity `info`.
+         */
+        post: operations["createAlertChannel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspaces/{id}/alert-channels/{channelId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete an alert channel
+         * @description Owner only. Its queued deliveries are dropped.
+         */
+        delete: operations["deleteAlertChannel"];
+        options?: never;
+        head?: never;
+        /**
+         * Update an alert channel
+         * @description Owner only. Fields left out keep their value. The target cannot change; create a new channel instead.
+         */
+        patch: operations["updateAlertChannel"];
+        trace?: never;
+    };
+    "/v1/workspaces/{id}/alert-channels/{channelId}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a test alert
+         * @description Owner only. Sends a sample message now, without retries, and reports the outcome. Limited to 10 requests a minute per account.
+         */
+        post: operations["testAlertChannel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspaces/{id}/alert-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List budget rules
+         * @description Owner only.
+         */
+        get: operations["listAlertRules"];
+        put?: never;
+        /**
+         * Create a budget rule
+         * @description Owner only. A fixed cost limit for the current UTC day or month, on the workspace, a workflow or a client; subject `*` applies the limit to each workflow or client separately. Every evaluation sums the period's cost so far and adds a `budget` signal to the subject's incident: warning at 80% of the limit, critical at 100%, once per rule and period. The incident resolves when the next period starts. Workflow cost counts span cost only, like the workflow cost chart.
+         */
+        post: operations["createAlertRule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspaces/{id}/alert-rules/{ruleId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a budget rule
+         * @description Owner only.
+         */
+        delete: operations["deleteAlertRule"];
+        options?: never;
+        head?: never;
+        /**
+         * Update a budget rule
+         * @description Owner only. Fields left out keep their value.
+         */
+        patch: operations["updateAlertRule"];
         trace?: never;
     };
     "/v1/metrics/setup-checks": {
@@ -1320,6 +1653,11 @@ export interface components {
             /** @description Added in schema v2. Human-readable error message if the span failed. */
             error_message?: string;
             /**
+             * @description The silent failure the collector flagged on this span. Omitted when none.
+             * @enum {string}
+             */
+            silent_failure?: "truncated" | "refused" | "tool_error";
+            /**
              * @description Normalized span role, derived by the collector from instrumentation attributes (OpenInference openinference.span.kind, Traceloop traceloop.span.kind, or the OTel GenAI gen_ai.operation.name). Optional: omitted when the collector could not classify the span, in which case consumers infer the role from the span's context.
              * @enum {string}
              */
@@ -1350,6 +1688,8 @@ export interface components {
             has_error?: boolean;
             /** @description Sum of cost_usd across all spans in this trace. */
             total_cost_usd?: number;
+            /** @description The distinct silent-failure flags on the trace's spans, sorted. Empty when none. */
+            silent_failures?: ("truncated" | "refused" | "tool_error")[];
             /** @description Schema version of this trace record. */
             schema_version?: number;
         };
@@ -1381,6 +1721,11 @@ export interface components {
                 [key: string]: unknown;
             };
             note?: string;
+            /**
+             * @description The review queue item's reason, when the run is reviewed from the queue. Omitted, it is the run's silent-failure flag, if any.
+             * @enum {string}
+             */
+            reason?: "incident" | "truncated" | "refused" | "tool_error" | "sample";
         };
         ReviewField: {
             /** @description Dot-joined path to a leaf; nested objects are flattened, arrays are one field. */
@@ -1414,12 +1759,23 @@ export interface components {
              * @enum {string}
              */
             source: "user" | "api";
+            /**
+             * @description Why the run was reviewed. Accuracy alerts compare reviews with "" or sample, the unflagged runs, between versions.
+             * @enum {string}
+             */
+            reason: "" | "incident" | "truncated" | "refused" | "tool_error" | "sample";
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
             updated_at: string;
             /** @description Graded fields; empty unless output and correction are both JSON objects. */
             fields: components["schemas"]["ReviewField"][];
+        };
+        ReviewQueueItem: components["schemas"]["Trace"] & {
+            /** @enum {string} */
+            reason: "incident" | "truncated" | "refused" | "tool_error" | "sample";
+            /** @description The open incident the run is an example of; set when reason is incident. */
+            incident_id?: string;
         };
         ReviewedSpan: {
             name: string;
@@ -1607,6 +1963,57 @@ export interface components {
             error_rate: number;
             /** @description Mean input plus output tokens per run. */
             tokens_per_run: number;
+            /**
+             * @description The version's release report verdict, or pending while it gathers runs. Absent when the version has no report.
+             * @enum {string}
+             */
+            report_verdict?: "pending" | "ok" | "improved" | "regressed" | "insufficient";
+        };
+        ReleaseFinding: {
+            /** @enum {string} */
+            metric: "error_rate" | "truncation_rate" | "refusal_rate" | "tool_error_rate" | "cost_per_run" | "latency_p95" | "llm_calls_per_run" | "output_tokens_per_run" | "cache_hit_ratio";
+            /** @description The previous version's value; rates and cache_hit_ratio are fractions, cost in USD, latency in ms. */
+            prev: number;
+            /** @description The new version's value, in the same unit. */
+            next: number;
+            /** @enum {string} */
+            verdict: "regressed" | "improved" | "same";
+            /**
+             * @description Empty when the verdict is same.
+             * @enum {string}
+             */
+            severity: "" | "info" | "warning" | "critical";
+        };
+        ReleaseReport: {
+            workspace_id: string;
+            workflow: string;
+            version: string;
+            /** @description The version with the most runs in the 24 hours before this one appeared. */
+            prev_version: string;
+            /** Format: date-time */
+            first_seen_at: string;
+            /** @enum {string} */
+            status: "pending" | "final";
+            /**
+             * @description Empty while pending. A regressed verdict opens or extends the workflow's incident.
+             * @enum {string}
+             */
+            verdict: "" | "ok" | "improved" | "regressed" | "insufficient";
+            /** @description Runs of the new version compared. */
+            runs: number;
+            /** @description Runs of the previous version compared. */
+            prev_runs: number;
+            findings: components["schemas"]["ReleaseFinding"][];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            finalized_at: string | null;
+        };
+        PaginatedReleaseReportResponse: {
+            items: components["schemas"]["ReleaseReport"][];
+            total: number;
+            page: number;
+            page_size: number;
         };
         Failure: {
             /** @description Workflow name (the trace root span name). */
@@ -1669,26 +2076,30 @@ export interface components {
         };
         Anomaly: {
             /**
-             * @description The metric that deviated.
+             * @description The metric that deviated. cost, error_rate, runs and latency_p95 (p95 root-span duration in ms) are daily robust-z outliers. The rest are hourly checks against the prior 24 hours: truncation_rate, refusal_rate and tool_error_rate (share of LLM or tool calls flagged at ingest), llm_calls_per_run and tool_repeat (the worst run's LLM calls against the workflow's median run, or calls of one tool against its p95 run; a workflow with under 20 runs in 24 hours is compared with the last 7 days, and with under 5 runs there only a run of 50 LLM calls or 30 calls of one tool is flagged, with expected 0), cache_hit_ratio (cache-read over input tokens) and heartbeat (hours a regular client has been silent, raised once it misses 3 hours of the week it is usually active in), ingest_silence (the same for a service, or the whole workspace when every service stopped, from 1 missed hour for a service active in 20 of the 24 hours before), ingest_rejected (spans the collector rejected in the hour against the prior 24-hour average, from 20 spans and 5×), missing_step (share of runs that ran a step present in 90% of baseline runs, raised below 50%) and stuck_runs (share of runs with spans but no root span 30 minutes after their newest span, for workflows whose baseline runs have a root span 95% of the time), context_pressure (share of LLM calls using 85% or more of the model's context window, from 5 calls and 5%, once the prior 24 hours hold 20 calls of a known window; or, without a spike, the hour's p95 context use reaching 85% from under 70% in the same hour a week earlier), model_mix (share of LLM calls on a requested model that held under 2% of the prior 24 hours, from 20% and 10 calls; or the share answered by a model of another family than requested, snapshot suffixes ignored, from 20 answered calls in the prior 24 hours) and duplicate_output (share of LLM calls returning one output for inputs other than its most common one, from 10 calls, 5 distinct inputs and 30%, when no output held 10% over the prior 24 hours).
              * @enum {string}
              */
-            metric: "cost" | "error_rate" | "runs";
+            metric: "cost" | "error_rate" | "runs" | "latency_p95" | "truncation_rate" | "refusal_rate" | "tool_error_rate" | "llm_calls_per_run" | "tool_repeat" | "cache_hit_ratio" | "heartbeat" | "ingest_silence" | "ingest_rejected" | "missing_step" | "stuck_runs" | "context_pressure" | "model_mix" | "duplicate_output";
             /**
-             * @description Whether this anomaly is workspace-wide or for one workflow.
+             * @description Whether this anomaly is workspace-wide, for one workflow, for one client (heartbeat), or for one service (ingest_silence).
              * @enum {string}
              */
-            scope: "workspace" | "workflow";
+            scope: "workspace" | "workflow" | "client" | "service";
             /** @description The workflow name when scope is "workflow"; empty otherwise. */
             workflow: string;
-            /** @description Anomalous day bucket, Unix epoch milliseconds (UTC midnight). */
+            /** @description The client (user_id) when scope is "client"; empty otherwise. */
+            client: string;
+            /** @description The service (service_name) when scope is "service"; empty otherwise. */
+            service: string;
+            /** @description Anomalous bucket, Unix epoch milliseconds: a UTC day for daily metrics, an hour for hourly ones, and the hour a heartbeat or ingest silence became overdue. */
             bucket_ms: number;
-            /** @description The bucket's value (USD, error rate 0–1, or run count). */
+            /** @description The bucket's value: USD, a 0–1 rate or ratio, a count, latency in ms, or silent hours. */
             observed: number;
-            /** @description Baseline median the value was compared against. */
+            /** @description Baseline the value was compared against: median, prior-24h rate, 0 for a run flagged with no baseline yet, or for heartbeat the hours from the client's last activity to its first missed hour (its usual interval in hours for a client too irregular for a weekly profile). */
             expected: number;
             /** @description observed − expected. */
             deviation: number;
-            /** @description Signed robust z-score (0.6745·deviation/MAD); its sign matches direction. */
+            /** @description Signed robust z-score (0.6745·deviation/MAD) for daily metrics; for hourly metrics the signed multiple of the baseline. Its sign matches direction. */
             score: number;
             /**
              * @description Whether the value rose above or fell below the baseline.
@@ -1704,11 +2115,255 @@ export interface components {
             summary: string;
             /** @description A workflow version first seen on the anomaly's day or the day before, or null. Scope "workflow" names its own workflow's version; scope "workspace" names the version of the workflow that carried the most of the metric that day (errored runs for error_rate), and null when that workflow did not change version. A workflow's first versioned day is not a change. */
             version_change: components["schemas"]["VersionChange"] | null;
+            /** @description For scope "workflow": a response model the workflow was first answered by within the 24 hours before the anomaly's bucket, against the week before the hourly checks' range, or null. A workflow's first response model is not a change. */
+            model_change: components["schemas"]["ModelChange"] | null;
+            /** @description Sample runs behind the anomaly: the worst run for llm_calls_per_run and tool_repeat, up to 3 stuck runs for stuck_runs, and a run that returned the repeated output for duplicate_output. Empty for other metrics. */
+            trace_ids: string[];
+        };
+        Incident: {
+            id: string;
+            workspace_id: string;
+            /** @enum {string} */
+            scope: "workspace" | "workflow" | "client" | "service";
+            /** @description The workflow name, client id or service name; empty for scope workspace. */
+            subject: string;
+            /** @enum {string} */
+            status: "open" | "resolved";
+            /**
+             * @description The highest severity of its signals.
+             * @enum {string}
+             */
+            severity: "info" | "warning" | "critical";
+            /** @example sf-truncation: truncated LLM calls at 66.7% */
+            title: string;
+            /** Format: date-time */
+            opened_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: date-time */
+            resolved_at: string | null;
+            /** @description The user who resolved or muted it; empty while open or when it resolved by itself. */
+            resolved_by: string;
+            /**
+             * Format: date-time
+             * @description The last evaluation that saw a current anomaly for the subject.
+             */
+            last_signal_at: string;
+            version_change: components["schemas"]["VersionChange"] | null;
+            signals: components["schemas"]["IncidentSignal"][];
+        };
+        /** @description One anomaly bucket of the incident, as in Anomaly, or one regressed finding of a release report. */
+        IncidentSignal: {
+            /** @description An anomaly metric, or release_regression:<finding> (for example release_regression:cost_per_run) for a release report finding. */
+            metric: string;
+            bucket_ms: number;
+            observed: number;
+            expected: number;
+            score: number;
+            /** @enum {string} */
+            direction: "spike" | "drop";
+            /** @enum {string} */
+            severity: "info" | "warning" | "critical";
+            summary: string;
+            /** @description Up to three example runs from the signal's bucket. Empty for runs and heartbeat. */
+            trace_ids: string[];
+        };
+        IncidentBacktest: {
+            /** @enum {string} */
+            range: "7d" | "30d";
+            /** @description How many incidents would have opened. */
+            incidents: number;
+            /** @description Incidents by their highest severity. */
+            by_severity: {
+                [key: string]: number;
+            };
+            /** @description Incidents by the metric of their most severe signal. */
+            by_metric: {
+                [key: string]: number;
+            };
+            /** @description The incidents, most severe first, then newest. */
+            items: components["schemas"]["IncidentBacktestItem"][];
+        };
+        IncidentBacktestItem: {
+            /** @enum {string} */
+            scope: "workspace" | "workflow" | "client" | "service";
+            subject: string;
+            /** @enum {string} */
+            severity: "info" | "warning" | "critical";
+            title: string;
+            /** Format: date-time */
+            opened_at: string;
+            /**
+             * Format: date-time
+             * @description Null when it would still be open.
+             */
+            resolved_at: string | null;
+            signals: number;
+            version_change: components["schemas"]["VersionChange"] | null;
+        };
+        IncidentMute: {
+            id: string;
+            workspace_id: string;
+            scope: string;
+            subject: string;
+            /** @description The muted metric; empty mutes every metric of the subject. */
+            metric: string;
+            /**
+             * Format: date-time
+             * @description When the mute ends; null mutes forever.
+             */
+            until: string | null;
+            created_by: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        PaginatedIncidentResponse: {
+            items: components["schemas"]["Incident"][];
+            total: number;
+            page: number;
+            page_size: number;
+            /**
+             * Format: date-time
+             * @description When the background check last finished for these workspaces (the oldest across them). Null when none has been checked yet.
+             */
+            last_evaluated_at?: string | null;
+        };
+        AlertChannel: {
+            id: string;
+            workspace_id: string;
+            /** @enum {string} */
+            kind: "slack" | "webhook" | "email";
+            name: string;
+            /** @description Comma-separated addresses for email; for slack and webhook, the URL masked as `https://host/…/…a1b2`. */
+            target: string;
+            /** @enum {string} */
+            min_severity: "warning" | "critical";
+            notify_resolved: boolean;
+            /** @description Also send a one-line notice, event `release_healthy`, when a new workflow version's first grade is ok or improved ("v42 of checkout-agent looks healthy after 30 runs."). Off by default. */
+            notify_healthy_releases: boolean;
+            enabled: boolean;
+            created_by: string;
+            /** Format: date-time */
+            created_at: string;
+            /** @description The webhook signing secret. Present only in the create response. */
+            secret?: string;
+        };
+        AlertChannelList: {
+            items: components["schemas"]["AlertChannel"][];
+            /** @description Whether this deployment can send email, so email channels can be created. */
+            email_enabled: boolean;
+        };
+        CreateAlertChannelRequest: {
+            /** @enum {string} */
+            kind: "slack" | "webhook" | "email";
+            name: string;
+            /** @description A Slack incoming webhook URL, a webhook URL, or up to 20 comma-separated email addresses. */
+            target: string;
+            /**
+             * @default warning
+             * @enum {string}
+             */
+            min_severity: "warning" | "critical";
+            /** @default true */
+            notify_resolved: boolean;
+            /**
+             * @description Also send a one-line notice, event `release_healthy`, when a new workflow version's first grade is ok or improved ("v42 of checkout-agent looks healthy after 30 runs."). Off by default.
+             * @default false
+             */
+            notify_healthy_releases: boolean;
+            /** @default true */
+            enabled: boolean;
+        };
+        UpdateAlertChannelRequest: {
+            name?: string;
+            /** @enum {string} */
+            min_severity?: "warning" | "critical";
+            notify_resolved?: boolean;
+            /** @description Also send a one-line notice, event `release_healthy`, when a new workflow version's first grade is ok or improved ("v42 of checkout-agent looks healthy after 30 runs."). Off by default. */
+            notify_healthy_releases?: boolean;
+            enabled?: boolean;
+        };
+        AlertRule: {
+            id: string;
+            workspace_id: string;
+            /** @enum {string} */
+            scope: "workspace" | "workflow" | "client";
+            /** @description The workflow name or client id, `*` for each one, empty for the workspace. */
+            subject: string;
+            /** @enum {string} */
+            period: "day" | "month";
+            threshold_usd: number;
+            enabled: boolean;
+            created_by: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        AlertRuleList: {
+            items: components["schemas"]["AlertRule"][];
+        };
+        CreateAlertRuleRequest: {
+            /** @enum {string} */
+            scope: "workspace" | "workflow" | "client";
+            /** @description Required for workflow and client; `*` for each one. Ignored for workspace. */
+            subject?: string;
+            /** @enum {string} */
+            period: "day" | "month";
+            threshold_usd: number;
+            /** @default true */
+            enabled: boolean;
+        };
+        UpdateAlertRuleRequest: {
+            threshold_usd?: number;
+            enabled?: boolean;
+        };
+        AlertTestResult: {
+            ok: boolean;
+            /** @description Why the send failed, when ok is false. */
+            error?: string;
+        };
+        AlertDelivery: {
+            incident_id: string;
+            channel_id: string;
+            channel_name: string;
+            /** @enum {string} */
+            channel_kind: "slack" | "webhook" | "email";
+            /** @enum {string} */
+            event: "opened" | "escalated" | "resolved";
+            /** @description 0 for the first delivery of this event, 1 after a reopen, and so on. */
+            seq: number;
+            /** Format: date-time */
+            event_at: string;
+            /** @enum {string} */
+            status: "pending" | "sent" | "failed";
+            attempts: number;
+            last_error: string;
+            /** Format: date-time */
+            next_attempt_at: string;
+            /** Format: date-time */
+            sent_at: string | null;
+        };
+        PaginatedAlertDeliveryResponse: {
+            items: components["schemas"]["AlertDelivery"][];
+            total: number;
+            page: number;
+            page_size: number;
+        };
+        PaginatedIncidentMuteResponse: {
+            items: components["schemas"]["IncidentMute"][];
+            total: number;
+            page: number;
+            page_size: number;
         };
         VersionChange: {
             workflow: string;
             version: string;
             /** @description The day the version was first seen, Unix epoch milliseconds (UTC midnight). */
+            first_seen_ms: number;
+        };
+        ModelChange: {
+            /** @description Normalized response model (gen_ai.response.model), snapshot suffix included. */
+            model: string;
+            /** @description The hour the model first answered the workflow, Unix epoch milliseconds. */
             first_seen_ms: number;
         };
         SetupIssue: {
@@ -1956,6 +2611,10 @@ export interface components {
     };
     responses: never;
     parameters: {
+        AlertWorkspaceID: string;
+        AlertChannelID: string;
+        AlertRuleID: string;
+        IncidentID: string;
         /** @description The workflow name (the trace root span name). */
         WorkflowName: string;
         /** @description Time window for the metric. Defaults to 7d. 24h is bucketed hourly; 7d/30d/90d/1y daily. Ranges longer than 30d (90d, 1y) are served from the daily rollup, so latency percentiles are not available for them. */
@@ -1990,6 +2649,8 @@ export interface operations {
                 version?: string;
                 /** @description Filter to traces that have at least one error span. */
                 has_error?: boolean;
+                /** @description Filter to traces with a span flagged as this silent failure; any matches every flag. */
+                silent_failure?: "truncated" | "refused" | "tool_error" | "any";
                 /** @description Return traces whose start_time_ms is after this ISO 8601 date-time. */
                 start_after?: string;
                 /** @description Return traces whose start_time_ms is before this ISO 8601 date-time. */
@@ -2695,6 +3356,49 @@ export interface operations {
             };
         };
     };
+    getReviewQueue: {
+        parameters: {
+            query?: {
+                /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
+                workspace_id?: components["parameters"]["WorkspaceFilter"];
+                workflow?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The queue, in review order. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewQueueItem"][];
+                };
+            };
+            /** @description limit is out of range. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Missing or invalid bearer token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     listReviewedSpans: {
         parameters: {
             query?: {
@@ -3133,6 +3837,94 @@ export interface operations {
             };
         };
     };
+    getReleaseReport: {
+        parameters: {
+            query?: {
+                /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
+                workspace_id?: components["parameters"]["WorkspaceFilter"];
+            };
+            header?: never;
+            path: {
+                /** @description The workflow name (the trace root span name). */
+                name: components["parameters"]["WorkflowName"];
+                version: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The report. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReleaseReport"];
+                };
+            };
+            /** @description The caller is not a member of workspace_id. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The version has no report in the caller's workspaces. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listReleaseReports: {
+        parameters: {
+            query?: {
+                /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
+                workspace_id?: components["parameters"]["WorkspaceFilter"];
+                status?: "pending" | "final";
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Reports ordered by created_at descending. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedReleaseReportResponse"];
+                };
+            };
+            /** @description Invalid status or limit. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The caller is not a member of workspace_id. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     getFailures: {
         parameters: {
             query?: {
@@ -3178,8 +3970,8 @@ export interface operations {
                 user_id?: components["parameters"]["UserFilter"];
                 /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
                 workspace_id?: components["parameters"]["WorkspaceFilter"];
-                /** @description Restrict to one metric. Omitted, all three are detected. */
-                metric?: "cost" | "error_rate" | "runs";
+                /** @description Restrict to one metric. Omitted, all are detected. */
+                metric?: "cost" | "error_rate" | "runs" | "latency_p95" | "truncation_rate" | "refusal_rate" | "tool_error_rate" | "llm_calls_per_run" | "tool_repeat" | "cache_hit_ratio" | "heartbeat" | "ingest_silence" | "ingest_rejected" | "missing_step" | "stuck_runs" | "context_pressure" | "model_mix" | "duplicate_output";
                 /** @description Drop anomalies below this severity. Omitted, all severities are returned. */
                 min_severity?: "info" | "warning" | "critical";
             };
@@ -3200,6 +3992,657 @@ export interface operations {
             };
             /** @description Invalid range, metric, or severity. */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listIncidents: {
+        parameters: {
+            query?: {
+                /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
+                workspace_id?: components["parameters"]["WorkspaceFilter"];
+                status?: "open" | "resolved" | "all";
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated incidents with their signals. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedIncidentResponse"];
+                };
+            };
+            /** @description Invalid status or paging parameter. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The caller is not a member of workspace_id. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    backtestIncidents: {
+        parameters: {
+            query: {
+                /** @description The workspace to replay. The caller must be a member. */
+                workspace_id: string;
+                range?: "7d" | "30d";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The incidents that would have opened. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncidentBacktest"];
+                };
+            };
+            /** @description Missing workspace_id or invalid range. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The caller is not a member of workspace_id. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The replay took longer than 60 seconds (code BACKTEST_TIMEOUT). */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getIncident: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["IncidentID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The incident with its signals. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Incident"];
+                };
+            };
+            /** @description No incident with that id in the caller's workspaces. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    resolveIncident: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["IncidentID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The resolved incident. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Incident"];
+                };
+            };
+            /** @description No incident with that id in the caller's workspaces. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    muteIncident: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["IncidentID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    duration: "24h" | "7d" | "forever";
+                    /**
+                     * @description Mute only this metric: an anomaly metric, review_accuracy, budget, one release report finding such as release_regression:truncation_rate, or release_regression for every release finding. Empty mutes every metric of the subject.
+                     * @default
+                     */
+                    metric?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The mute. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncidentMute"];
+                };
+            };
+            /** @description Invalid duration or metric. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description No incident with that id in the caller's workspaces. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listIncidentMutes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Active mutes, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedIncidentMuteResponse"];
+                };
+            };
+            /** @description The caller is not a member of the workspace. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    deleteIncidentMute: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                muteId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The caller is not a member of the workspace. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description No mute with that id in the workspace. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listIncidentDeliveries: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["IncidentID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The incident's deliveries, oldest event first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedAlertDeliveryResponse"];
+                };
+            };
+            /** @description No incident with that id in the caller's workspaces. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listAlertChannels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["AlertWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The workspace's channels. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertChannelList"];
+                };
+            };
+            /** @description The caller is not a member of the workspace. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    createAlertChannel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["AlertWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAlertChannelRequest"];
+            };
+        };
+        responses: {
+            /** @description The channel, with `secret` for webhooks. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertChannel"];
+                };
+            };
+            /** @description Invalid request (`BAD_REQUEST`), a target that is not allowed (`INVALID_TARGET`), or email delivery not configured (`EMAIL_DISABLED`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The caller does not own the workspace. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    deleteAlertChannel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["AlertWorkspaceID"];
+                channelId: components["parameters"]["AlertChannelID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The caller does not own the workspace, or no such channel. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    updateAlertChannel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["AlertWorkspaceID"];
+                channelId: components["parameters"]["AlertChannelID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateAlertChannelRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated channel. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertChannel"];
+                };
+            };
+            /** @description Invalid request. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The caller does not own the workspace, or no such channel. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    testAlertChannel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["AlertWorkspaceID"];
+                channelId: components["parameters"]["AlertChannelID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Whether the destination accepted the message. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertTestResult"];
+                };
+            };
+            /** @description The caller does not own the workspace, or no such channel. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too many test requests. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listAlertRules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["AlertWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The workspace's budget rules, oldest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertRuleList"];
+                };
+            };
+            /** @description The caller does not own the workspace. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    createAlertRule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["AlertWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAlertRuleRequest"];
+            };
+        };
+        responses: {
+            /** @description The rule. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertRule"];
+                };
+            };
+            /** @description Invalid request. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The caller does not own the workspace. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    deleteAlertRule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["AlertWorkspaceID"];
+                ruleId: components["parameters"]["AlertRuleID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The caller does not own the workspace, or no such rule. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    updateAlertRule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["AlertWorkspaceID"];
+                ruleId: components["parameters"]["AlertRuleID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateAlertRuleRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated rule. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertRule"];
+                };
+            };
+            /** @description Invalid request. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The caller does not own the workspace, or no such rule. */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

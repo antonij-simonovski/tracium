@@ -26,6 +26,7 @@ export interface RunReview {
   reviewed_by: string;
   /** 'api' when an ingest key sent the review. */
   source: 'user' | 'api';
+  reason?: string;
   created_at: string;
   updated_at: string;
   fields: ReviewField[];
@@ -39,6 +40,20 @@ export interface ReviewInput {
   /** Dotted field paths to set on the output; the rest grade as correct. */
   corrections?: Record<string, unknown>;
   note?: string;
+  /** The review queue item's reason, when reviewed from the queue. */
+  reason?: QueueReason;
+}
+
+export type QueueReason = 'incident' | 'truncated' | 'refused' | 'tool_error' | 'sample';
+
+/** An unreviewed run from the review queue. */
+export interface ReviewQueueItem {
+  trace_id: string;
+  name: string;
+  workflow_version?: string;
+  start_time_ms: number;
+  reason: QueueReason;
+  incident_id?: string;
 }
 
 export interface VersionAccuracy {

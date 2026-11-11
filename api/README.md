@@ -81,6 +81,8 @@ GET  /metrics/top-workflows  /workflows  /workflows/{name}  /failures
 GET  /metrics/workflows/{name}/versions
 GET  /metrics/model-costs  /usage-users  /usage-workflows
 GET  /metrics/attribute-keys  /usage-by-attribute        (allocate cost by any attribute)
+GET  /incidents  /incidents/{id}   POST /incidents/{id}/resolve  /incidents/{id}/mute
+GET  /workspaces/{id}/incident-mutes   DELETE /workspaces/{id}/incident-mutes/{muteId}
 POST /query   GET /query/schema   POST /mcp                (auth or read key)
 POST /mcp/{key}                                            (read key in the URL, for connectors)
 POST /oauth/register  /oauth/token                         (OAuth for MCP clients; needs PUBLIC_URL)

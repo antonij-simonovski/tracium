@@ -4,6 +4,7 @@ import { MetricsAPI } from '../api/metrics';
 import { WorkspacesAPI } from '../api/workspaces';
 import { ApiKeysAPI } from '../api/apikeys';
 import { UsersAPI } from '../api/users';
+import { IncidentsAPI } from '../api/incidents';
 import type { APIClientConfig } from '../interfaces';
 
 interface APIContextValue {
@@ -12,6 +13,7 @@ interface APIContextValue {
   workspacesAPI: WorkspacesAPI;
   apiKeysAPI: ApiKeysAPI;
   usersAPI: UsersAPI;
+  incidentsAPI: IncidentsAPI;
   // Fold into every query key so a workspace switch never serves another
   // workspace's cache and refetches with the rebuilt clients.
   workspaceId: string | undefined;
@@ -37,6 +39,7 @@ export function APIProvider({ config, children }: APIProviderProps) {
       workspacesAPI: new WorkspacesAPI(scopedConfig),
       apiKeysAPI: new ApiKeysAPI(scopedConfig),
       usersAPI: new UsersAPI(scopedConfig),
+      incidentsAPI: new IncidentsAPI(scopedConfig),
       workspaceId,
       setWorkspaceId,
     };

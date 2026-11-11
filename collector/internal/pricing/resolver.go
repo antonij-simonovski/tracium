@@ -25,3 +25,8 @@ type Resolver interface {
 	// error when the model cannot be priced.
 	Resolve(ctx context.Context, model string, usage Usage) (float64, error)
 }
+
+// Limiter is implemented by resolvers that also know model token limits.
+type Limiter interface {
+	Limits(model string) (maxInput, maxOutput int64, ok bool)
+}

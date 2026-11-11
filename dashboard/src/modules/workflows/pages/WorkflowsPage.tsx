@@ -4,6 +4,7 @@ import {
   IconArrowUp,
   IconSearch,
   LastUpdated,
+  SeverityTag,
   Sparkline,
   StatTile,
   fmtCost,
@@ -11,6 +12,7 @@ import {
   fmtMs,
   plural,
   rangeLabel,
+  type Severity,
 } from '../../../common';
 import hover from '../../../common/styles/hover.module.css';
 import type { Workflow } from '../interfaces';
@@ -23,6 +25,8 @@ export interface WorkflowsPageProps {
   setSelected: (updater: (prev: Record<string, string>) => Record<string, string>) => void;
   workspaceName?: string;
   updatedAt?: number;
+  /** Open-incident severity by workflow name. */
+  status?: Record<string, Severity>;
 }
 
 type SortKey = keyof Pick<Workflow, 'name' | 'calls' | 'cost' | 'avg_latency_ms' | 'error_rate'>;
@@ -69,7 +73,7 @@ function SortHeader({
   );
 }
 
-export function WorkflowsPage({ workflows, range = '7d', setView, setSelected, workspaceName, updatedAt }: WorkflowsPageProps) {
+export function WorkflowsPage({ workflows, range = '7d', setView, setSelected, workspaceName, updatedAt, status = {} }: WorkflowsPageProps) {
   const [sortKey, setSortKey] = useState<SortKey>('calls');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [q, setQ] = useState('');
@@ -209,6 +213,7 @@ export function WorkflowsPage({ workflows, range = '7d', setView, setSelected, w
               key={a.name}
               workflow={a}
               isLast={i === filtered.length - 1}
+              severity={status[a.name]}
               onOpen={() => openWorkflow(a)}
             />
           ))
@@ -218,7 +223,7 @@ export function WorkflowsPage({ workflows, range = '7d', setView, setSelected, w
   );
 }
 
-function WorkflowRow({ workflow: a, isLast, onOpen }: { workflow: Workflow; isLast: boolean; onOpen: () => void }) {
+function WorkflowRow({ workflow: a, isLast, severity, onOpen }: { workflow: Workflow; isLast: boolean; severity?: Severity; onOpen: () => void }) {
   const errColor =
     a.error_rate > ERR_BAD ? 'var(--error)' : a.error_rate > ERR_WARN ? 'var(--warning)' : 'var(--muted)';
 
@@ -241,7 +246,10 @@ function WorkflowRow({ workflow: a, isLast, onOpen }: { workflow: Workflow; isLa
           : '1px solid color-mix(in srgb, var(--border) 55%, transparent)',
       }}
     >
-      <span style={{ fontSize: 14.5, fontWeight: 500, color: 'var(--foreground)' }}>{a.name}</span>
+      <span style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '2px 10px', minWidth: 0 }}>
+        <span style={{ fontSize: 14.5, fontWeight: 500, color: 'var(--foreground)' }}>{a.name}</span>
+        {severity && <SeverityTag severity={severity} compact />}
+      </span>
       <Sparkline data={a.trend} width={140} height={26} color="var(--accent)" fillOpacity={0.1} />
       <span style={{ fontSize: 14, fontVariantNumeric: 'tabular-nums', textAlign: 'right', color: 'var(--foreground)' }}>
         {fmtNum(a.calls)}

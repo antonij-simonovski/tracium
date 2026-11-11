@@ -3,6 +3,7 @@ package query
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tracium/api/internal/model"
 )
@@ -148,5 +149,109 @@ func TestAttachVersionChanges(t *testing.T) {
 	}
 	if in[0].Summary != "x. Started near planner v2 (first seen 1970-01-11)." {
 		t.Errorf("summary = %q", in[0].Summary)
+	}
+}
+
+func TestUncoveredWorkspace(t *testing.T) {
+	ws := []model.Anomaly{
+		{Metric: "runs", Scope: "workspace", BucketMs: 1, Deviation: 100},
+		{Metric: "latency_p95", Scope: "workspace", BucketMs: 1, Deviation: 1000},
+		{Metric: "cost", Scope: "workspace", BucketMs: 1, Deviation: 10},
+	}
+	wf := []model.Anomaly{
+		{Metric: "runs", Scope: "workflow", Workflow: "bad", BucketMs: 1, Deviation: 80},
+		{Metric: "latency_p95", Scope: "workflow", Workflow: "bad", BucketMs: 2, Deviation: 1000},
+		{Metric: "cost", Scope: "workflow", Workflow: "small", BucketMs: 1, Deviation: 3},
+	}
+	got := uncoveredWorkspace(ws, wf)
+	if len(got) != 2 || got[0].Metric != "latency_p95" || got[1].Metric != "cost" {
+		t.Errorf("uncoveredWorkspace = %+v, want latency_p95 (other day) and cost (workflow carries 30%%)", got)
+	}
+}
+
+func TestNewDetectorSummaries(t *testing.T) {
+	a := model.Anomaly{Metric: "missing_step", Workflow: "rag", BucketMs: 0, Observed: 0.08, Expected: 0.99}
+	if got := missingStepSummary(a, "retrieve", 2); got != `Workflow "rag": step "retrieve" ran in 8% of runs in the hour from 1970-01-01 00:00 UTC; it normally runs in 99%. 2 more steps dropped too.` {
+		t.Errorf("missing_step summary = %q", got)
+	}
+	r := model.Anomaly{Metric: "ingest_rejected", Observed: 25, Expected: 0}
+	if got := rejectedSummary(r, "invalid_timestamp"); !strings.Contains(got, "rejected 25 spans") || !strings.Contains(got, "timestamps are invalid") {
+		t.Errorf("ingest_rejected summary = %q", got)
+	}
+}
+
+func TestModelFamily(t *testing.T) {
+	same := [][2]string{
+		{"gpt-4o", "gpt-4o-2024-08-06"},
+		{"claude-3-5-sonnet-latest", "claude-3-5-sonnet-20241022"},
+		{"gpt-4", "gpt-4-0613"},
+		{"anthropic.claude-3-5-sonnet-20241022-v2:0", "anthropic.claude-3-5-sonnet"},
+		{"openai/gpt-4o-mini", "gpt-4o-mini-2024-07-18"},
+	}
+	for _, p := range same {
+		if modelFamily(p[0]) != modelFamily(p[1]) {
+			t.Errorf("%s and %s should be one family: %q vs %q", p[0], p[1], modelFamily(p[0]), modelFamily(p[1]))
+		}
+	}
+	for _, p := range [][2]string{{"gpt-4o", "gpt-4o-mini"}, {"gpt-4", "gpt-4o"}, {"claude-sonnet-4-5", "claude-haiku-4-5"}} {
+		if modelFamily(p[0]) == modelFamily(p[1]) {
+			t.Errorf("%s and %s should differ", p[0], p[1])
+		}
+	}
+}
+
+func TestAttachModelChanges(t *testing.T) {
+	const hour = 3600_000
+	changes := []modelChange{
+		{workflow: "rag", ModelChange: model.ModelChange{Model: "gpt-4o-2024-11-20", FirstSeenMs: 10 * hour}},
+	}
+	got := []model.Anomaly{
+		{Metric: "duplicate_output", Scope: "workflow", Workflow: "rag", BucketMs: 12 * hour},
+		{Metric: "duplicate_output", Scope: "workflow", Workflow: "other", BucketMs: 12 * hour},
+		{Metric: "duplicate_output", Scope: "workflow", Workflow: "rag", BucketMs: 40 * hour},
+		{Metric: "duplicate_output", Scope: "workflow", Workflow: "rag", BucketMs: 9 * hour},
+		{Metric: "runs", Scope: "workspace", BucketMs: 12 * hour},
+	}
+	attachModelChanges(got, changes)
+	if got[0].ModelChange == nil || !strings.Contains(got[0].Summary, "new response model gpt-4o-2024-11-20") {
+		t.Errorf("change 2h before = %+v", got[0])
+	}
+	for _, i := range []int{1, 2, 3, 4} {
+		if got[i].ModelChange != nil {
+			t.Errorf("anomaly %d got a model change: %+v", i, got[i])
+		}
+	}
+}
+
+func TestModelAndOutputSummaries(t *testing.T) {
+	a := model.Anomaly{Metric: "model_mix", Workflow: "rag", Observed: 0.43, Expected: 0}
+	if got := modelMixSummary(a, "gpt-4o-mini"); got != `Workflow "rag": 43.0% of LLM calls used gpt-4o-mini in the hour from 1970-01-01 00:00 UTC; it was 0.0% over the prior 24h.` {
+		t.Errorf("model_mix summary = %q", got)
+	}
+	c := model.Anomaly{Metric: "context_pressure", Workflow: "rag", Observed: 0.91, Expected: 0.62}
+	if got := contextTrendSummary(c); !strings.Contains(got, "p95 LLM call used 91.0%") || !strings.Contains(got, "62.0% a week earlier") {
+		t.Errorf("context trend summary = %q", got)
+	}
+	d := model.Anomaly{Metric: "duplicate_output", Workflow: "rag", Observed: 0.45, Expected: 0.02}
+	if got := hourlySummary(d, "t1", ""); !strings.Contains(got, "45.0% of LLM calls returned the same output for different inputs") {
+		t.Errorf("duplicate_output summary = %q", got)
+	}
+}
+
+func TestDetectSeriesSkipsDropsOnTheDayInProgress(t *testing.T) {
+	axis := make([]int64, 30)
+	by := map[int64]dailyAgg{}
+	for i := range axis {
+		axis[i] = int64(i) * day
+		by[axis[i]] = dailyAgg{runs: 1000}
+	}
+	by[axis[29]] = dailyAgg{runs: 400}
+	f := MetricsFilter{AnomalyMetric: "runs", End: time.UnixMilli(axis[29] + day/2)}
+	if got := detectSeries(f, "workspace", "", axis, by, axis[29], 0); len(got) != 0 {
+		t.Fatalf("half a day of runs is no drop: %+v", got)
+	}
+	f.End = time.UnixMilli(axis[29] + day)
+	if got := detectSeries(f, "workspace", "", axis, by, axis[29], 0); len(got) != 1 || got[0].Direction != "drop" {
+		t.Fatalf("a finished day still drops: %+v", got)
 	}
 }

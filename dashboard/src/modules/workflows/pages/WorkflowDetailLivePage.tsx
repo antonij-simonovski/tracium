@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Centered,
   Spinner,
@@ -9,7 +9,7 @@ import {
   toErrorPoints,
   isLongRange,
 } from '../../../common';
-import { toRunRow } from '../../trace-explorer';
+import { SilentFailureFilter, toRunRow, type SilentFailureValue } from '../../trace-explorer';
 import {
   useWorkflowDetail,
   useWorkflowCostSeries,
@@ -20,6 +20,7 @@ import {
 } from '../hooks/useWorkflowDetail';
 import { useWorkflowAccuracy } from '../hooks/useReviews';
 import { AccuracySection } from '../components/AccuracySection';
+import { ReviewQueue } from '../components/ReviewQueue';
 import { change, comparable, currentVersion, defaultPair, deriveRunOutcomes, fmtSeen, previousVersion, releaseMarkers } from '../utils';
 import { WorkflowDetailPage } from './WorkflowDetailPage';
 import type { MetaRowProps } from '../../../common';
@@ -32,12 +33,19 @@ interface WorkflowDetailLivePageProps {
   range: string;
   setView: (v: string) => void;
   setSelected: (updater: (prev: Record<string, string>) => Record<string, string>) => void;
+  /** Pre-selects the runs filter, e.g. from an incident's "See all flagged runs". */
+  initialFlag?: string;
 }
 
-export function WorkflowDetailLivePage({ workflowName, range, setView, setSelected }: WorkflowDetailLivePageProps) {
+export function WorkflowDetailLivePage({ workflowName, range, setView, setSelected, initialFlag }: WorkflowDetailLivePageProps) {
   // Long ranges read the daily rollup, which has no latency.
   const raw = !isLongRange(range);
   const [filter, setFilter] = useState<string | null>(null);
+  const [flag, setFlag] = useState(initialFlag ? (initialFlag as SilentFailureValue) : undefined);
+  // Consumed once, so a later visit to this workflow starts unfiltered.
+  useEffect(() => {
+    if (initialFlag !== undefined) setSelected(({ runsFlag: _, ...rest }) => rest);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const versionsQuery = useWorkflowVersions(workflowName, range);
   const versions = versionsQuery.data?.items ?? [];
   const filtered = filter ? versions.find((v) => v.version === filter) : undefined;
@@ -47,7 +55,7 @@ export function WorkflowDetailLivePage({ workflowName, range, setView, setSelect
   const cost = useWorkflowCostSeries(workflowName, range, true, version);
   const latency = useWorkflowLatencySeries(workflowName, range, raw, version);
   const errors = useWorkflowErrorSeries(workflowName, range, true, version);
-  const runs = useWorkflowRuns(workflowName, range, true, version);
+  const runs = useWorkflowRuns(workflowName, range, true, version, flag);
   const accuracy = useWorkflowAccuracy(workflowName);
 
   if (detail.isLoading) {
@@ -115,6 +123,7 @@ export function WorkflowDetailLivePage({ workflowName, range, setView, setSelect
       latencySeries={latency.data ? toLatencyPoints(latency.data.items, range) : []}
       errorSeries={errors.data ? toErrorPoints(errors.data.items, range) : []}
       runs={runs.data ? runs.data.items.map(toRunRow) : []}
+      runsFilter={<SilentFailureFilter value={flag} onChange={setFlag} />}
       markers={markers}
       versions={versioned ? versions : undefined}
       versionFilter={version ?? null}
@@ -122,7 +131,13 @@ export function WorkflowDetailLivePage({ workflowName, range, setView, setSelect
       onCompare={compare}
       defaultCompare={pair}
       accuracy={accuracy.data}
-      quality={<AccuracySection key={inView} workflow={workflowName} version={inView} versions={versions} onOpenTrace={openTrace} />}
+      quality={<>
+        <ReviewQueue workflow={workflowName} onOpen={(it) => {
+          setSelected((s) => ({ ...s, traceId: it.trace_id, queueTrace: it.trace_id, queue: workflowName, queueReason: it.reason }));
+          setView('trace');
+        }} />
+        <AccuracySection key={inView} workflow={workflowName} version={inView} versions={versions} onOpenTrace={openTrace} />
+      </>}
       costAlert={
         current && replaced && cprChange > COST_ALERT
           ? { version: current.version, from: replaced.cost_per_run, to: current.cost_per_run, change: fmtDelta(cprChange) }

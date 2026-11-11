@@ -101,3 +101,46 @@ func TestStampAvailableToolsNoToolsIsNoOp(t *testing.T) {
 		t.Error("available_tools must be absent when no tools were offered")
 	}
 }
+
+// The verdict is read from content before stripping, and a sender cannot forge it.
+func TestStampSilentFailure(t *testing.T) {
+	span := ptrace.NewSpan()
+	attrs := span.Attributes()
+	attrs.PutStr(attrModelRequest, "gpt-4o")
+	attrs.PutStr("gen_ai.completion.0.content", "I'm sorry, but I can't help with that.")
+	stampSilentFailure(span, attrMap(attrs), toSpanModel(span, pcommon.NewMap(), attrMap(attrs)))
+	if v, _ := attrs.Get(attrSilentFailure); v.AsString() != "refused" {
+		t.Errorf("silent_failure = %q, want refused", v.AsString())
+	}
+
+	healthy := ptrace.NewSpan()
+	healthy.Attributes().PutStr(attrModelRequest, "gpt-4o")
+	healthy.Attributes().PutStr(attrSilentFailure, "truncated")
+	stampSilentFailure(healthy, attrMap(healthy.Attributes()), toSpanModel(healthy, pcommon.NewMap(), attrMap(healthy.Attributes())))
+	if _, ok := healthy.Attributes().Get(attrSilentFailure); ok {
+		t.Error("sender-supplied silent_failure must be removed")
+	}
+}
+
+func TestStampContentHashes(t *testing.T) {
+	span := ptrace.NewSpan()
+	attrs := span.Attributes()
+	attrs.PutStr(attrModelRequest, "gpt-4o")
+	attrs.PutStr("gen_ai.prompt.0.content", "Summarise the attached quarterly report for the board.")
+	attrs.PutStr("gen_ai.completion.0.content", "Revenue grew eight percent while costs stayed flat this quarter.")
+	stampContentHashes(span, attrMap(attrs), toSpanModel(span, pcommon.NewMap(), attrMap(attrs)))
+	in, okIn := attrs.Get(attrInputHash)
+	out, okOut := attrs.Get(attrOutputHash)
+	if !okIn || !okOut || in.Int() == 0 || out.Int() == 0 || in.Int() == out.Int() {
+		t.Errorf("hashes = %v/%v, want two distinct non-zero values", in.AsString(), out.AsString())
+	}
+
+	tool := ptrace.NewSpan()
+	tool.Attributes().PutStr("openinference.span.kind", "TOOL")
+	tool.Attributes().PutStr("output.value", "Revenue grew eight percent while costs stayed flat this quarter.")
+	tool.Attributes().PutInt(attrOutputHash, 42)
+	stampContentHashes(tool, attrMap(tool.Attributes()), toSpanModel(tool, pcommon.NewMap(), attrMap(tool.Attributes())))
+	if _, ok := tool.Attributes().Get(attrOutputHash); ok {
+		t.Error("non-LLM span and sender-supplied hash must leave no output_hash")
+	}
+}

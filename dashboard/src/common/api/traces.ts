@@ -1,5 +1,5 @@
 import { BaseAPIClient } from './client';
-import type { PaginatedResponse, ReviewInput, RunReview } from '../interfaces';
+import type { PaginatedResponse, ReviewInput, ReviewQueueItem, RunReview } from '../interfaces';
 import type { Trace, TraceDetail, TraceFilter } from '../../modules/trace-explorer/interfaces';
 
 const reviewPath = (id: string, spanId?: string) =>
@@ -20,6 +20,10 @@ export class TracesAPI extends BaseAPIClient {
 
   saveReview(id: string, input: ReviewInput, spanId?: string): Promise<RunReview> {
     return this.put(reviewPath(id, spanId), input);
+  }
+
+  getReviewQueue(workflow?: string, limit?: number): Promise<ReviewQueueItem[]> {
+    return this.get('/reviews/queue', { workflow, limit });
   }
 
   deleteReview(id: string, spanId?: string): Promise<void> {

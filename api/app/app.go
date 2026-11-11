@@ -8,12 +8,15 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/tracium/api/extension"
+	"github.com/tracium/api/internal/alert"
 	"github.com/tracium/api/internal/apikey"
 	"github.com/tracium/api/internal/auth"
 	"github.com/tracium/api/internal/config"
 	"github.com/tracium/api/internal/handler"
+	"github.com/tracium/api/internal/incident"
 	"github.com/tracium/api/internal/oauth"
 	"github.com/tracium/api/internal/query"
+	"github.com/tracium/api/internal/release"
 	"github.com/tracium/api/internal/review"
 	"github.com/tracium/api/internal/workspace"
 	"github.com/tracium/api/migrations"
@@ -47,12 +50,17 @@ type Options struct {
 	// Invites is an optional hook called after a workspace invite is created, so
 	// the hosted service can email the link. When nil, no notification is sent.
 	Invites extension.InviteNotifier
+	// Notifier receives every incident state change. When nil, events go to the
+	// workspace's alert channels.
+	Notifier incident.Notifier
 }
 type Application struct {
-	Handler  http.Handler
-	cfg      Config
-	sessions extension.Sessions
-	close    func()
+	Handler   http.Handler
+	cfg       Config
+	sessions  extension.Sessions
+	evaluator *incident.Evaluator
+	alerts    *alert.Dispatcher
+	close     func()
 }
 
 func LoadConfig() (Config, error) {
@@ -105,7 +113,33 @@ func New(ctx context.Context, cfg Config, opts Options) (*Application, error) {
 		oauthService = oauth.NewService(oauth.NewStore(pool), apiKeyService, cfg.Server.PublicURL+"/v1/mcp")
 	}
 	health := []handler.DependencyCheck{{Name: "clickhouse", Check: repo.Ping}, {Name: "postgres", Check: pool.Ping}}
-	return &Application{cfg: cfg, sessions: service, Handler: newRouter(cfg, repo, workspaces, workspaces, users, service, service, apiKeyService, health, opts, oauthService, review.NewStore(pool)), close: func() { pool.Close(); repo.Close() }}, nil
+	incidents := incident.NewStore(pool)
+	reports := release.NewStore(pool)
+	reviews := review.NewStore(pool)
+	alertStore := alert.NewStore(pool)
+	alertOpts := alert.DefaultOptions()
+	alertOpts.AllowPrivateURLs, alertOpts.PublicURL = cfg.Alerts.AllowPrivateURLs, cfg.Server.PublicURL
+	_, mailOff := opts.Mail.(extension.DisabledMailer)
+	alertOpts.EmailEnabled = !mailOff
+	alerts := alert.NewDispatcher(alertStore, alert.NewSenders(opts.Mail, alertOpts), alertOpts)
+	if opts.Notifier == nil {
+		opts.Notifier = alerts
+	}
+	var evaluator *incident.Evaluator
+	if *cfg.Detection.Enabled {
+		fold := incident.DefaultOptions()
+		fold.MinSeverity = cfg.Detection.MinSeverity
+		evaluator = incident.NewEvaluator(repo, incidents, incidents, workspaces, opts.Notifier, incident.Config{
+			Interval: time.Duration(cfg.Detection.IntervalSeconds) * time.Second,
+			Timeout:  time.Duration(cfg.Storage.QueryTimeout) * time.Second,
+			Fold:     fold,
+		}, release.NewTracker(repo, reports, alerts, release.DefaultOptions()), review.NewAccuracyWatch(reviews, reports, review.DefaultAccuracyOptions()),
+			alert.NewBudgets(alertStore, repo, alert.DefaultBudgetOptions()))
+	}
+	alertHandler := handler.NewAlertHandler(alertStore, alertStore, alerts, incidents, workspaces, workspaces)
+	return &Application{cfg: cfg, sessions: service, evaluator: evaluator, alerts: alerts,
+		Handler: newRouter(cfg, repo, workspaces, workspaces, users, service, service, apiKeyService, health, opts, oauthService, reviews, incidents, reports, alertHandler),
+		close:   func() { pool.Close(); repo.Close() }}, nil
 }
 
 var extensionName = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
@@ -147,6 +181,16 @@ func (a *Application) Run(ctx context.Context) error {
 		WriteTimeout: time.Duration(a.cfg.Server.WriteTimeoutSeconds) * time.Second}
 	done := make(chan error, 1)
 	go func() { done <- srv.ListenAndServe() }()
+	if a.evaluator != nil {
+		evalCtx, stopEval := context.WithCancel(ctx)
+		evaluated := make(chan struct{})
+		go func() { a.evaluator.Run(evalCtx); close(evaluated) }()
+		defer func() { stopEval(); <-evaluated }()
+	}
+	alertCtx, stopAlerts := context.WithCancel(ctx)
+	flushed := make(chan struct{})
+	go func() { a.alerts.Run(alertCtx); close(flushed) }()
+	defer func() { stopAlerts(); <-flushed }()
 	select {
 	case err := <-done:
 		return err

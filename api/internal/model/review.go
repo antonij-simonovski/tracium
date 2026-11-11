@@ -27,6 +27,7 @@ type Review struct {
 	Note            string        `json:"note"`
 	ReviewedBy      string        `json:"reviewed_by"`
 	Source          string        `json:"source"`
+	Reason          string        `json:"reason"`
 	CreatedAt       time.Time     `json:"created_at"`
 	UpdatedAt       time.Time     `json:"updated_at"`
 	Fields          []ReviewField `json:"fields"`
@@ -66,4 +67,12 @@ type FieldAccuracy struct {
 	Wrong    int64   `json:"wrong"`
 	Missing  int64   `json:"missing"`
 	Accuracy float64 `json:"accuracy"`
+}
+
+// QueueItem is a run waiting for review and why it is in the queue: incident,
+// truncated, refused, tool_error or sample.
+type QueueItem struct {
+	Trace
+	Reason     string `json:"reason"`
+	IncidentID string `json:"incident_id,omitempty"`
 }

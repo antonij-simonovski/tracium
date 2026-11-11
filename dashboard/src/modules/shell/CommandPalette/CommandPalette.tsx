@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import {
   IconHome,
+  IconAlert,
   IconWorkflows,
   IconUsers,
   IconUsage,
@@ -26,6 +27,7 @@ interface CommandPaletteProps {
 
 const CMD_ITEMS: CmdItemData[] = [
   { label: 'Overview', icon: <IconHome size={14} />, action: { view: 'overview' } },
+  { label: 'Incidents', icon: <IconAlert size={14} />, action: { view: 'incidents' } },
   { label: 'Workflows', icon: <IconWorkflows size={14} />, action: { view: 'workflows' } },
   { label: 'Usage', icon: <IconUsage size={14} />, action: { view: 'usage' } },
   { label: 'Clients', icon: <IconUsers size={14} />, action: { view: 'users' } },

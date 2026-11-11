@@ -1,4 +1,6 @@
 import { useQuery, type Query } from '@tanstack/react-query';
+import { APIError } from '../../../common/api/client';
+import type { TraceFilter } from '../../trace-explorer/interfaces';
 import { useAPIClient } from '../../../common/providers/APIProvider';
 
 // Same 1-minute refresh grid as the workflows list.
@@ -33,6 +35,16 @@ export function useWorkflowVersions(name: string, range: string) {
     queryKey: ['workflows', 'versions', workspaceId, name, range],
     queryFn: () => metricsAPI.getWorkflowVersions(name, range),
     ...shared(workspaceId, name, true),
+  });
+}
+
+// A version with no report answers 404, which resolves to null.
+export function useReleaseReport(name: string, version: string) {
+  const { metricsAPI, workspaceId } = useAPIClient();
+  return useQuery({
+    queryKey: ['workflows', 'release-report', workspaceId, name, version],
+    queryFn: () => metricsAPI.getReleaseReport(name, version).catch((e) => (e instanceof APIError && e.isNotFound ? null : Promise.reject(e))),
+    ...shared(workspaceId, name, !!version),
   });
 }
 
@@ -72,11 +84,11 @@ export function useWorkflowErrorSeries(name: string, range: string, enabled = tr
   });
 }
 
-export function useWorkflowRuns(name: string, range: string, enabled = true, version?: string) {
+export function useWorkflowRuns(name: string, range: string, enabled = true, version?: string, silentFailure?: TraceFilter['silent_failure']) {
   const { tracesAPI, workspaceId } = useAPIClient();
   return useQuery({
-    queryKey: ['workflows', 'runs', workspaceId, name, range, version],
-    queryFn: () => tracesAPI.listTraces({ workflow: name, version, range, page_size: WORKFLOW_RUNS_PAGE_SIZE }),
+    queryKey: ['workflows', 'runs', workspaceId, name, range, version, silentFailure],
+    queryFn: () => tracesAPI.listTraces({ workflow: name, version, range, silent_failure: silentFailure, page_size: WORKFLOW_RUNS_PAGE_SIZE }),
     ...shared(workspaceId, name, enabled),
   });
 }

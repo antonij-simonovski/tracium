@@ -55,6 +55,14 @@ spec:
               value: ":{{ .Values.api.service.port }}"
             - name: CONFIG_FILE
               value: /etc/tracium/api.yaml
+            - name: DETECTION_ENABLED
+              value: {{ .Values.api.detection.enabled | quote }}
+            - name: DETECTION_INTERVAL_SECONDS
+              value: {{ .Values.api.detection.intervalSeconds | int | quote }}
+            - name: DETECTION_MIN_SEVERITY
+              value: {{ .Values.api.detection.minSeverity | quote }}
+            - name: ALERTS_ALLOW_PRIVATE_URLS
+              value: {{ .Values.api.alerts.allowPrivateURLs | quote }}
           readinessProbe:
             httpGet:
               path: /v1/ready

@@ -53,6 +53,12 @@ paths:
           description: Filter to traces that have at least one error span.
           schema:
             type: boolean
+        - name: silent_failure
+          in: query
+          description: Filter to traces with a span flagged as this silent failure; any matches every flag.
+          schema:
+            type: string
+            enum: [truncated, refused, tool_error, any]
         - name: start_after
           in: query
           description: Return traces whose start_time_ms is after this ISO 8601 date-time.
@@ -625,6 +631,52 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /v1/reviews/queue:
+    get:
+      operationId: getReviewQueue
+      summary: Runs to review next
+      description: |
+        Unreviewed runs worth a reviewer's time: example runs of open incidents,
+        then runs with a silent-failure flag in the last 7 days. Every fifth item
+        is a random unflagged run from the last 24 hours, so accuracy is not
+        measured only on suspicious runs; either kind fills the list when the
+        other runs out.
+      tags:
+        - Reviews
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceFilter"
+        - name: workflow
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: The queue, in review order.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ReviewQueueItem"
+        "400":
+          description: limit is out of range.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Missing or invalid bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /v1/workflows/{name}/review-spans:
     get:
       operationId: listReviewedSpans
@@ -967,6 +1019,85 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /v1/metrics/workflows/{name}/versions/{version}/report:
+    get:
+      operationId: getReleaseReport
+      summary: Release report of a workflow version
+      description: >
+        The stored comparison of a new workflow version's first runs with the
+        version before it. A report is created when the version first appears,
+        pending until it has enough runs, then final with a verdict.
+      tags:
+        - Metrics
+      parameters:
+        - $ref: "#/components/parameters/WorkflowName"
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/WorkspaceFilter"
+      responses:
+        "200":
+          description: The report.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReleaseReport"
+        "403":
+          description: The caller is not a member of workspace_id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: The version has no report in the caller's workspaces.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/release-reports:
+    get:
+      operationId: listReleaseReports
+      summary: Recent release reports
+      description: Release reports in the caller's workspaces, newest first.
+      tags:
+        - Metrics
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceFilter"
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: ["pending", "final"]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: Reports ordered by created_at descending.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedReleaseReportResponse"
+        "400":
+          description: Invalid status or limit.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: The caller is not a member of workspace_id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /v1/metrics/failures:
     get:
       operationId: getFailures
@@ -999,12 +1130,14 @@ paths:
       operationId: getAnomalies
       summary: Statistical anomalies
       description: >
-        Buckets that deviated significantly from their own recent history, for
-        cost, error rate, and run volume, workspace-wide and per busy workflow.
-        Detection is daily and robust (median + MAD over a trailing 28-day
-        baseline), served entirely from the daily rollup, so a range of 7d or
-        longer is required (24h is rejected with a 400). Results are ordered most
-        severe first.
+        Buckets that deviated significantly from their own recent history.
+        Cost, error rate, run volume and p95 latency are detected daily and
+        robustly (median + MAD over a trailing 28-day baseline) from the daily
+        rollups, workspace-wide and per busy workflow, so a range of 7d or
+        longer is required (24h is rejected with a 400). Silent failures are
+        checked hourly per workflow over the last 7 days of the range, each hour
+        against the 24 before it, and clients that went quiet are checked as of
+        the end of the range. Results are ordered most severe first.
       tags:
         - Metrics
       parameters:
@@ -1013,10 +1146,10 @@ paths:
         - $ref: "#/components/parameters/WorkspaceFilter"
         - name: metric
           in: query
-          description: Restrict to one metric. Omitted, all three are detected.
+          description: Restrict to one metric. Omitted, all are detected.
           schema:
             type: string
-            enum: ["cost", "error_rate", "runs"]
+            enum: ["cost", "error_rate", "runs", "latency_p95", "truncation_rate", "refusal_rate", "tool_error_rate", "llm_calls_per_run", "tool_repeat", "cache_hit_ratio", "heartbeat", "ingest_silence", "ingest_rejected", "missing_step", "stuck_runs", "context_pressure", "model_mix", "duplicate_output"]
         - name: min_severity
           in: query
           description: Drop anomalies below this severity. Omitted, all severities are returned.
@@ -1032,6 +1165,546 @@ paths:
                 $ref: "#/components/schemas/PaginatedAnomalyResponse"
         "400":
           description: Invalid range, metric, or severity.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/incidents:
+    get:
+      operationId: listIncidents
+      summary: List incidents
+      description: >
+        Incidents opened by the background evaluator, which groups current
+        anomalies by subject (a workflow, a client or the workspace) every few
+        minutes. Open incidents come first, then newest first.
+      tags: [Incidents]
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceFilter"
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: ["open", "resolved", "all"]
+            default: all
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: Paginated incidents with their signals.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedIncidentResponse"
+        "400":
+          description: Invalid status or paging parameter.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: The caller is not a member of workspace_id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/incidents/backtest:
+    get:
+      operationId: backtestIncidents
+      summary: What Tracium would have alerted on
+      description: >
+        Replays detection over a past range, hour by hour, through the same
+        rules the background evaluator uses, from an empty state and without
+        mutes. Nothing is stored. Results are cached for an hour per workspace
+        and range; a 30d run can take several seconds.
+      tags: [Incidents]
+      parameters:
+        - name: workspace_id
+          in: query
+          required: true
+          description: The workspace to replay. The caller must be a member.
+          schema:
+            type: string
+        - name: range
+          in: query
+          schema:
+            type: string
+            enum: ["7d", "30d"]
+            default: 30d
+      responses:
+        "200":
+          description: The incidents that would have opened.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncidentBacktest"
+        "400":
+          description: Missing workspace_id or invalid range.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: The caller is not a member of workspace_id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "504":
+          description: The replay took longer than 60 seconds (code BACKTEST_TIMEOUT).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/incidents/{id}:
+    get:
+      operationId: getIncident
+      summary: Get an incident
+      tags: [Incidents]
+      parameters:
+        - $ref: "#/components/parameters/IncidentID"
+      responses:
+        "200":
+          description: The incident with its signals.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Incident"
+        "404":
+          description: No incident with that id in the caller's workspaces.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/incidents/{id}/resolve:
+    post:
+      operationId: resolveIncident
+      summary: Resolve an incident
+      description: Resolves the incident as the caller and emits a resolved event. Resolving a resolved incident changes nothing.
+      tags: [Incidents]
+      parameters:
+        - $ref: "#/components/parameters/IncidentID"
+      responses:
+        "200":
+          description: The resolved incident.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Incident"
+        "404":
+          description: No incident with that id in the caller's workspaces.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/incidents/{id}/mute:
+    post:
+      operationId: muteIncident
+      summary: Mute an incident's subject
+      description: >
+        Mutes the incident's subject, or one metric of it, so its anomalies open
+        no incident, and resolves the incident without a notification.
+      tags: [Incidents]
+      parameters:
+        - $ref: "#/components/parameters/IncidentID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [duration]
+              properties:
+                duration:
+                  type: string
+                  enum: ["24h", "7d", "forever"]
+                metric:
+                  type: string
+                  pattern: "^([a-z0-9_]+|release_regression:(error_rate|truncation_rate|refusal_rate|tool_error_rate|cost_per_run|latency_p95|llm_calls_per_run|output_tokens_per_run|cache_hit_ratio))?$"
+                  description: >
+                    Mute only this metric: an anomaly metric, review_accuracy, budget, one release report finding such as
+                    release_regression:truncation_rate, or release_regression for every release
+                    finding. Empty mutes every metric of the subject.
+                  default: ""
+      responses:
+        "201":
+          description: The mute.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncidentMute"
+        "400":
+          description: Invalid duration or metric.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: No incident with that id in the caller's workspaces.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/workspaces/{id}/incident-mutes:
+    get:
+      operationId: listIncidentMutes
+      summary: List a workspace's active mutes
+      tags: [Incidents]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Active mutes, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedIncidentMuteResponse"
+        "403":
+          description: The caller is not a member of the workspace.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/workspaces/{id}/incident-mutes/{muteId}:
+    delete:
+      operationId: deleteIncidentMute
+      summary: Remove a mute
+      tags: [Incidents]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: muteId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Removed.
+        "403":
+          description: The caller is not a member of the workspace.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: No mute with that id in the workspace.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/incidents/{id}/deliveries:
+    get:
+      operationId: listIncidentDeliveries
+      summary: Alert deliveries of an incident
+      description: One entry per event and channel, with its delivery status. Message content is not returned.
+      tags: [Alerts]
+      parameters:
+        - $ref: "#/components/parameters/IncidentID"
+      responses:
+        "200":
+          description: The incident's deliveries, oldest event first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedAlertDeliveryResponse"
+        "404":
+          description: No incident with that id in the caller's workspaces.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/workspaces/{id}/alert-channels:
+    get:
+      operationId: listAlertChannels
+      summary: List alert channels
+      description: Any member can list. Slack and webhook targets are masked.
+      tags: [Alerts]
+      parameters:
+        - $ref: "#/components/parameters/AlertWorkspaceID"
+      responses:
+        "200":
+          description: The workspace's channels.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertChannelList"
+        "403":
+          description: The caller is not a member of the workspace.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: createAlertChannel
+      summary: Create an alert channel
+      description: >
+        Owner only. When an incident opens, escalates or resolves, every enabled
+        channel whose `min_severity` the incident reaches gets one message;
+        failed sends are retried 4 times (after 30s, 2m, 10m and 1h, or the
+        destination's `Retry-After` up to 1h) on 5xx, 408, 429, timeouts and
+        connection errors. Other 4xx answers and blocked targets fail at once.
+        Slack and webhook URLs must be https and reach a public address (Slack:
+        `hooks.slack.com`) unless the deployment sets
+        `ALERTS_ALLOW_PRIVATE_URLS=true`. Email needs a deployment that sends
+        mail (`EMAIL_DISABLED` otherwise).
+
+
+        A webhook gets a JSON POST of `{version, event, incident}` with headers
+        `X-Tracium-Event`, `X-Tracium-Timestamp` (unix seconds) and
+        `X-Tracium-Signature: sha256=<hex>`, the HMAC-SHA256 of
+        `<timestamp>.<raw body>` keyed with the channel's `secret`. To verify,
+        recompute it over the raw body, compare in constant time, and reject
+        timestamps more than 5 minutes old. The secret is returned only in
+        this response. A `release_healthy` notice carries the same body with
+        an `incident` that has no `id` and severity `info`.
+      tags: [Alerts]
+      parameters:
+        - $ref: "#/components/parameters/AlertWorkspaceID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAlertChannelRequest"
+      responses:
+        "201":
+          description: The channel, with `secret` for webhooks.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertChannel"
+        "400":
+          description: >
+            Invalid request (`BAD_REQUEST`), a target that is not allowed
+            (`INVALID_TARGET`), or email delivery not configured
+            (`EMAIL_DISABLED`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: The caller does not own the workspace.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/workspaces/{id}/alert-channels/{channelId}:
+    patch:
+      operationId: updateAlertChannel
+      summary: Update an alert channel
+      description: Owner only. Fields left out keep their value. The target cannot change; create a new channel instead.
+      tags: [Alerts]
+      parameters:
+        - $ref: "#/components/parameters/AlertWorkspaceID"
+        - $ref: "#/components/parameters/AlertChannelID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAlertChannelRequest"
+      responses:
+        "200":
+          description: The updated channel.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertChannel"
+        "400":
+          description: Invalid request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: The caller does not own the workspace, or no such channel.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteAlertChannel
+      summary: Delete an alert channel
+      description: Owner only. Its queued deliveries are dropped.
+      tags: [Alerts]
+      parameters:
+        - $ref: "#/components/parameters/AlertWorkspaceID"
+        - $ref: "#/components/parameters/AlertChannelID"
+      responses:
+        "204":
+          description: Deleted.
+        "404":
+          description: The caller does not own the workspace, or no such channel.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/workspaces/{id}/alert-channels/{channelId}/test:
+    post:
+      operationId: testAlertChannel
+      summary: Send a test alert
+      description: Owner only. Sends a sample message now, without retries, and reports the outcome. Limited to 10 requests a minute per account.
+      tags: [Alerts]
+      parameters:
+        - $ref: "#/components/parameters/AlertWorkspaceID"
+        - $ref: "#/components/parameters/AlertChannelID"
+      responses:
+        "200":
+          description: Whether the destination accepted the message.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertTestResult"
+        "404":
+          description: The caller does not own the workspace, or no such channel.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too many test requests.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/workspaces/{id}/alert-rules:
+    get:
+      operationId: listAlertRules
+      summary: List budget rules
+      description: Owner only.
+      tags: [Alerts]
+      parameters:
+        - $ref: "#/components/parameters/AlertWorkspaceID"
+      responses:
+        "200":
+          description: The workspace's budget rules, oldest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertRuleList"
+        "404":
+          description: The caller does not own the workspace.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: createAlertRule
+      summary: Create a budget rule
+      description: >
+        Owner only. A fixed cost limit for the current UTC day or month, on the
+        workspace, a workflow or a client; subject `*` applies the limit to each
+        workflow or client separately. Every evaluation sums the period's cost
+        so far and adds a `budget` signal to the subject's incident: warning at
+        80% of the limit, critical at 100%, once per rule and period. The
+        incident resolves when the next period starts. Workflow cost counts
+        span cost only, like the workflow cost chart.
+      tags: [Alerts]
+      parameters:
+        - $ref: "#/components/parameters/AlertWorkspaceID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAlertRuleRequest"
+      responses:
+        "201":
+          description: The rule.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertRule"
+        "400":
+          description: Invalid request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: The caller does not own the workspace.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/workspaces/{id}/alert-rules/{ruleId}:
+    patch:
+      operationId: updateAlertRule
+      summary: Update a budget rule
+      description: Owner only. Fields left out keep their value.
+      tags: [Alerts]
+      parameters:
+        - $ref: "#/components/parameters/AlertWorkspaceID"
+        - $ref: "#/components/parameters/AlertRuleID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAlertRuleRequest"
+      responses:
+        "200":
+          description: The updated rule.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertRule"
+        "400":
+          description: Invalid request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: The caller does not own the workspace, or no such rule.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteAlertRule
+      summary: Delete a budget rule
+      description: Owner only.
+      tags: [Alerts]
+      parameters:
+        - $ref: "#/components/parameters/AlertWorkspaceID"
+        - $ref: "#/components/parameters/AlertRuleID"
+      responses:
+        "204":
+          description: Deleted.
+        "404":
+          description: The caller does not own the workspace, or no such rule.
           content:
             application/json:
               schema:
@@ -2407,6 +3080,30 @@ components:
         never authenticates ingest.
 
   parameters:
+    AlertWorkspaceID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    AlertChannelID:
+      name: channelId
+      in: path
+      required: true
+      schema:
+        type: string
+    AlertRuleID:
+      name: ruleId
+      in: path
+      required: true
+      schema:
+        type: string
+    IncidentID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
     WorkflowName:
       name: name
       in: path
@@ -2791,6 +3488,10 @@ components:
         error_message:
           type: string
           description: "Added in schema v2. Human-readable error message if the span failed."
+        silent_failure:
+          type: string
+          enum: [truncated, refused, tool_error]
+          description: The silent failure the collector flagged on this span. Omitted when none.
         kind:
           type: string
           enum: ["agent", "llm", "tool", "chain", "retriever", "embedding"]
@@ -2850,6 +3551,12 @@ components:
           type: number
           minimum: 0
           description: Sum of cost_usd across all spans in this trace.
+        silent_failures:
+          type: array
+          items:
+            type: string
+            enum: [truncated, refused, tool_error]
+          description: The distinct silent-failure flags on the trace's spans, sorted. Empty when none.
         schema_version:
           type: integer
           minimum: 1
@@ -2894,6 +3601,10 @@ components:
             Needs a JSON object output; not allowed with corrected_output.
         note:
           type: string
+        reason:
+          type: string
+          enum: [incident, truncated, refused, tool_error, sample]
+          description: The review queue item's reason, when the run is reviewed from the queue. Omitted, it is the run's silent-failure flag, if any.
 
     ReviewField:
       type: object
@@ -2916,7 +3627,7 @@ components:
 
     Review:
       type: object
-      required: [trace_id, span_id, span_name, workspace_id, workflow_name, workflow_version, verdict, output, corrected_output, note, reviewed_by, source, created_at, updated_at, fields]
+      required: [trace_id, span_id, span_name, workspace_id, workflow_name, workflow_version, verdict, output, corrected_output, note, reviewed_by, source, reason, created_at, updated_at, fields]
       properties:
         trace_id:
           type: string
@@ -2948,6 +3659,10 @@ components:
           type: string
           enum: [user, api]
           description: api when an ingest key sent the review.
+        reason:
+          type: string
+          enum: ["", incident, truncated, refused, tool_error, sample]
+          description: Why the run was reviewed. Accuracy alerts compare reviews with "" or sample, the unflagged runs, between versions.
         created_at:
           type: string
           format: date-time
@@ -2959,6 +3674,19 @@ components:
           description: Graded fields; empty unless output and correction are both JSON objects.
           items:
             $ref: "#/components/schemas/ReviewField"
+
+    ReviewQueueItem:
+      allOf:
+        - $ref: "#/components/schemas/Trace"
+        - type: object
+          required: [reason]
+          properties:
+            reason:
+              type: string
+              enum: [incident, truncated, refused, tool_error, sample]
+            incident_id:
+              type: string
+              description: The open incident the run is an example of; set when reason is incident.
 
     ReviewedSpan:
       type: object
@@ -3410,6 +4138,87 @@ components:
           type: number
           minimum: 0
           description: Mean input plus output tokens per run.
+        report_verdict:
+          type: string
+          enum: ["pending", "ok", "improved", "regressed", "insufficient"]
+          description: The version's release report verdict, or pending while it gathers runs. Absent when the version has no report.
+
+    ReleaseFinding:
+      type: object
+      required: [metric, prev, next, verdict, severity]
+      properties:
+        metric:
+          type: string
+          enum: ["error_rate", "truncation_rate", "refusal_rate", "tool_error_rate", "cost_per_run", "latency_p95", "llm_calls_per_run", "output_tokens_per_run", "cache_hit_ratio"]
+        prev:
+          type: number
+          description: The previous version's value; rates and cache_hit_ratio are fractions, cost in USD, latency in ms.
+        next:
+          type: number
+          description: The new version's value, in the same unit.
+        verdict:
+          type: string
+          enum: ["regressed", "improved", "same"]
+        severity:
+          type: string
+          enum: ["", "info", "warning", "critical"]
+          description: Empty when the verdict is same.
+
+    ReleaseReport:
+      type: object
+      required: [workspace_id, workflow, version, prev_version, first_seen_at, status, verdict, runs, prev_runs, findings, created_at, finalized_at]
+      properties:
+        workspace_id:
+          type: string
+        workflow:
+          type: string
+        version:
+          type: string
+        prev_version:
+          type: string
+          description: The version with the most runs in the 24 hours before this one appeared.
+        first_seen_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: ["pending", "final"]
+        verdict:
+          type: string
+          enum: ["", "ok", "improved", "regressed", "insufficient"]
+          description: Empty while pending. A regressed verdict opens or extends the workflow's incident.
+        runs:
+          type: integer
+          description: Runs of the new version compared.
+        prev_runs:
+          type: integer
+          description: Runs of the previous version compared.
+        findings:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReleaseFinding"
+        created_at:
+          type: string
+          format: date-time
+        finalized_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    PaginatedReleaseReportResponse:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReleaseReport"
+        total:
+          type: integer
+        page:
+          type: integer
+        page_size:
+          type: integer
 
     Failure:
       type: object
@@ -3560,6 +4369,8 @@ components:
         - metric
         - scope
         - workflow
+        - client
+        - service
         - bucket_ms
         - observed
         - expected
@@ -3569,33 +4380,75 @@ components:
         - severity
         - summary
         - version_change
+        - model_change
+        - trace_ids
       properties:
         metric:
           type: string
-          enum: ["cost", "error_rate", "runs"]
-          description: The metric that deviated.
+          enum: ["cost", "error_rate", "runs", "latency_p95", "truncation_rate", "refusal_rate", "tool_error_rate", "llm_calls_per_run", "tool_repeat", "cache_hit_ratio", "heartbeat", "ingest_silence", "ingest_rejected", "missing_step", "stuck_runs", "context_pressure", "model_mix", "duplicate_output"]
+          description: >-
+            The metric that deviated. cost, error_rate, runs and latency_p95 (p95 root-span
+            duration in ms) are daily robust-z outliers. The rest are hourly checks against the
+            prior 24 hours: truncation_rate, refusal_rate and tool_error_rate (share of LLM or
+            tool calls flagged at ingest), llm_calls_per_run and tool_repeat (the worst run's
+            LLM calls against the workflow's median run, or calls of one tool against its p95
+            run; a workflow with under 20 runs in 24 hours is compared with the last 7 days,
+            and with under 5 runs there only a run of 50 LLM calls or 30 calls of one tool is
+            flagged, with expected 0), cache_hit_ratio (cache-read over input tokens) and
+            heartbeat (hours a regular client has been silent, raised once it misses 3 hours
+            of the week it is usually active in), ingest_silence (the same for a service, or the
+            whole workspace when every service stopped, from 1 missed hour for a service active in
+            20 of the 24 hours before), ingest_rejected (spans the collector rejected in the hour
+            against the prior 24-hour average, from 20 spans and 5×), missing_step (share of runs
+            that ran a step present in 90% of baseline runs, raised below 50%) and stuck_runs
+            (share of runs with spans but no root span 30 minutes after their newest span, for
+            workflows whose baseline runs have a root span 95% of the time), context_pressure
+            (share of LLM calls using 85% or more of the model's context window, from 5 calls and
+            5%, once the prior 24 hours hold 20 calls of a known window; or, without a spike, the hour's p95 context use reaching 85% from under 70% in the
+            same hour a week earlier), model_mix (share of LLM calls on a requested model that
+            held under 2% of the prior 24 hours, from 20% and 10 calls; or the share answered by
+            a model of another family than requested, snapshot suffixes ignored, from 20 answered
+            calls in the prior 24 hours) and
+            duplicate_output (share of LLM calls returning one output for inputs other than its
+            most common one, from 10 calls, 5 distinct inputs and 30%, when no output held 10%
+            over the prior 24 hours).
         scope:
           type: string
-          enum: ["workspace", "workflow"]
-          description: Whether this anomaly is workspace-wide or for one workflow.
+          enum: ["workspace", "workflow", "client", "service"]
+          description: Whether this anomaly is workspace-wide, for one workflow, for one client (heartbeat), or for one service (ingest_silence).
         workflow:
           type: string
           description: The workflow name when scope is "workflow"; empty otherwise.
+        client:
+          type: string
+          description: The client (user_id) when scope is "client"; empty otherwise.
+        service:
+          type: string
+          description: The service (service_name) when scope is "service"; empty otherwise.
         bucket_ms:
           type: integer
-          description: Anomalous day bucket, Unix epoch milliseconds (UTC midnight).
+          description: >-
+            Anomalous bucket, Unix epoch milliseconds: a UTC day for daily metrics, an hour for
+            hourly ones, and the hour a heartbeat or ingest silence became overdue.
         observed:
           type: number
-          description: The bucket's value (USD, error rate 0–1, or run count).
+          description: >-
+            The bucket's value: USD, a 0–1 rate or ratio, a count, latency in ms, or silent hours.
         expected:
           type: number
-          description: Baseline median the value was compared against.
+          description: >-
+            Baseline the value was compared against: median, prior-24h rate, 0 for a run
+            flagged with no baseline yet, or for heartbeat the hours from the client's last
+            activity to its first missed hour (its usual interval in hours for a client too
+            irregular for a weekly profile).
         deviation:
           type: number
           description: observed − expected.
         score:
           type: number
-          description: Signed robust z-score (0.6745·deviation/MAD); its sign matches direction.
+          description: >-
+            Signed robust z-score (0.6745·deviation/MAD) for daily metrics; for hourly metrics the
+            signed multiple of the baseline. Its sign matches direction.
         direction:
           type: string
           enum: ["spike", "drop"]
@@ -3616,6 +4469,438 @@ components:
             version of the workflow that carried the most of the metric that day (errored
             runs for error_rate), and null when that workflow did not change version. A
             workflow's first versioned day is not a change.
+        model_change:
+          allOf: [{ $ref: "#/components/schemas/ModelChange" }]
+          nullable: true
+          description: >-
+            For scope "workflow": a response model the workflow was first answered by within the
+            24 hours before the anomaly's bucket, against the week before the hourly checks'
+            range, or null. A workflow's first response model is not a change.
+        trace_ids:
+          type: array
+          items:
+            type: string
+          description: >-
+            Sample runs behind the anomaly: the worst run for llm_calls_per_run and
+            tool_repeat, up to 3 stuck runs for stuck_runs, and a run that returned the repeated
+            output for duplicate_output. Empty for other metrics.
+
+    Incident:
+      type: object
+      required: [id, workspace_id, scope, subject, status, severity, title, opened_at, updated_at, resolved_at, resolved_by, last_signal_at, version_change, signals]
+      properties:
+        id:
+          type: string
+        workspace_id:
+          type: string
+        scope:
+          type: string
+          enum: ["workspace", "workflow", "client", "service"]
+        subject:
+          type: string
+          description: The workflow name, client id or service name; empty for scope workspace.
+        status:
+          type: string
+          enum: ["open", "resolved"]
+        severity:
+          type: string
+          enum: ["info", "warning", "critical"]
+          description: The highest severity of its signals.
+        title:
+          type: string
+          example: "sf-truncation: truncated LLM calls at 66.7%"
+        opened_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+        resolved_by:
+          type: string
+          description: The user who resolved or muted it; empty while open or when it resolved by itself.
+        last_signal_at:
+          type: string
+          format: date-time
+          description: The last evaluation that saw a current anomaly for the subject.
+        version_change:
+          allOf:
+            - $ref: "#/components/schemas/VersionChange"
+          nullable: true
+        signals:
+          type: array
+          items:
+            $ref: "#/components/schemas/IncidentSignal"
+
+    IncidentSignal:
+      type: object
+      required: [metric, bucket_ms, observed, expected, score, direction, severity, summary, trace_ids]
+      description: One anomaly bucket of the incident, as in Anomaly, or one regressed finding of a release report.
+      properties:
+        metric:
+          type: string
+          description: An anomaly metric, or release_regression:<finding> (for example release_regression:cost_per_run) for a release report finding.
+        bucket_ms:
+          type: integer
+        observed:
+          type: number
+        expected:
+          type: number
+        score:
+          type: number
+        direction:
+          type: string
+          enum: ["spike", "drop"]
+        severity:
+          type: string
+          enum: ["info", "warning", "critical"]
+        summary:
+          type: string
+        trace_ids:
+          type: array
+          items:
+            type: string
+          description: Up to three example runs from the signal's bucket. Empty for runs and heartbeat.
+
+    IncidentBacktest:
+      type: object
+      required: [range, incidents, by_severity, by_metric, items]
+      properties:
+        range:
+          type: string
+          enum: ["7d", "30d"]
+        incidents:
+          type: integer
+          description: How many incidents would have opened.
+        by_severity:
+          type: object
+          additionalProperties:
+            type: integer
+          description: Incidents by their highest severity.
+        by_metric:
+          type: object
+          additionalProperties:
+            type: integer
+          description: Incidents by the metric of their most severe signal.
+        items:
+          type: array
+          maxItems: 50
+          description: The incidents, most severe first, then newest.
+          items:
+            $ref: "#/components/schemas/IncidentBacktestItem"
+
+    IncidentBacktestItem:
+      type: object
+      required: [scope, subject, severity, title, opened_at, resolved_at, signals, version_change]
+      properties:
+        scope:
+          type: string
+          enum: ["workspace", "workflow", "client", "service"]
+        subject:
+          type: string
+        severity:
+          type: string
+          enum: ["info", "warning", "critical"]
+        title:
+          type: string
+        opened_at:
+          type: string
+          format: date-time
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Null when it would still be open.
+        signals:
+          type: integer
+        version_change:
+          allOf:
+            - $ref: "#/components/schemas/VersionChange"
+          nullable: true
+
+    IncidentMute:
+      type: object
+      required: [id, workspace_id, scope, subject, metric, until, created_by, created_at]
+      properties:
+        id:
+          type: string
+        workspace_id:
+          type: string
+        scope:
+          type: string
+        subject:
+          type: string
+        metric:
+          type: string
+          description: The muted metric; empty mutes every metric of the subject.
+        until:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the mute ends; null mutes forever.
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    PaginatedIncidentResponse:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Incident"
+        total:
+          type: integer
+        page:
+          type: integer
+        page_size:
+          type: integer
+        last_evaluated_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the background check last finished for these workspaces (the oldest across them). Null when none has been checked yet.
+
+    AlertChannel:
+      type: object
+      required: [id, workspace_id, kind, name, target, min_severity, notify_resolved, notify_healthy_releases, enabled, created_by, created_at]
+      properties:
+        id:
+          type: string
+        workspace_id:
+          type: string
+        kind:
+          type: string
+          enum: [slack, webhook, email]
+        name:
+          type: string
+        target:
+          type: string
+          description: Comma-separated addresses for email; for slack and webhook, the URL masked as `https://host/…/…a1b2`.
+        min_severity:
+          type: string
+          enum: [warning, critical]
+        notify_resolved:
+          type: boolean
+        notify_healthy_releases:
+          type: boolean
+          description: Also send a one-line notice, event `release_healthy`, when a new workflow version's first grade is ok or improved ("v42 of checkout-agent looks healthy after 30 runs."). Off by default.
+        enabled:
+          type: boolean
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        secret:
+          type: string
+          description: The webhook signing secret. Present only in the create response.
+
+    AlertChannelList:
+      type: object
+      required: [items, email_enabled]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AlertChannel"
+        email_enabled:
+          type: boolean
+          description: Whether this deployment can send email, so email channels can be created.
+
+    CreateAlertChannelRequest:
+      type: object
+      required: [kind, name, target]
+      properties:
+        kind:
+          type: string
+          enum: [slack, webhook, email]
+        name:
+          type: string
+          maxLength: 100
+        target:
+          type: string
+          description: A Slack incoming webhook URL, a webhook URL, or up to 20 comma-separated email addresses.
+        min_severity:
+          type: string
+          enum: [warning, critical]
+          default: warning
+        notify_resolved:
+          type: boolean
+          default: true
+        notify_healthy_releases:
+          type: boolean
+          description: Also send a one-line notice, event `release_healthy`, when a new workflow version's first grade is ok or improved ("v42 of checkout-agent looks healthy after 30 runs."). Off by default.
+          default: false
+        enabled:
+          type: boolean
+          default: true
+
+    UpdateAlertChannelRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 100
+        min_severity:
+          type: string
+          enum: [warning, critical]
+        notify_resolved:
+          type: boolean
+        notify_healthy_releases:
+          type: boolean
+          description: Also send a one-line notice, event `release_healthy`, when a new workflow version's first grade is ok or improved ("v42 of checkout-agent looks healthy after 30 runs."). Off by default.
+        enabled:
+          type: boolean
+
+    AlertRule:
+      type: object
+      required: [id, workspace_id, scope, subject, period, threshold_usd, enabled, created_by, created_at]
+      properties:
+        id:
+          type: string
+        workspace_id:
+          type: string
+        scope:
+          type: string
+          enum: [workspace, workflow, client]
+        subject:
+          type: string
+          description: The workflow name or client id, `*` for each one, empty for the workspace.
+        period:
+          type: string
+          enum: [day, month]
+        threshold_usd:
+          type: number
+        enabled:
+          type: boolean
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    AlertRuleList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AlertRule"
+
+    CreateAlertRuleRequest:
+      type: object
+      required: [scope, period, threshold_usd]
+      properties:
+        scope:
+          type: string
+          enum: [workspace, workflow, client]
+        subject:
+          type: string
+          maxLength: 200
+          description: Required for workflow and client; `*` for each one. Ignored for workspace.
+        period:
+          type: string
+          enum: [day, month]
+        threshold_usd:
+          type: number
+          exclusiveMinimum: 0
+        enabled:
+          type: boolean
+          default: true
+
+    UpdateAlertRuleRequest:
+      type: object
+      properties:
+        threshold_usd:
+          type: number
+          exclusiveMinimum: 0
+        enabled:
+          type: boolean
+
+    AlertTestResult:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+        error:
+          type: string
+          description: Why the send failed, when ok is false.
+
+    AlertDelivery:
+      type: object
+      required: [incident_id, channel_id, channel_name, channel_kind, event, seq, event_at, status, attempts, last_error, next_attempt_at, sent_at]
+      properties:
+        incident_id:
+          type: string
+        channel_id:
+          type: string
+        channel_name:
+          type: string
+        channel_kind:
+          type: string
+          enum: [slack, webhook, email]
+        event:
+          type: string
+          enum: [opened, escalated, resolved]
+        seq:
+          type: integer
+          description: 0 for the first delivery of this event, 1 after a reopen, and so on.
+        event_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [pending, sent, failed]
+        attempts:
+          type: integer
+        last_error:
+          type: string
+        next_attempt_at:
+          type: string
+          format: date-time
+        sent_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    PaginatedAlertDeliveryResponse:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AlertDelivery"
+        total:
+          type: integer
+        page:
+          type: integer
+        page_size:
+          type: integer
+
+    PaginatedIncidentMuteResponse:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/IncidentMute"
+        total:
+          type: integer
+        page:
+          type: integer
+        page_size:
+          type: integer
 
     VersionChange:
       type: object
@@ -3628,6 +4913,17 @@ components:
         first_seen_ms:
           type: integer
           description: The day the version was first seen, Unix epoch milliseconds (UTC midnight).
+
+    ModelChange:
+      type: object
+      required: [model, first_seen_ms]
+      properties:
+        model:
+          type: string
+          description: Normalized response model (gen_ai.response.model), snapshot suffix included.
+        first_seen_ms:
+          type: integer
+          description: The hour the model first answered the workflow, Unix epoch milliseconds.
 
     SetupIssue:
       type: object

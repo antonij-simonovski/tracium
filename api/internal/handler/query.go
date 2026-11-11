@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/tracium/api/internal/incident"
 	"github.com/tracium/api/internal/model"
 	"github.com/tracium/api/internal/query"
 )
@@ -21,10 +22,11 @@ const maxQueryBody = 64 << 10
 // QueryHandler serves structured custom queries over the caller's own
 // telemetry, for the REST API and the MCP server alike.
 type QueryHandler struct {
-	traces  query.TraceRepository
-	metrics query.MetricsRepository
-	access  WorkspaceDirectory
-	now     func() time.Time
+	traces    query.TraceRepository
+	metrics   query.MetricsRepository
+	incidents incident.Store
+	access    WorkspaceDirectory
+	now       func() time.Time
 }
 
 // WorkspaceDirectory is WorkspaceAccess plus the workspaces' names, so an MCP
@@ -34,8 +36,8 @@ type WorkspaceDirectory interface {
 	List(ctx context.Context, userID string) ([]model.Workspace, error)
 }
 
-func NewQueryHandler(traces query.TraceRepository, metrics query.MetricsRepository, access WorkspaceDirectory) *QueryHandler {
-	return &QueryHandler{traces: traces, metrics: metrics, access: access, now: time.Now}
+func NewQueryHandler(traces query.TraceRepository, metrics query.MetricsRepository, incidents incident.Store, access WorkspaceDirectory) *QueryHandler {
+	return &QueryHandler{traces: traces, metrics: metrics, incidents: incidents, access: access, now: time.Now}
 }
 
 type queryRequest struct {

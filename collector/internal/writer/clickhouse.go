@@ -60,7 +60,13 @@ const insertQuery = `INSERT INTO tracium.spans (
 	workflow_version,
 	service_name,
 	kind,
-	attributes
+	attributes,
+	cache_read_tokens,
+	silent_failure,
+	context_ratio,
+	response_model,
+	output_hash,
+	input_hash
 )`
 
 // WriteBatch inserts all spans in a single ClickHouse batch operation.
@@ -113,6 +119,12 @@ func (w *ClickHouseWriter) WriteBatch(ctx context.Context, spans []*spanmodel.Sp
 			s.ServiceName,
 			s.Kind,
 			attributes,
+			s.CacheReadTokens,
+			s.SilentFailure,
+			s.ContextRatio,
+			s.ResponseModel,
+			s.OutputHash,
+			s.InputHash,
 		); err != nil {
 			return fmt.Errorf("clickhouse: append row for span %s: %w: %w", s.SpanID, ErrRowRejected, err)
 		}

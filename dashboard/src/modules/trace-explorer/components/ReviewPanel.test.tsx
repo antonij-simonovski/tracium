@@ -126,4 +126,17 @@ describe('review panel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Mark correct' }));
     await waitFor(() => expect(api.saveReview).toHaveBeenCalledWith('run-1', { verdict: 'correct' }, 'llm'));
   });
+
+  it('sends the queue reason and reports the save', async () => {
+    const onSaved = vi.fn();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <ReviewPanel traceId="run-1" output="hello" reason="sample" onSaved={onSaved} />
+      </QueryClientProvider>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Mark missing' }));
+    await waitFor(() => expect(api.saveReview).toHaveBeenCalledWith('run-1', { reason: 'sample', verdict: 'missing' }, undefined));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+  });
 });

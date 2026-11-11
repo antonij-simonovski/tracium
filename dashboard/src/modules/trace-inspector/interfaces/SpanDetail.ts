@@ -1,6 +1,7 @@
 import type { SpanId } from '../../../common/ids';
 import type { AvailableTool, SetupIssue } from '../../../common/interfaces';
 import type { TraceError } from './TraceError';
+import type { SilentFailure } from '../../../common';
 
 export interface SpanDetail {
   id: SpanId;
@@ -26,5 +27,6 @@ export interface SpanDetail {
   output?: string;
   availableTools?: AvailableTool[];
   setupIssues?: SetupIssue[];
+  silentFailure?: SilentFailure;
   attributes: Record<string, string | number | boolean>;
 }

@@ -75,6 +75,18 @@ export function useSetupChecks() {
   });
 }
 
+// Replays detection over the range, so it runs only once asked for; the server caches it for an hour.
+export function useIncidentBacktest(range: '7d' | '30d', enabled: boolean) {
+  const { metricsAPI, workspaceId } = useAPIClient();
+  return useQuery({
+    queryKey: ['overview', 'incident-backtest', workspaceId, range],
+    queryFn: () => metricsAPI.getIncidentBacktest(range),
+    enabled: enabled && !!workspaceId,
+    staleTime: 60 * 60 * 1000,
+    retry: false,
+  });
+}
+
 // useRecentActivity powers the live feed off the most recent traces, polling
 // every few seconds.
 export function useRecentActivity() {
@@ -83,5 +95,14 @@ export function useRecentActivity() {
     queryKey: ['overview', 'recent-activity', workspaceId],
     queryFn: () => tracesAPI.listTraces({ page_size: 15 }),
     refetchInterval: 5000,
+  });
+}
+
+export function useReleaseReports() {
+  const { metricsAPI, workspaceId } = useAPIClient();
+  return useQuery({
+    queryKey: ['overview', 'release-reports', workspaceId],
+    queryFn: () => metricsAPI.listReleaseReports(20),
+    refetchInterval: 60_000,
   });
 }
