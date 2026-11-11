@@ -150,8 +150,8 @@ func (h *IncidentHandler) Mute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	finding, isRelease := strings.CutPrefix(req.Metric, incident.ReleaseMetric+":")
-	if req.Metric != "" && !validAnomalyMetrics[req.Metric] && req.Metric != incident.ReleaseMetric && !(isRelease && anomaly.FindingMetrics[finding]) && req.Metric != incident.AccuracyMetric {
-		respondError(w, http.StatusBadRequest, "BAD_REQUEST", "metric must be empty, "+incident.ReleaseMetric+", "+incident.ReleaseMetric+":<finding>, "+incident.AccuracyMetric+" or one of "+anomalyMetricList)
+	if req.Metric != "" && req.Metric != "budget" && !validAnomalyMetrics[req.Metric] && req.Metric != incident.ReleaseMetric && !(isRelease && anomaly.FindingMetrics[finding]) && req.Metric != incident.AccuracyMetric {
+		respondError(w, http.StatusBadRequest, "BAD_REQUEST", "metric must be empty, budget, "+incident.ReleaseMetric+", "+incident.ReleaseMetric+":<finding>, "+incident.AccuracyMetric+" or one of "+anomalyMetricList)
 		return
 	}
 	inc, ok := h.get(w, r)

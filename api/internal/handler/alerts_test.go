@@ -19,7 +19,7 @@ func alertRouter(store *mocks.MockAlertStore) http.Handler {
 	opts := alert.DefaultOptions()
 	opts.AllowPrivateURLs = true
 	owners := &mocks.MockWorkspaceStore{Workspaces: []model.Workspace{{ID: "mine", UserID: "owner"}}}
-	h := NewAlertHandler(store, alert.NewDispatcher(store, nil, opts), incidentStore(), traceTestAccess{ids: []string{"mine"}}, owners)
+	h := NewAlertHandler(store, store, alert.NewDispatcher(store, nil, opts), incidentStore(), traceTestAccess{ids: []string{"mine"}}, owners)
 	r := chi.NewRouter()
 	r.Get("/v1/workspaces/{id}/alert-channels", h.List)
 	r.Post("/v1/workspaces/{id}/alert-channels", h.Create)

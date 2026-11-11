@@ -7,6 +7,9 @@ export type AlertChannelList = components['schemas']['AlertChannelList'];
 export type CreateAlertChannelInput = components['schemas']['CreateAlertChannelRequest'];
 export type UpdateAlertChannelInput = components['schemas']['UpdateAlertChannelRequest'];
 export type AlertTestResult = components['schemas']['AlertTestResult'];
+export type AlertRule = components['schemas']['AlertRule'];
+export type CreateAlertRuleInput = components['schemas']['CreateAlertRuleRequest'];
+export type UpdateAlertRuleInput = components['schemas']['UpdateAlertRuleRequest'];
 
 export interface CreateWorkspaceInput {
   name: string;
@@ -92,6 +95,22 @@ export class WorkspacesAPI extends BaseAPIClient {
 
   testAlertChannel(id: string, channelId: string): Promise<AlertTestResult> {
     return this.post<AlertTestResult>(`/workspaces/${encodeURIComponent(id)}/alert-channels/${encodeURIComponent(channelId)}/test`, {});
+  }
+
+  alertRules(id: string): Promise<{ items: AlertRule[] }> {
+    return this.get(`/workspaces/${encodeURIComponent(id)}/alert-rules`);
+  }
+
+  createAlertRule(id: string, input: CreateAlertRuleInput): Promise<AlertRule> {
+    return this.post<AlertRule>(`/workspaces/${encodeURIComponent(id)}/alert-rules`, input);
+  }
+
+  updateAlertRule(id: string, ruleId: string, input: UpdateAlertRuleInput): Promise<AlertRule> {
+    return this.patch<AlertRule>(`/workspaces/${encodeURIComponent(id)}/alert-rules/${encodeURIComponent(ruleId)}`, input);
+  }
+
+  deleteAlertRule(id: string, ruleId: string): Promise<void> {
+    return this.delete(`/workspaces/${encodeURIComponent(id)}/alert-rules/${encodeURIComponent(ruleId)}`);
   }
 
   acceptInvite(token: string): Promise<{ workspace_id: string }> {

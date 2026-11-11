@@ -44,6 +44,10 @@ func TestFold(t *testing.T) {
 	trunc := hourly("truncation_rate", "sf-truncation", "warning", 0)
 	until := now.Add(time.Hour)
 	expired := now.Add(-time.Minute)
+	day := now.Truncate(24 * time.Hour).UnixMilli()
+	budget := model.Anomaly{Metric: "budget", Scope: "workflow", Workflow: "acme", BucketMs: day, Observed: 40, Expected: 50, Severity: "warning"}
+	budgetHit := budget
+	budgetHit.Observed, budgetHit.Severity = 50, "critical"
 	cases := []struct {
 		name      string
 		anomalies []model.Anomaly
@@ -79,6 +83,15 @@ func TestFold(t *testing.T) {
 		{"yesterday's daily is current", []model.Anomaly{{Metric: "cost", Scope: "workflow", Workflow: "a", Severity: "critical",
 			BucketMs: now.Truncate(24 * time.Hour).Add(-24 * time.Hour).UnixMilli()}}, State{}, []string{"create:opened"}},
 		{"old heartbeat is current", []model.Anomaly{{Metric: "heartbeat", Scope: "client", Client: "c", Severity: "warning", BucketMs: 0}}, State{}, []string{"create:opened"}},
+		{"budget opens at warning", []model.Anomaly{budget}, State{}, []string{"create:opened"}},
+		{"budget reaching its limit escalates", []model.Anomaly{budgetHit},
+			State{Open: []Incident{openIncident("acme", "warning", now.Add(-time.Hour), budget)}}, []string{"update:escalated"}},
+		{"budget at its limit again does not repeat", []model.Anomaly{budgetHit},
+			State{Open: []Incident{openIncident("acme", "critical", now.Add(-time.Hour), budgetHit)}}, []string{"update:"}},
+		{"budget resolves when the next period starts", nil,
+			State{Open: []Incident{openIncident("acme", "critical", now.Add(-time.Minute), budgetHit)}}, []string{"resolve:resolved"}},
+		{"budget seen this period does not reopen", []model.Anomaly{budgetHit},
+			State{Resolved: []Incident{resolvedIncident("acme", time.Hour, budgetHit)}}, nil},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -131,6 +144,9 @@ func TestTitle(t *testing.T) {
 		t.Fatal(got)
 	}
 	if got := Title("client", "acme", []Signal{{Metric: "heartbeat", Observed: 5, Severity: "warning"}}); got != "acme: silent for 5h" {
+		t.Fatal(got)
+	}
+	if got := Title("client", "acme", []Signal{{Metric: "budget", Observed: 41.5, Expected: 50, Severity: "warning"}}); got != "acme: spent $41.50 of $50.00 budget" {
 		t.Fatal(got)
 	}
 	sigs = append(sigs, Signal{Metric: "cost", Observed: 12, Severity: "critical"}, Signal{Metric: "runs", Severity: "info"})

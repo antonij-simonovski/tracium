@@ -22,7 +22,7 @@ import {
 } from '../../../common';
 import { useAPIClient } from '../../../common/providers/APIProvider';
 import { ReadKeysSection } from '../../api-keys';
-import { APIError, inviteLink, type AlertChannel, type AlertTestResult, type CreatedInvite, type WorkspaceMember } from '../../../common/api';
+import { APIError, inviteLink, type AlertChannel, type AlertRule, type AlertTestResult, type CreatedInvite, type WorkspaceMember } from '../../../common/api';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 export interface WorkspaceDraft {
@@ -950,8 +950,90 @@ function AlertsView({ workspace }: { workspace: Workspace }) {
         </fieldset>
         {formError && <p role="alert" style={{ color: 'var(--error)', fontSize: 14, margin: '0 0 12px' }}>{formError}</p>}
       </form>
+      <BudgetRules workspace={workspace} />
     </>}
   </div>;
+}
+
+const SCOPE_LABEL: Record<AlertRule['scope'], string> = { workspace: 'Workspace', workflow: 'Workflow', client: 'Client' };
+
+function ruleLabel(r: AlertRule) {
+  const who = r.scope === 'workspace' ? 'Workspace' : r.subject === '*' ? `Each ${r.scope}` : `${SCOPE_LABEL[r.scope]} ${r.subject}`;
+  return `${who} · $${r.threshold_usd.toFixed(2)} per ${r.period}`;
+}
+
+function BudgetRules({ workspace }: { workspace: Workspace }) {
+  const { workspacesAPI } = useAPIClient();
+  const queryClient = useQueryClient();
+  const key = ['alert-rules', workspace.id];
+  const rules = useQuery({ queryKey: key, queryFn: () => workspacesAPI.alertRules(workspace.id) });
+  const refresh = () => void queryClient.invalidateQueries({ queryKey: key });
+
+  const [scope, setScope] = useState<AlertRule['scope']>('workspace');
+  const [subject, setSubject] = useState('');
+  const [period, setPeriod] = useState<AlertRule['period']>('day');
+  const [limit, setLimit] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const amount = Number(limit);
+  const valid = amount > 0 && Number.isFinite(amount) && (scope === 'workspace' || subject.trim() !== '');
+
+  const act = async (action: () => Promise<unknown>, fallback: string) => {
+    setBusy(true);
+    setError('');
+    try {
+      await action();
+      refresh();
+    } catch (err) {
+      setError(errorMessage(err, fallback));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const create = () => act(async () => {
+    await workspacesAPI.createAlertRule(workspace.id, { scope, subject: scope === 'workspace' ? '' : subject.trim(), period, threshold_usd: amount, enabled: true });
+    setSubject('');
+    setLimit('');
+  }, 'Could not add the budget rule.');
+
+  const meta: React.CSSProperties = { fontSize: 13, color: 'var(--muted)' };
+  return <>
+    <SectionHead title="Budget rules" hint="A fixed spend limit per UTC day or month. It warns at 80% and goes critical at 100%, once per period, through the channels above." />
+    {error && <p role="alert" style={{ color: 'var(--error)', fontSize: 14 }}>{error}</p>}
+    {rules.isError && <p role="alert" style={{ color: 'var(--error)', fontSize: 14 }}>{errorMessage(rules.error, 'Could not load budget rules.')}</p>}
+    {rules.data && rules.data.items.length > 0 && <ul aria-label="Budget rules" style={{ listStyle: 'none', margin: '0 0 8px', padding: 0 }}>
+      {rules.data.items.map(r => <li key={r.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px 24px', flexWrap: 'wrap', padding: '12px 0', borderBottom: '1px solid color-mix(in srgb, var(--border) 50%, transparent)' }}>
+        <div style={{ fontSize: 14.5, overflowWrap: 'anywhere', minWidth: 0 }}>{ruleLabel(r)}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, ...meta }}>
+            <Toggle on={r.enabled} label={`${r.enabled ? 'Disable' : 'Enable'} ${ruleLabel(r)}`} onChange={v => void act(() => workspacesAPI.updateAlertRule(workspace.id, r.id, { enabled: v }), 'Could not update the rule.')} />
+            {r.enabled ? 'On' : 'Off'}
+          </label>
+          <Btn variant="ghost" disabled={busy} title={`Delete ${ruleLabel(r)}`}
+            onClick={() => { if (window.confirm(`Delete the rule ${ruleLabel(r)}?`)) void act(() => workspacesAPI.deleteAlertRule(workspace.id, r.id), 'Could not delete the rule.'); }}>Delete</Btn>
+        </div>
+      </li>)}
+    </ul>}
+    <form onSubmit={e => { e.preventDefault(); if (valid) void create(); }} aria-busy={busy}>
+      <fieldset disabled={busy} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+        <Field label="Applies to">
+          <Segmented value={scope} onChange={v => setScope(v as AlertRule['scope'])} options={[{ id: 'workspace', label: 'Workspace' }, { id: 'workflow', label: 'Workflow' }, { id: 'client', label: 'Client' }]} />
+        </Field>
+        {scope !== 'workspace' && <Field label={scope === 'workflow' ? 'Workflow' : 'Client'} hint={`A ${scope} name, or * for each ${scope} separately.`}>
+          <Input label="Rule subject" mono value={subject} onChange={e => setSubject(e.target.value)} placeholder="*" />
+        </Field>}
+        <Field label="Period">
+          <Segmented value={period} onChange={v => setPeriod(v as AlertRule['period'])} options={[{ id: 'day', label: 'Day' }, { id: 'month', label: 'Month' }]} />
+        </Field>
+        <Field label="Limit" last
+          right={<Btn variant="primary" type="submit" disabled={busy || !valid}><IconPlus size={13} />Add rule</Btn>}>
+          <Input label="Limit in USD" type="number" prefix="$" value={limit} onChange={e => setLimit(e.target.value)} placeholder="50" />
+        </Field>
+      </fieldset>
+    </form>
+  </>;
 }
 
 type DangerVariant = 'secondary' | 'danger';

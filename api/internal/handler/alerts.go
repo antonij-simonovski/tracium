@@ -18,14 +18,15 @@ import (
 // only the owner can change or test them. URL targets are always masked.
 type AlertHandler struct {
 	store      alert.Store
+	rules      alert.RuleStore
 	dispatcher *alert.Dispatcher
 	incidents  incident.Store
 	access     WorkspaceAccess
 	owners     OwnerCheck
 }
 
-func NewAlertHandler(store alert.Store, dispatcher *alert.Dispatcher, incidents incident.Store, access WorkspaceAccess, owners OwnerCheck) *AlertHandler {
-	return &AlertHandler{store: store, dispatcher: dispatcher, incidents: incidents, access: access, owners: owners}
+func NewAlertHandler(store alert.Store, rules alert.RuleStore, dispatcher *alert.Dispatcher, incidents incident.Store, access WorkspaceAccess, owners OwnerCheck) *AlertHandler {
+	return &AlertHandler{store: store, rules: rules, dispatcher: dispatcher, incidents: incidents, access: access, owners: owners}
 }
 
 type alertChannelView struct {

@@ -1282,7 +1282,7 @@ paths:
                   type: string
                   pattern: "^([a-z0-9_]+|release_regression:(error_rate|truncation_rate|refusal_rate|tool_error_rate|cost_per_run|latency_p95|llm_calls_per_run|output_tokens_per_run|cache_hit_ratio))?$"
                   description: >
-                    Mute only this metric: an anomaly metric, review_accuracy, one release report finding such as
+                    Mute only this metric: an anomaly metric, review_accuracy, budget, one release report finding such as
                     release_regression:truncation_rate, or release_regression for every release
                     finding. Empty mutes every metric of the subject.
                   default: ""
@@ -1536,6 +1536,119 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "429":
           description: Too many test requests.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/workspaces/{id}/alert-rules:
+    get:
+      operationId: listAlertRules
+      summary: List budget rules
+      description: Owner only.
+      tags: [Alerts]
+      parameters:
+        - $ref: "#/components/parameters/AlertWorkspaceID"
+      responses:
+        "200":
+          description: The workspace's budget rules, oldest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertRuleList"
+        "404":
+          description: The caller does not own the workspace.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: createAlertRule
+      summary: Create a budget rule
+      description: >
+        Owner only. A fixed cost limit for the current UTC day or month, on the
+        workspace, a workflow or a client; subject `*` applies the limit to each
+        workflow or client separately. Every evaluation sums the period's cost
+        so far and adds a `budget` signal to the subject's incident: warning at
+        80% of the limit, critical at 100%, once per rule and period. The
+        incident resolves when the next period starts. Workflow cost counts
+        span cost only, like the workflow cost chart.
+      tags: [Alerts]
+      parameters:
+        - $ref: "#/components/parameters/AlertWorkspaceID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAlertRuleRequest"
+      responses:
+        "201":
+          description: The rule.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertRule"
+        "400":
+          description: Invalid request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: The caller does not own the workspace.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/workspaces/{id}/alert-rules/{ruleId}:
+    patch:
+      operationId: updateAlertRule
+      summary: Update a budget rule
+      description: Owner only. Fields left out keep their value.
+      tags: [Alerts]
+      parameters:
+        - $ref: "#/components/parameters/AlertWorkspaceID"
+        - $ref: "#/components/parameters/AlertRuleID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAlertRuleRequest"
+      responses:
+        "200":
+          description: The updated rule.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertRule"
+        "400":
+          description: Invalid request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: The caller does not own the workspace, or no such rule.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteAlertRule
+      summary: Delete a budget rule
+      description: Owner only.
+      tags: [Alerts]
+      parameters:
+        - $ref: "#/components/parameters/AlertWorkspaceID"
+        - $ref: "#/components/parameters/AlertRuleID"
+      responses:
+        "204":
+          description: Deleted.
+        "404":
+          description: The caller does not own the workspace, or no such rule.
           content:
             application/json:
               schema:
@@ -2919,6 +3032,12 @@ components:
         type: string
     AlertChannelID:
       name: channelId
+      in: path
+      required: true
+      schema:
+        type: string
+    AlertRuleID:
+      name: ruleId
       in: path
       required: true
       schema:
@@ -4510,6 +4629,72 @@ components:
           enum: [warning, critical]
         notify_resolved:
           type: boolean
+        enabled:
+          type: boolean
+
+    AlertRule:
+      type: object
+      required: [id, workspace_id, scope, subject, period, threshold_usd, enabled, created_by, created_at]
+      properties:
+        id:
+          type: string
+        workspace_id:
+          type: string
+        scope:
+          type: string
+          enum: [workspace, workflow, client]
+        subject:
+          type: string
+          description: The workflow name or client id, `*` for each one, empty for the workspace.
+        period:
+          type: string
+          enum: [day, month]
+        threshold_usd:
+          type: number
+        enabled:
+          type: boolean
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    AlertRuleList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AlertRule"
+
+    CreateAlertRuleRequest:
+      type: object
+      required: [scope, period, threshold_usd]
+      properties:
+        scope:
+          type: string
+          enum: [workspace, workflow, client]
+        subject:
+          type: string
+          maxLength: 200
+          description: Required for workflow and client; `*` for each one. Ignored for workspace.
+        period:
+          type: string
+          enum: [day, month]
+        threshold_usd:
+          type: number
+          exclusiveMinimum: 0
+        enabled:
+          type: boolean
+          default: true
+
+    UpdateAlertRuleRequest:
+      type: object
+      properties:
+        threshold_usd:
+          type: number
+          exclusiveMinimum: 0
         enabled:
           type: boolean
 

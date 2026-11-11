@@ -43,7 +43,7 @@ func IsReleaseMetric(metric string) bool { return strings.HasPrefix(metric, Rele
 
 // alwaysCurrent metrics describe now, and resolve as soon as they stop.
 func alwaysCurrent(metric string) bool {
-	return metric == "heartbeat" || metric == "ingest_silence" || IsReleaseMetric(metric) || metric == AccuracyMetric
+	return metric == "heartbeat" || metric == "ingest_silence" || IsReleaseMetric(metric) || metric == AccuracyMetric || metric == "budget"
 }
 
 // Current reports whether an anomaly describes the present, so it may open or
@@ -275,6 +275,8 @@ func Title(scope, subject string, signals []Signal) string {
 		title = fmt.Sprintf("%s: %s", name, headline)
 	} else if top.Metric == "heartbeat" {
 		title = fmt.Sprintf("%s: silent for %s", name, value)
+	} else if top.Metric == "budget" {
+		title = fmt.Sprintf("%s: spent $%.2f of $%.2f budget", name, top.Observed, top.Expected)
 	} else {
 		title = fmt.Sprintf("%s: %s", name, top.Metric)
 	}

@@ -700,6 +700,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/workspaces/{id}/alert-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List budget rules
+         * @description Owner only.
+         */
+        get: operations["listAlertRules"];
+        put?: never;
+        /**
+         * Create a budget rule
+         * @description Owner only. A fixed cost limit for the current UTC day or month, on the workspace, a workflow or a client; subject `*` applies the limit to each workflow or client separately. Every evaluation sums the period's cost so far and adds a `budget` signal to the subject's incident: warning at 80% of the limit, critical at 100%, once per rule and period. The incident resolves when the next period starts. Workflow cost counts span cost only, like the workflow cost chart.
+         */
+        post: operations["createAlertRule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspaces/{id}/alert-rules/{ruleId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a budget rule
+         * @description Owner only.
+         */
+        delete: operations["deleteAlertRule"];
+        options?: never;
+        head?: never;
+        /**
+         * Update a budget rule
+         * @description Owner only. Fields left out keep their value.
+         */
+        patch: operations["updateAlertRule"];
+        trace?: never;
+    };
     "/v1/metrics/setup-checks": {
         parameters: {
             query?: never;
@@ -2168,6 +2216,39 @@ export interface components {
             notify_resolved?: boolean;
             enabled?: boolean;
         };
+        AlertRule: {
+            id: string;
+            workspace_id: string;
+            /** @enum {string} */
+            scope: "workspace" | "workflow" | "client";
+            /** @description The workflow name or client id, `*` for each one, empty for the workspace. */
+            subject: string;
+            /** @enum {string} */
+            period: "day" | "month";
+            threshold_usd: number;
+            enabled: boolean;
+            created_by: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        AlertRuleList: {
+            items: components["schemas"]["AlertRule"][];
+        };
+        CreateAlertRuleRequest: {
+            /** @enum {string} */
+            scope: "workspace" | "workflow" | "client";
+            /** @description Required for workflow and client; `*` for each one. Ignored for workspace. */
+            subject?: string;
+            /** @enum {string} */
+            period: "day" | "month";
+            threshold_usd: number;
+            /** @default true */
+            enabled: boolean;
+        };
+        UpdateAlertRuleRequest: {
+            threshold_usd?: number;
+            enabled?: boolean;
+        };
         AlertTestResult: {
             ok: boolean;
             /** @description Why the send failed, when ok is false. */
@@ -2465,6 +2546,7 @@ export interface components {
     parameters: {
         AlertWorkspaceID: string;
         AlertChannelID: string;
+        AlertRuleID: string;
         IncidentID: string;
         /** @description The workflow name (the trace root span name). */
         WorkflowName: string;
@@ -3971,7 +4053,7 @@ export interface operations {
                     /** @enum {string} */
                     duration: "24h" | "7d" | "forever";
                     /**
-                     * @description Mute only this metric: an anomaly metric, review_accuracy, one release report finding such as release_regression:truncation_rate, or release_regression for every release finding. Empty mutes every metric of the subject.
+                     * @description Mute only this metric: an anomaly metric, review_accuracy, budget, one release report finding such as release_regression:truncation_rate, or release_regression for every release finding. Empty mutes every metric of the subject.
                      * @default
                      */
                     metric?: string;
@@ -4291,6 +4373,156 @@ export interface operations {
             };
             /** @description Too many test requests. */
             429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listAlertRules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["AlertWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The workspace's budget rules, oldest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertRuleList"];
+                };
+            };
+            /** @description The caller does not own the workspace. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    createAlertRule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["AlertWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAlertRuleRequest"];
+            };
+        };
+        responses: {
+            /** @description The rule. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertRule"];
+                };
+            };
+            /** @description Invalid request. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The caller does not own the workspace. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    deleteAlertRule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["AlertWorkspaceID"];
+                ruleId: components["parameters"]["AlertRuleID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The caller does not own the workspace, or no such rule. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    updateAlertRule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["AlertWorkspaceID"];
+                ruleId: components["parameters"]["AlertRuleID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateAlertRuleRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated rule. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertRule"];
+                };
+            };
+            /** @description Invalid request. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The caller does not own the workspace, or no such rule. */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
