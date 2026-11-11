@@ -94,8 +94,9 @@ type Store interface {
 	// subject already has an open incident, the signals join it instead,
 	// inc.ID is set to it, and created is false.
 	Create(ctx context.Context, inc *Incident) (created bool, err error)
-	// Update writes the incident's status, severity, title and times, and upserts signals.
-	Update(ctx context.Context, inc Incident, signals []Signal) error
+	// Update writes the incident's status, severity, title and times, and upserts
+	// signals, if its stored status is still from; ErrNotFound otherwise.
+	Update(ctx context.Context, inc Incident, from Status, signals []Signal) error
 	// Resolve resolves an open incident; ErrNotFound when it is not open.
 	Resolve(ctx context.Context, id string, at time.Time, by string) error
 	List(ctx context.Context, workspaceIDs []string, status Status, page, pageSize int) ([]Incident, int, error)

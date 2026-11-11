@@ -62,10 +62,12 @@ func (m *MockIncidentStore) Create(_ context.Context, inc *incident.Incident) (b
 	return true, nil
 }
 
-func (m *MockIncidentStore) Update(_ context.Context, inc incident.Incident, _ []incident.Signal) error {
-	if p := m.find(inc.ID); p != nil {
-		*p = inc
+func (m *MockIncidentStore) Update(_ context.Context, inc incident.Incident, from incident.Status, _ []incident.Signal) error {
+	p := m.find(inc.ID)
+	if p == nil || p.Status != from {
+		return incident.ErrNotFound
 	}
+	*p = inc
 	return m.Err
 }
 

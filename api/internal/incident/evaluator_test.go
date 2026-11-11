@@ -195,3 +195,35 @@ func TestEvaluatorFoldsSourceSignals(t *testing.T) {
 		t.Fatalf("source signal not folded: %+v", store.Incidents)
 	}
 }
+
+// resolvingDetector stands in for a user resolving the incident while a tick samples a new signal.
+type resolvingDetector struct {
+	*fakeDetector
+	store *mocks.MockIncidentStore
+}
+
+func (d resolvingDetector) SignalSamples(ctx context.Context, f query.MetricsFilter, metric string, b int64, n int) ([]string, error) {
+	for _, inc := range d.store.Incidents {
+		_ = d.store.Resolve(ctx, inc.ID, time.Now(), "user")
+	}
+	return d.fakeDetector.SignalSamples(ctx, f, metric, b, n)
+}
+
+func TestEvaluatorLeavesAUserResolveAlone(t *testing.T) {
+	det := &fakeDetector{anomalies: map[string][]model.Anomaly{"a": {truncation()}}}
+	store := &mocks.MockIncidentStore{}
+	rec := &recorder{}
+	if err := incident.NewEvaluator(det, store, freeLock{}, workspaces{"a"}, rec, config()).Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	next := truncation()
+	next.BucketMs += time.Hour.Milliseconds()
+	next.Severity = "critical"
+	det.anomalies["a"] = append(det.anomalies["a"], next)
+	if err := incident.NewEvaluator(resolvingDetector{det, store}, store, freeLock{}, workspaces{"a"}, rec, config()).Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if store.Incidents[0].Status != incident.StatusResolved || len(rec.events) != 1 {
+		t.Fatalf("the tick overwrote the resolve: %+v, events %+v", store.Incidents[0], rec.events)
+	}
+}

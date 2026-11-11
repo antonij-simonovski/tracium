@@ -156,16 +156,20 @@ func (s *PostgresStore) Create(ctx context.Context, inc *Incident) (bool, error)
 	return created, nil
 }
 
-func (s *PostgresStore) Update(ctx context.Context, inc Incident, signals []Signal) error {
+func (s *PostgresStore) Update(ctx context.Context, inc Incident, from Status, signals []Signal) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("postgres: begin incident: %w", err)
 	}
 	defer tx.Rollback(context.Background())
-	if _, err := tx.Exec(ctx, `UPDATE incidents SET status = $2, severity = $3, title = $4, version_change = $5,
-		updated_at = $6, last_signal_at = $7, resolved_at = $8, resolved_by = $9 WHERE id = $1`,
-		inc.ID, inc.Status, inc.Severity, inc.Title, inc.VersionChange, inc.UpdatedAt, inc.LastSignalAt, inc.ResolvedAt, inc.ResolvedBy); err != nil {
+	tag, err := tx.Exec(ctx, `UPDATE incidents SET status = $2, severity = $3, title = $4, version_change = $5,
+		updated_at = $6, last_signal_at = $7, resolved_at = $8, resolved_by = $9 WHERE id = $1 AND status = $10`,
+		inc.ID, inc.Status, inc.Severity, inc.Title, inc.VersionChange, inc.UpdatedAt, inc.LastSignalAt, inc.ResolvedAt, inc.ResolvedBy, from)
+	if err != nil {
 		return fmt.Errorf("postgres: update incident: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
 	}
 	if err := upsertSignals(ctx, tx, inc.ID, signals); err != nil {
 		return err

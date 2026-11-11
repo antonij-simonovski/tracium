@@ -63,7 +63,7 @@ func TestStore(t *testing.T) {
 		t.Fatalf("unexpected incident %+v", inc)
 	}
 	inc.Severity = "critical"
-	if err := s.Update(ctx, *inc, []incident.Signal{
+	if err := s.Update(ctx, *inc, incident.StatusOpen, []incident.Signal{
 		{Metric: "truncation_rate", BucketMs: 1, Severity: "critical", Observed: 0.9},
 		{Metric: "refusal_rate", BucketMs: 1, Severity: "warning"},
 	}); err != nil {
@@ -97,6 +97,9 @@ func TestStore(t *testing.T) {
 	}
 	if err := s.Resolve(ctx, ids[0], at, "u"); !errors.Is(err, incident.ErrNotFound) {
 		t.Fatalf("second resolve: %v", err)
+	}
+	if err := s.Update(ctx, *inc, incident.StatusOpen, nil); !errors.Is(err, incident.ErrNotFound) {
+		t.Fatalf("an update over a user's resolve: %v", err)
 	}
 	page, total, err := s.List(ctx, []string{"ws-1"}, "", 1, 3)
 	if err != nil || total != 4 || len(page) != 3 || page[0].Status != incident.StatusOpen {

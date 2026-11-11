@@ -210,6 +210,15 @@ func (e *Evaluator) apply(ctx context.Context, c *Change) (notify bool, err erro
 		}
 		return err == nil, err
 	default:
-		return true, e.store.Update(ctx, c.Incident, c.Signals)
+		// A user may resolve or mute the incident while the tick runs; their change wins.
+		from := StatusOpen
+		if c.Kind == ChangeReopen {
+			from = StatusResolved
+		}
+		err := e.store.Update(ctx, c.Incident, from, c.Signals)
+		if errors.Is(err, ErrNotFound) {
+			return false, nil
+		}
+		return err == nil, err
 	}
 }
