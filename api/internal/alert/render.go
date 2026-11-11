@@ -122,7 +122,10 @@ func Render(e incident.Event, workspace, publicURL string) Message {
 	}
 	if vc := inc.VersionChange; vc != nil && len(signals) > 0 {
 		seenAt := time.UnixMilli(vc.FirstSeenMs).UTC()
-		if gap := time.UnixMilli(first).Sub(seenAt); gap >= 0 {
+		// Anomaly version changes come from the daily rollup, so only the day is known.
+		if seenAt.Equal(seenAt.Truncate(24 * time.Hour)) {
+			m.Cause = fmt.Sprintf("Likely cause: version %s, first seen %s.", vc.Version, seenAt.Format("Jan 2"))
+		} else if gap := time.UnixMilli(first).Sub(seenAt); gap >= 0 {
 			m.Cause = fmt.Sprintf("Likely cause: version %s first seen %s, %s before the first signal.", vc.Version, seenAt.Format("Jan 2 15:04 UTC"), span(gap))
 		} else {
 			m.Cause = fmt.Sprintf("Version %s first seen %s, %s after the first signal.", vc.Version, seenAt.Format("Jan 2 15:04 UTC"), span(-gap))

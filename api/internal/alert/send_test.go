@@ -204,6 +204,10 @@ func TestRenderText(t *testing.T) {
 	if m := Render(incident.Event{Type: incident.EventOpened, Incident: incident.Incident{Signals: daily}}, "", ""); len(m.Lines) != 1 || m.Lines[0] != "day 2" || len(m.Incident.Signals) != 2 {
 		t.Fatalf("one line per metric, payload keeps every bucket: %+v", m)
 	}
+	dayOnly := incident.Incident{Signals: daily, VersionChange: &model.VersionChange{Version: "v3", FirstSeenMs: time.Date(2026, 11, 11, 0, 0, 0, 0, time.UTC).UnixMilli()}}
+	if m := Render(incident.Event{Type: incident.EventOpened, Incident: dayOnly}, "", ""); m.Cause != "Likely cause: version v3, first seen Nov 11." {
+		t.Fatalf("a day-precise version change claims a gap: %q", m.Cause)
+	}
 	resolved := at.Add(2*time.Hour + 10*time.Minute)
 	m = Render(incident.Event{Type: incident.EventResolved, Incident: incident.Incident{Title: "x", OpenedAt: at, ResolvedAt: &resolved}}, "", "")
 	if m.Headline != "Resolved after 2h 10m: x" || len(m.Lines) != 0 {

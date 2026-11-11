@@ -27,7 +27,8 @@ export function LikelyCause({ change, firstSignalMs, onCompare, onOpenWorkflow }
           {change.workflow} <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent)' }}>{change.version}</span>
         </span>
         <span style={{ fontSize: 13, color: 'var(--muted)' }}>
-          First seen {bucketLabel(change.first_seen_ms, '7d')} · first signal {gapLabel(firstSignalMs - change.first_seen_ms)} later
+          First seen {bucketLabel(change.first_seen_ms, '7d')}
+          {change.first_seen_ms % 86_400_000 !== 0 && ` · first signal ${gapLabel(firstSignalMs - change.first_seen_ms)} later`}
         </span>
       </div>
       <button
