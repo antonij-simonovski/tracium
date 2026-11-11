@@ -9,5 +9,6 @@ export { ActivityFeed } from './ActivityFeed';
 export { OverviewLayout } from './OverviewLayout';
 export { SetupChecks } from './SetupChecks';
 export { ReleaseLines } from './ReleaseLines';
+export { BacktestCard } from './BacktestCard';
 export { OutlierChips } from './outliers/OutlierChips';
 export { OutliersPanel } from './outliers/OutliersPanel';

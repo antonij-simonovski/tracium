@@ -12,6 +12,7 @@ import type {
   AnomalyMetric,
   AnomalySeverity,
   SetupCheck,
+  IncidentBacktest,
 } from '../../modules/overview/interfaces';
 import type {
   ModelCost,
@@ -109,6 +110,11 @@ export class MetricsAPI extends BaseAPIClient {
     opts?: { metric?: AnomalyMetric; min_severity?: AnomalySeverity },
   ): Promise<PaginatedResponse<Anomaly>> {
     return this.get('/metrics/anomalies', { range, metric: opts?.metric, min_severity: opts?.min_severity });
+  }
+
+  // The server allows a replay 60 seconds, longer than the default client timeout.
+  getIncidentBacktest(range: '7d' | '30d'): Promise<IncidentBacktest> {
+    return this.get('/incidents/backtest', { range }, 65_000);
   }
 
   getSetupChecks(range: string): Promise<PaginatedResponse<SetupCheck>> {

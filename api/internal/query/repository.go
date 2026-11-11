@@ -44,6 +44,8 @@ type MetricsRepository interface {
 	// run volume) over the window, workspace-wide and per busy workflow. Daily and
 	// rollup-backed; f.AnomalyMetric / f.AnomalyMinSeverity narrow the output.
 	Anomalies(ctx context.Context, f MetricsFilter) ([]model.Anomaly, error)
+	// Heartbeats is the heartbeat check as it would have run at each tick (unix ms), for a backtest.
+	Heartbeats(ctx context.Context, f MetricsFilter, ticks []int64) ([][]model.Anomaly, error)
 	SetupChecks(ctx context.Context, f MetricsFilter) ([]model.SetupCheck, error)
 	// RunQuery runs a structured custom query (see Query); callers Validate it first.
 	RunQuery(ctx context.Context, q Query) (model.QueryResult, error)

@@ -31,6 +31,7 @@ import {
   OutliersPanel,
   SetupChecks,
   ReleaseLines,
+  BacktestCard,
 } from '../components';
 import {
   useKpis,
@@ -191,6 +192,7 @@ export function OverviewLivePage({ range, setView, setSelected }: OverviewLivePa
         <>
           {setupChecksBlock}
           {releases.data && <ReleaseLines reports={releases.data.items} />}
+          {workspaceId && <BacktestCard key={workspaceId} />}
         </>
       }
       status={

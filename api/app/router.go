@@ -33,6 +33,9 @@ func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, invit
 	metricsHandler := handler.NewMetricsHandler(repo, wsStore, reports)
 	incidentHandler := handler.NewIncidentHandler(incidents, wsStore, opts.Notifier)
 	queueHandler := handler.NewReviewQueueHandler(repo, reviews, incidents, wsStore)
+	fold := incident.DefaultOptions()
+	fold.MinSeverity = cfg.Detection.MinSeverity
+	backtestHandler := handler.NewBacktestHandler(incident.NewBacktester(repo, fold, time.Hour, time.Minute), wsStore)
 	queryHandler := handler.NewQueryHandler(repo, repo, incidents, wsStore)
 	healthHandler := handler.NewHealthHandler(healthChecks...)
 	var oauthHandler *handler.OAuthHandler
@@ -226,6 +229,9 @@ func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, invit
 	} else {
 		log.Println("WARNING: query and MCP endpoint rate limiting is disabled")
 	}
+
+	r.With(middleware.Auth(authenticator), queryLimit, services.Gate("telemetry.read")).
+		Get(version.Route(version.V1, "/incidents/backtest"), backtestHandler.Get)
 
 	// The query API and the MCP server also accept read keys, which act as their
 	// owner since MCP clients outlive sessions. Ingest keys never read here.

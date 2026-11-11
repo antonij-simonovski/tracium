@@ -15,4 +15,6 @@ export type {
   Anomaly,
   VersionChange,
   SetupCheck,
+  IncidentBacktest,
+  IncidentBacktestItem,
 } from './metrics';

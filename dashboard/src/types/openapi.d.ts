@@ -519,6 +519,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/incidents/backtest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What Tracium would have alerted on
+         * @description Replays detection over a past range, hour by hour, through the same rules the background evaluator uses, from an empty state and without mutes. Nothing is stored. Results are cached for an hour per workspace and range; a 30d run can take several seconds.
+         */
+        get: operations["backtestIncidents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/incidents/{id}": {
         parameters: {
             query?: never;
@@ -2147,6 +2167,39 @@ export interface components {
             summary: string;
             /** @description Up to three example runs from the signal's bucket. Empty for runs and heartbeat. */
             trace_ids: string[];
+        };
+        IncidentBacktest: {
+            /** @enum {string} */
+            range: "7d" | "30d";
+            /** @description How many incidents would have opened. */
+            incidents: number;
+            /** @description Incidents by their highest severity. */
+            by_severity: {
+                [key: string]: number;
+            };
+            /** @description Incidents by the metric of their most severe signal. */
+            by_metric: {
+                [key: string]: number;
+            };
+            /** @description The incidents, most severe first, then newest. */
+            items: components["schemas"]["IncidentBacktestItem"][];
+        };
+        IncidentBacktestItem: {
+            /** @enum {string} */
+            scope: "workspace" | "workflow" | "client" | "service";
+            subject: string;
+            /** @enum {string} */
+            severity: "info" | "warning" | "critical";
+            title: string;
+            /** Format: date-time */
+            opened_at: string;
+            /**
+             * Format: date-time
+             * @description Null when it would still be open.
+             */
+            resolved_at: string | null;
+            signals: number;
+            version_change: components["schemas"]["VersionChange"] | null;
         };
         IncidentMute: {
             id: string;
@@ -3974,6 +4027,57 @@ export interface operations {
             };
             /** @description The caller is not a member of workspace_id. */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    backtestIncidents: {
+        parameters: {
+            query: {
+                /** @description The workspace to replay. The caller must be a member. */
+                workspace_id: string;
+                range?: "7d" | "30d";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The incidents that would have opened. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncidentBacktest"];
+                };
+            };
+            /** @description Missing workspace_id or invalid range. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The caller is not a member of workspace_id. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The replay took longer than 60 seconds (code BACKTEST_TIMEOUT). */
+            504: {
                 headers: {
                     [name: string]: unknown;
                 };
