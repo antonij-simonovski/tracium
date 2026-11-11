@@ -11,6 +11,7 @@ import (
 
 	"github.com/tracium/api/extension"
 	"github.com/tracium/api/internal/incident"
+	"github.com/tracium/api/internal/model"
 )
 
 var ErrEmailDisabled = fmt.Errorf("email alerts are unavailable: %w", extension.ErrMailDisabled)
@@ -89,6 +90,45 @@ func (d *Dispatcher) Notify(ctx context.Context, e incident.Event) error {
 	if len(ds) == 0 {
 		return nil
 	}
+	return d.enqueue(ctx, ds)
+}
+
+// EventHealthyRelease is a release notice, delivered like an incident event.
+const EventHealthyRelease = "release_healthy"
+
+// HealthyRelease queues "v42 of checkout-agent looks healthy after 30 runs."
+// for every enabled channel of the workspace that asked for release notices.
+func (d *Dispatcher) HealthyRelease(ctx context.Context, workspaceID, workflow, version string, runs int64, at time.Time) error {
+	chans, err := d.store.Channels(ctx, workspaceID)
+	if err != nil {
+		return err
+	}
+	var ds []Delivery
+	var m *Message
+	for _, ch := range chans {
+		if !ch.Enabled || !ch.NotifyHealthyReleases {
+			continue
+		}
+		if m == nil {
+			name, err := d.store.WorkspaceName(ctx, workspaceID)
+			if err != nil {
+				return err
+			}
+			headline := fmt.Sprintf("%s of %s looks healthy after %d runs.", version, workflow, runs)
+			m = &Message{Version: 1, Event: EventHealthyRelease, Workspace: name, Headline: headline, Lines: []string{}, Runs: []Link{},
+				Incident: PayloadIncident{WorkspaceID: workspaceID, Scope: "workflow", Subject: workflow, Severity: "info", Title: headline, OpenedAt: at,
+					VersionChange: &model.VersionChange{Workflow: workflow, Version: version}, Signals: []PayloadSignal{}}}
+		}
+		ds = append(ds, Delivery{IncidentID: "release:" + workflow + "@" + version, ChannelID: ch.ID, Event: EventHealthyRelease, EventAt: at,
+			Status: StatusPending, Payload: *m, NextAttemptAt: d.now()})
+	}
+	if len(ds) == 0 {
+		return nil
+	}
+	return d.enqueue(ctx, ds)
+}
+
+func (d *Dispatcher) enqueue(ctx context.Context, ds []Delivery) error {
 	if err := d.store.Enqueue(ctx, ds); err != nil {
 		return err
 	}

@@ -249,3 +249,25 @@ func TestRetryAfterCappedAtLastStep(t *testing.T) {
 		t.Fatalf("retry at %s", q.NextAttemptAt)
 	}
 }
+
+func TestHealthyReleaseOnlyToChannelsThatAskForIt(t *testing.T) {
+	on := channel("on", "critical", false)
+	on.NotifyHealthyReleases = true
+	off := on
+	off.ID, off.Enabled = "disabled", false
+	d, store, s := setup(on, off, channel("quiet", "warning", true))
+	at := time.Date(2026, 11, 10, 14, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+	if err := d.HealthyRelease(ctx, "ws", "checkout-agent", "v42", 30, at); err != nil {
+		t.Fatal(err)
+	}
+	if got := channelsOf(store.Queue); got != "on" {
+		t.Fatalf("queued for %q", got)
+	}
+	if err := d.Flush(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(s.sent) != 1 || s.sent[0].Headline != "v42 of checkout-agent looks healthy after 30 runs." || s.sent[0].Event != "release_healthy" {
+		t.Fatalf("sent %+v", s.sent)
+	}
+}

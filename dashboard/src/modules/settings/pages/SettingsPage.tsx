@@ -850,7 +850,7 @@ function AlertsView({ workspace }: { workspace: Workspace }) {
     setCreating(true);
     setFormError('');
     try {
-      const created = await workspacesAPI.createAlertChannel(workspace.id, { kind, name: name.trim(), target: target.trim(), min_severity: minSeverity, notify_resolved: true, enabled: true });
+      const created = await workspacesAPI.createAlertChannel(workspace.id, { kind, name: name.trim(), target: target.trim(), min_severity: minSeverity, notify_resolved: true, notify_healthy_releases: false, enabled: true });
       setSecret(created.secret ?? null);
       setName('');
       setTarget('');
@@ -907,12 +907,16 @@ function AlertsView({ workspace }: { workspace: Workspace }) {
           <div style={{ minWidth: 0, flex: '1 1 260px' }}>
             <div style={{ fontSize: 14.5, fontWeight: 500, overflowWrap: 'anywhere' }}>{c.name}</div>
             <div style={{ ...meta, overflowWrap: 'anywhere' }}>{kindLabel(c.kind)} · {c.target}</div>
-            <div style={meta}>{c.min_severity === 'critical' ? 'Critical only' : 'Warning and critical'}{c.notify_resolved ? ' · resolved too' : ''}</div>
+            <div style={meta}>{c.min_severity === 'critical' ? 'Critical only' : 'Warning and critical'}{c.notify_resolved ? ' · resolved too' : ''}{c.notify_healthy_releases ? ' · healthy releases' : ''}</div>
             {result && <div role="status" style={{ fontSize: 13, marginTop: 4, color: result.ok ? 'var(--accent)' : 'var(--error)' }}>
               {result.ok ? 'Test message sent.' : `Test failed: ${result.error ?? 'unknown error'}`}
             </div>}
           </div>
-          {isOwner && <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {isOwner && <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, ...meta }} title="Also say when a new version looks healthy after its first runs">
+              <Toggle on={c.notify_healthy_releases} label={`${c.notify_healthy_releases ? 'Stop' : 'Start'} healthy release notices to ${c.name}`} onChange={v => void run(c.id, async () => { await workspacesAPI.updateAlertChannel(workspace.id, c.id, { notify_healthy_releases: v }); refresh(); }, 'Could not update the channel.')} />
+              Healthy releases
+            </label>
             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, ...meta }}>
               <Toggle on={c.enabled} label={`${c.enabled ? 'Disable' : 'Enable'} ${c.name}`} onChange={v => void run(c.id, async () => { await workspacesAPI.updateAlertChannel(workspace.id, c.id, { enabled: v }); refresh(); }, 'Could not update the channel.')} />
               {c.enabled ? 'On' : 'Off'}

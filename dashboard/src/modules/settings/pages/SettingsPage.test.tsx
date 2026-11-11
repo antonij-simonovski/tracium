@@ -300,7 +300,7 @@ describe('read keys', () => {
 });
 
 describe('alerts', () => {
-  const hook = { id: 'ch-1', workspace_id: workspace.id, kind: 'webhook', name: 'Pager', target: 'https://example.com/…/…hook', min_severity: 'warning', notify_resolved: true, enabled: true, created_by: 'u-1', created_at: '2026-11-01T00:00:00Z' };
+  const hook = { id: 'ch-1', workspace_id: workspace.id, kind: 'webhook', name: 'Pager', target: 'https://example.com/…/…hook', min_severity: 'warning', notify_resolved: true, notify_healthy_releases: false, enabled: true, created_by: 'u-1', created_at: '2026-11-01T00:00:00Z' };
 
   beforeEach(() => {
     Object.values(workspacesAPI).forEach(fn => fn.mockReset());
@@ -328,6 +328,13 @@ describe('alerts', () => {
     metricsAPI.getIncidentBacktest.mockResolvedValue({ range: '30d', incidents: 7, by_severity: {}, by_metric: {}, items: [] });
     openAlerts();
     expect(await screen.findByText('In the last 30 days Tracium would have alerted you 7 times.')).toBeInTheDocument();
+  });
+
+  it('turns healthy release notices on for one channel', async () => {
+    workspacesAPI.updateAlertChannel.mockResolvedValue({});
+    openAlerts();
+    fireEvent.click(await screen.findByRole('switch', { name: 'Start healthy release notices to Pager' }));
+    await waitFor(() => expect(workspacesAPI.updateAlertChannel).toHaveBeenCalledWith(workspace.id, 'ch-1', { notify_healthy_releases: true }));
   });
 
   it('shows a new webhook secret once', async () => {

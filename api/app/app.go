@@ -133,7 +133,7 @@ func New(ctx context.Context, cfg Config, opts Options) (*Application, error) {
 			Interval: time.Duration(cfg.Detection.IntervalSeconds) * time.Second,
 			Timeout:  time.Duration(cfg.Storage.QueryTimeout) * time.Second,
 			Fold:     fold,
-		}, release.NewTracker(repo, reports, release.DefaultOptions()), review.NewAccuracyWatch(reviews, reports, review.DefaultAccuracyOptions()),
+		}, release.NewTracker(repo, reports, alerts, release.DefaultOptions()), review.NewAccuracyWatch(reviews, reports, review.DefaultAccuracyOptions()),
 			alert.NewBudgets(alertStore, repo, alert.DefaultBudgetOptions()))
 	}
 	alertHandler := handler.NewAlertHandler(alertStore, alertStore, alerts, incidents, workspaces, workspaces)

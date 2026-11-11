@@ -65,6 +65,7 @@ type alertChannelRequest struct {
 	Target         string  `json:"target"`
 	MinSeverity    *string `json:"min_severity"`
 	NotifyResolved *bool   `json:"notify_resolved"`
+	NotifyHealthy  *bool   `json:"notify_healthy_releases"`
 	Enabled        *bool   `json:"enabled"`
 }
 
@@ -96,6 +97,9 @@ func (req alertChannelRequest) apply(c *alert.Channel) {
 	}
 	if req.NotifyResolved != nil {
 		c.NotifyResolved = *req.NotifyResolved
+	}
+	if req.NotifyHealthy != nil {
+		c.NotifyHealthyReleases = *req.NotifyHealthy
 	}
 	if req.Enabled != nil {
 		c.Enabled = *req.Enabled

@@ -22,17 +22,19 @@ const (
 var ErrNotFound = errors.New("alert channel not found")
 
 type Channel struct {
-	ID             string    `json:"id"`
-	WorkspaceID    string    `json:"workspace_id"`
-	Kind           string    `json:"kind"`
-	Name           string    `json:"name"`
-	Target         string    `json:"target"`
-	Secret         string    `json:"-"`
-	MinSeverity    string    `json:"min_severity"`
-	NotifyResolved bool      `json:"notify_resolved"`
-	Enabled        bool      `json:"enabled"`
-	CreatedBy      string    `json:"created_by"`
-	CreatedAt      time.Time `json:"created_at"`
+	ID             string `json:"id"`
+	WorkspaceID    string `json:"workspace_id"`
+	Kind           string `json:"kind"`
+	Name           string `json:"name"`
+	Target         string `json:"target"`
+	Secret         string `json:"-"`
+	MinSeverity    string `json:"min_severity"`
+	NotifyResolved bool   `json:"notify_resolved"`
+	// NotifyHealthyReleases sends a one-line notice when a new version is graded ok or improved.
+	NotifyHealthyReleases bool      `json:"notify_healthy_releases"`
+	Enabled               bool      `json:"enabled"`
+	CreatedBy             string    `json:"created_by"`
+	CreatedAt             time.Time `json:"created_at"`
 }
 
 // Delivery is one event queued for one channel. Seq counts earlier deliveries

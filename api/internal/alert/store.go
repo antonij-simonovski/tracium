@@ -19,11 +19,11 @@ func NewStore(pool *pgxpool.Pool) *PostgresStore {
 	return &PostgresStore{pool: pool}
 }
 
-const channelColumns = `id, workspace_id, kind, name, target, secret, min_severity, notify_resolved, enabled, created_by, created_at`
+const channelColumns = `id, workspace_id, kind, name, target, secret, min_severity, notify_resolved, notify_healthy_releases, enabled, created_by, created_at`
 
 func scanChannel(row pgx.Row, extra ...any) (Channel, error) {
 	var c Channel
-	err := row.Scan(append([]any{&c.ID, &c.WorkspaceID, &c.Kind, &c.Name, &c.Target, &c.Secret, &c.MinSeverity, &c.NotifyResolved, &c.Enabled, &c.CreatedBy, &c.CreatedAt}, extra...)...)
+	err := row.Scan(append([]any{&c.ID, &c.WorkspaceID, &c.Kind, &c.Name, &c.Target, &c.Secret, &c.MinSeverity, &c.NotifyResolved, &c.NotifyHealthyReleases, &c.Enabled, &c.CreatedBy, &c.CreatedAt}, extra...)...)
 	return c, err
 }
 
@@ -57,17 +57,17 @@ func (s *PostgresStore) Channel(ctx context.Context, workspaceID, id string) (*C
 
 func (s *PostgresStore) CreateChannel(ctx context.Context, c *Channel) error {
 	c.ID = uuid.NewString()
-	if err := s.pool.QueryRow(ctx, `INSERT INTO alert_channels (id, workspace_id, kind, name, target, secret, min_severity, notify_resolved, enabled, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING created_at`,
-		c.ID, c.WorkspaceID, c.Kind, c.Name, c.Target, c.Secret, c.MinSeverity, c.NotifyResolved, c.Enabled, c.CreatedBy).Scan(&c.CreatedAt); err != nil {
+	if err := s.pool.QueryRow(ctx, `INSERT INTO alert_channels (id, workspace_id, kind, name, target, secret, min_severity, notify_resolved, notify_healthy_releases, enabled, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING created_at`,
+		c.ID, c.WorkspaceID, c.Kind, c.Name, c.Target, c.Secret, c.MinSeverity, c.NotifyResolved, c.NotifyHealthyReleases, c.Enabled, c.CreatedBy).Scan(&c.CreatedAt); err != nil {
 		return fmt.Errorf("postgres: create alert channel: %w", err)
 	}
 	return nil
 }
 
 func (s *PostgresStore) UpdateChannel(ctx context.Context, c Channel) error {
-	tag, err := s.pool.Exec(ctx, `UPDATE alert_channels SET name = $3, min_severity = $4, notify_resolved = $5, enabled = $6
-		WHERE id = $1 AND workspace_id = $2`, c.ID, c.WorkspaceID, c.Name, c.MinSeverity, c.NotifyResolved, c.Enabled)
+	tag, err := s.pool.Exec(ctx, `UPDATE alert_channels SET name = $3, min_severity = $4, notify_resolved = $5, enabled = $6, notify_healthy_releases = $7
+		WHERE id = $1 AND workspace_id = $2`, c.ID, c.WorkspaceID, c.Name, c.MinSeverity, c.NotifyResolved, c.Enabled, c.NotifyHealthyReleases)
 	if err != nil {
 		return fmt.Errorf("postgres: update alert channel: %w", err)
 	}
@@ -119,7 +119,7 @@ func (s *PostgresStore) Claim(ctx context.Context, now time.Time, lease time.Dur
 		WHERE c.id = d.channel_id AND (d.incident_id, d.channel_id, d.event, d.seq) IN (
 		  SELECT incident_id, channel_id, event, seq FROM alert_deliveries
 		  WHERE status = 'pending' AND next_attempt_at <= $1 ORDER BY next_attempt_at LIMIT $3 FOR UPDATE SKIP LOCKED)
-		RETURNING c.id, c.workspace_id, c.kind, c.name, c.target, c.secret, c.min_severity, c.notify_resolved, c.enabled, c.created_by, c.created_at, `+deliveryColumns+`, d.payload`,
+		RETURNING c.id, c.workspace_id, c.kind, c.name, c.target, c.secret, c.min_severity, c.notify_resolved, c.notify_healthy_releases, c.enabled, c.created_by, c.created_at, `+deliveryColumns+`, d.payload`,
 		now, now.Add(lease), limit)
 	if err != nil {
 		return nil, fmt.Errorf("postgres: claim alert deliveries: %w", err)

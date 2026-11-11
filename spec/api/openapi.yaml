@@ -1482,7 +1482,8 @@ paths:
         `<timestamp>.<raw body>` keyed with the channel's `secret`. To verify,
         recompute it over the raw body, compare in constant time, and reject
         timestamps more than 5 minutes old. The secret is returned only in
-        this response.
+        this response. A `release_healthy` notice carries the same body with
+        an `incident` that has no `id` and severity `info`.
       tags: [Alerts]
       parameters:
         - $ref: "#/components/parameters/AlertWorkspaceID"
@@ -4668,7 +4669,7 @@ components:
 
     AlertChannel:
       type: object
-      required: [id, workspace_id, kind, name, target, min_severity, notify_resolved, enabled, created_by, created_at]
+      required: [id, workspace_id, kind, name, target, min_severity, notify_resolved, notify_healthy_releases, enabled, created_by, created_at]
       properties:
         id:
           type: string
@@ -4687,6 +4688,9 @@ components:
           enum: [warning, critical]
         notify_resolved:
           type: boolean
+        notify_healthy_releases:
+          type: boolean
+          description: Also send a one-line notice, event `release_healthy`, when a new workflow version's first grade is ok or improved ("v42 of checkout-agent looks healthy after 30 runs."). Off by default.
         enabled:
           type: boolean
         created_by:
@@ -4730,6 +4734,10 @@ components:
         notify_resolved:
           type: boolean
           default: true
+        notify_healthy_releases:
+          type: boolean
+          description: Also send a one-line notice, event `release_healthy`, when a new workflow version's first grade is ok or improved ("v42 of checkout-agent looks healthy after 30 runs."). Off by default.
+          default: false
         enabled:
           type: boolean
           default: true
@@ -4745,6 +4753,9 @@ components:
           enum: [warning, critical]
         notify_resolved:
           type: boolean
+        notify_healthy_releases:
+          type: boolean
+          description: Also send a one-line notice, event `release_healthy`, when a new workflow version's first grade is ok or improved ("v42 of checkout-agent looks healthy after 30 runs."). Off by default.
         enabled:
           type: boolean
 

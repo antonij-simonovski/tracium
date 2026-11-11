@@ -86,15 +86,22 @@ func DefaultOptions() Options {
 		Current: 24 * time.Hour, Compare: anomaly.DefaultCompareOptions()}
 }
 
-// Tracker creates and grades reports on every evaluator tick.
-type Tracker struct {
-	stats Stats
-	store Store
-	o     Options
+// HealthyNotifier hears once when a new version's first grade is ok or improved.
+type HealthyNotifier interface {
+	HealthyRelease(ctx context.Context, workspaceID, workflow, version string, runs int64, at time.Time) error
 }
 
-func NewTracker(stats Stats, store Store, o Options) *Tracker {
-	return &Tracker{stats: stats, store: store, o: o}
+// Tracker creates and grades reports on every evaluator tick.
+type Tracker struct {
+	stats   Stats
+	store   Store
+	healthy HealthyNotifier
+	o       Options
+}
+
+// NewTracker takes a nil healthy notifier when nobody listens for healthy releases.
+func NewTracker(stats Stats, store Store, healthy HealthyNotifier, o Options) *Tracker {
+	return &Tracker{stats: stats, store: store, healthy: healthy, o: o}
 }
 
 // Anomalies advances the workspace's reports and returns one release_regression
@@ -168,7 +175,10 @@ func (t *Tracker) step(ctx context.Context, f query.MetricsFilter, r *Report, ru
 		}
 	}
 	r.Status, r.Verdict, r.Runs, r.PrevRuns, r.Findings, r.FinalizedAt = StatusFinal, verdict, next.Runs, prev.Runs, findings, &now
-	return t.store.Save(ctx, *r)
+	if err := t.store.Save(ctx, *r); err != nil || t.healthy == nil || (verdict != "ok" && verdict != anomaly.Improved) {
+		return err
+	}
+	return t.healthy.HealthyRelease(ctx, r.WorkspaceID, r.Workflow, r.Version, r.Runs, now)
 }
 
 var findingNouns = map[string]string{

@@ -2,6 +2,7 @@ package release_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -64,7 +65,7 @@ func TestLifecycle(t *testing.T) {
 	t.Run("pending until 30 runs, then regressed", func(t *testing.T) {
 		store := &mocks.MockReleaseStore{}
 		stats := &fakeStats{runs: 20, next: truncating(20), prev: steadyPrev}
-		tr := release.NewTracker(stats, store, o)
+		tr := release.NewTracker(stats, store, nil, o)
 		if got := tick(t, tr, shipped.Add(time.Hour)); len(got) != 0 || store.Reports[0].Status != release.StatusPending {
 			t.Fatalf("20 runs after 1h: got %+v, report %+v", got, store.Reports[0])
 		}
@@ -90,7 +91,7 @@ func TestLifecycle(t *testing.T) {
 	t.Run("10 runs after 2h is graded ok", func(t *testing.T) {
 		store := &mocks.MockReleaseStore{}
 		stats := &fakeStats{runs: 10, next: healthy(10), prev: steadyPrev}
-		tr := release.NewTracker(stats, store, o)
+		tr := release.NewTracker(stats, store, nil, o)
 		tick(t, tr, shipped.Add(119*time.Minute))
 		if store.Reports[0].Status != release.StatusPending {
 			t.Fatal("graded before 2h with 10 runs")
@@ -103,7 +104,7 @@ func TestLifecycle(t *testing.T) {
 	t.Run("insufficient after 24h under 10 runs", func(t *testing.T) {
 		store := &mocks.MockReleaseStore{}
 		stats := &fakeStats{runs: 9, next: truncating(9), prev: steadyPrev}
-		tr := release.NewTracker(stats, store, o)
+		tr := release.NewTracker(stats, store, nil, o)
 		tick(t, tr, shipped.Add(23*time.Hour))
 		if store.Reports[0].Status != release.StatusPending {
 			t.Fatal("finalized before 24h")
@@ -116,7 +117,7 @@ func TestLifecycle(t *testing.T) {
 	t.Run("one recheck turns ok into regressed", func(t *testing.T) {
 		store := &mocks.MockReleaseStore{}
 		stats := &fakeStats{runs: 30, next: healthy(30), prev: steadyPrev}
-		tr := release.NewTracker(stats, store, o)
+		tr := release.NewTracker(stats, store, nil, o)
 		tick(t, tr, shipped.Add(time.Hour))
 		stats.runs, stats.next = 299, truncating(299)
 		tick(t, tr, shipped.Add(2*time.Hour))
@@ -132,7 +133,7 @@ func TestLifecycle(t *testing.T) {
 	t.Run("an ok recheck is the last one", func(t *testing.T) {
 		store := &mocks.MockReleaseStore{}
 		stats := &fakeStats{runs: 30, next: healthy(30), prev: steadyPrev}
-		tr := release.NewTracker(stats, store, o)
+		tr := release.NewTracker(stats, store, nil, o)
 		tick(t, tr, shipped.Add(time.Hour))
 		tick(t, tr, shipped.Add(25*time.Hour))
 		if r := store.Reports[0]; r.Verdict != "ok" || !r.Rechecked {
@@ -148,7 +149,7 @@ func TestLifecycle(t *testing.T) {
 	t.Run("regressed never flips back", func(t *testing.T) {
 		store := &mocks.MockReleaseStore{}
 		stats := &fakeStats{runs: 30, next: truncating(30), prev: steadyPrev}
-		tr := release.NewTracker(stats, store, o)
+		tr := release.NewTracker(stats, store, nil, o)
 		tick(t, tr, shipped.Add(time.Hour))
 		stats.runs, stats.next, stats.calls = 500, healthy(500), nil
 		tick(t, tr, shipped.Add(26*time.Hour))
@@ -165,7 +166,7 @@ func TestLifecycle(t *testing.T) {
 			}
 			return healthy(12)
 		}}
-		tick(t, release.NewTracker(stats, store, o), shipped.Add(time.Hour))
+		tick(t, release.NewTracker(stats, store, nil, o), shipped.Add(time.Hour))
 		if store.Reports[0].PrevRuns != 200 || len(stats.calls) != 3 || !stats.calls[2].from.Equal(shipped.Add(-7*24*time.Hour)) {
 			t.Fatalf("report %+v, reads %+v", store.Reports[0], stats.calls)
 		}
@@ -173,4 +174,33 @@ func TestLifecycle(t *testing.T) {
 			t.Errorf("new version read to %v, want now", stats.calls[0].to)
 		}
 	})
+}
+
+type healthyNotices []string
+
+func (h *healthyNotices) HealthyRelease(_ context.Context, ws, workflow, version string, runs int64, _ time.Time) error {
+	*h = append(*h, fmt.Sprintf("%s %s@%s %d", ws, workflow, version, runs))
+	return nil
+}
+
+func TestHealthyReleaseNotifiedOnceOnFirstGrade(t *testing.T) {
+	o := release.DefaultOptions()
+	store := &mocks.MockReleaseStore{}
+	stats := &fakeStats{runs: 30, next: healthy(30), prev: steadyPrev}
+	var notices healthyNotices
+	tr := release.NewTracker(stats, store, &notices, o)
+	tick(t, tr, shipped.Add(time.Hour))
+	stats.runs, stats.next = 300, healthy(300)
+	tick(t, tr, shipped.Add(2*time.Hour))
+	tick(t, tr, shipped.Add(3*time.Hour))
+	if len(notices) != 1 || notices[0] != "ws agent@v2 30" || !store.Reports[0].Rechecked {
+		t.Fatalf("notices = %v, report %+v", notices, store.Reports[0])
+	}
+
+	notices = nil
+	store = &mocks.MockReleaseStore{}
+	tick(t, release.NewTracker(&fakeStats{runs: 30, next: truncating(30), prev: steadyPrev}, store, &notices, o), shipped.Add(time.Hour))
+	if len(notices) != 0 || store.Reports[0].Verdict != "regressed" {
+		t.Fatalf("a regression is no healthy release: %v", notices)
+	}
 }
