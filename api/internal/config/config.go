@@ -71,12 +71,20 @@ type DetectionConfig struct {
 	MinSeverity     string `yaml:"min_severity"` // lowest severity that opens an incident
 }
 
+// AlertsConfig controls outbound alert delivery.
+type AlertsConfig struct {
+	// AllowPrivateURLs lets webhook and Slack channels post over http and to
+	// private, loopback and link-local addresses, for self-hosted internal services.
+	AllowPrivateURLs bool `yaml:"allow_private_urls"`
+}
+
 // Config is the top-level application configuration.
 type Config struct {
 	Server    ServerConfig    `yaml:"server"`
 	Storage   StorageConfig   `yaml:"storage"`
 	Auth      AuthConfig      `yaml:"auth"`
 	Detection DetectionConfig `yaml:"detection"`
+	Alerts    AlertsConfig    `yaml:"alerts"`
 }
 
 // Default fills every unset field that has a default.
@@ -263,6 +271,13 @@ func (c *Config) ApplyEnv() error {
 	}
 	if v := os.Getenv("DETECTION_MIN_SEVERITY"); v != "" {
 		c.Detection.MinSeverity = v
+	}
+	if v := os.Getenv("ALERTS_ALLOW_PRIVATE_URLS"); v != "" {
+		allow, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("config: ALERTS_ALLOW_PRIVATE_URLS must be true or false, got %q", v)
+		}
+		c.Alerts.AllowPrivateURLs = allow
 	}
 	return nil
 }

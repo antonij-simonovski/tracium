@@ -20,7 +20,7 @@ import (
 	"time"
 )
 
-func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, inviteStore workspace.InviteStore, userStore *auth.UserStore, authenticator middleware.Authenticator, authService *auth.Service, apiKeyService *apikey.Service, healthChecks []handler.DependencyCheck, opts Options, oauthService *oauth.Service, reviews review.Store, incidents incident.Store, reports release.Store) http.Handler {
+func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, inviteStore workspace.InviteStore, userStore *auth.UserStore, authenticator middleware.Authenticator, authService *auth.Service, apiKeyService *apikey.Service, healthChecks []handler.DependencyCheck, opts Options, oauthService *oauth.Service, reviews review.Store, incidents incident.Store, reports release.Store, alerts *handler.AlertHandler) http.Handler {
 	authHandler := handler.NewAuthHandler(authService)
 	workspaceHandler := handler.NewWorkspaceHandler(wsStore, userStore, opts.Entitlements)
 	apiKeyHandler := handler.NewAPIKeyHandler(apiKeyService, wsStore)
@@ -136,6 +136,15 @@ func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, invit
 		r.Post(version.Route(version.V1, "/account/api-keys"), apiKeyHandler.CreateRead)
 		r.Delete(version.Route(version.V1, "/account/api-keys/{keyId}"), apiKeyHandler.RevokeRead)
 
+		// Alert channels: members list them, the owner manages them. Tests make an
+		// outbound request each, so they are throttled per account.
+		r.Get(version.Route(version.V1, "/workspaces/{id}/alert-channels"), alerts.List)
+		r.Post(version.Route(version.V1, "/workspaces/{id}/alert-channels"), alerts.Create)
+		r.Patch(version.Route(version.V1, "/workspaces/{id}/alert-channels/{channelId}"), alerts.Update)
+		r.Delete(version.Route(version.V1, "/workspaces/{id}/alert-channels/{channelId}"), alerts.Delete)
+		r.With(middleware.NewRateLimiter(10, time.Minute, cfg.Auth.TrustedProxies).PerPrincipal()).
+			Post(version.Route(version.V1, "/workspaces/{id}/alert-channels/{channelId}/test"), alerts.Test)
+
 		if oauthHandler != nil {
 			r.Get(version.Route(version.V1, "/oauth/authorize"), oauthHandler.AuthorizeInfo)
 			r.Post(version.Route(version.V1, "/oauth/authorize"), oauthHandler.Authorize)
@@ -200,6 +209,7 @@ func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, invit
 		r.Post(version.Route(version.V1, "/incidents/{id}/mute"), incidentHandler.Mute)
 		r.Get(version.Route(version.V1, "/workspaces/{id}/incident-mutes"), incidentHandler.ListMutes)
 		r.Delete(version.Route(version.V1, "/workspaces/{id}/incident-mutes/{muteId}"), incidentHandler.DeleteMute)
+		r.Get(version.Route(version.V1, "/incidents/{id}/deliveries"), alerts.Deliveries)
 	})
 
 	// One bucket per account for the query API and both MCP routes: read keys

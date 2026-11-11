@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/tracium/api/extension"
+	"github.com/tracium/api/internal/alert"
 	"github.com/tracium/api/internal/apikey"
 	"github.com/tracium/api/internal/auth"
 	"github.com/tracium/api/internal/config"
@@ -49,7 +50,8 @@ type Options struct {
 	// Invites is an optional hook called after a workspace invite is created, so
 	// the hosted service can email the link. When nil, no notification is sent.
 	Invites extension.InviteNotifier
-	// Notifier receives every incident state change. When nil, nothing is sent.
+	// Notifier receives every incident state change. When nil, events go to the
+	// workspace's alert channels.
 	Notifier incident.Notifier
 }
 type Application struct {
@@ -57,6 +59,7 @@ type Application struct {
 	cfg       Config
 	sessions  extension.Sessions
 	evaluator *incident.Evaluator
+	alerts    *alert.Dispatcher
 	close     func()
 }
 
@@ -84,9 +87,6 @@ func New(ctx context.Context, cfg Config, opts Options) (*Application, error) {
 	}
 	if opts.Entitlements == nil {
 		opts.Entitlements = extension.CoreEntitlements{}
-	}
-	if opts.Notifier == nil {
-		opts.Notifier = incident.NopNotifier{}
 	}
 	pool, err := pgxpool.New(ctx, cfg.Storage.PostgresDSN)
 	if err != nil {
@@ -116,6 +116,15 @@ func New(ctx context.Context, cfg Config, opts Options) (*Application, error) {
 	incidents := incident.NewStore(pool)
 	reports := release.NewStore(pool)
 	reviews := review.NewStore(pool)
+	alertStore := alert.NewStore(pool)
+	alertOpts := alert.DefaultOptions()
+	alertOpts.AllowPrivateURLs, alertOpts.PublicURL = cfg.Alerts.AllowPrivateURLs, cfg.Server.PublicURL
+	_, mailOff := opts.Mail.(extension.DisabledMailer)
+	alertOpts.EmailEnabled = !mailOff
+	alerts := alert.NewDispatcher(alertStore, alert.NewSenders(opts.Mail, alertOpts), alertOpts)
+	if opts.Notifier == nil {
+		opts.Notifier = alerts
+	}
 	var evaluator *incident.Evaluator
 	if *cfg.Detection.Enabled {
 		fold := incident.DefaultOptions()
@@ -126,8 +135,9 @@ func New(ctx context.Context, cfg Config, opts Options) (*Application, error) {
 			Fold:     fold,
 		}, release.NewTracker(repo, reports, release.DefaultOptions()), review.NewAccuracyWatch(reviews, reports, review.DefaultAccuracyOptions()))
 	}
-	return &Application{cfg: cfg, sessions: service, evaluator: evaluator,
-		Handler: newRouter(cfg, repo, workspaces, workspaces, users, service, service, apiKeyService, health, opts, oauthService, reviews, incidents, reports),
+	alertHandler := handler.NewAlertHandler(alertStore, alerts, incidents, workspaces, workspaces)
+	return &Application{cfg: cfg, sessions: service, evaluator: evaluator, alerts: alerts,
+		Handler: newRouter(cfg, repo, workspaces, workspaces, users, service, service, apiKeyService, health, opts, oauthService, reviews, incidents, reports, alertHandler),
 		close:   func() { pool.Close(); repo.Close() }}, nil
 }
 
@@ -176,6 +186,10 @@ func (a *Application) Run(ctx context.Context) error {
 		go func() { a.evaluator.Run(evalCtx); close(evaluated) }()
 		defer func() { stopEval(); <-evaluated }()
 	}
+	alertCtx, stopAlerts := context.WithCancel(ctx)
+	flushed := make(chan struct{})
+	go func() { a.alerts.Run(alertCtx); close(flushed) }()
+	defer func() { stopAlerts(); <-flushed }()
 	select {
 	case err := <-done:
 		return err

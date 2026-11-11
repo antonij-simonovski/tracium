@@ -1363,6 +1363,184 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /v1/incidents/{id}/deliveries:
+    get:
+      operationId: listIncidentDeliveries
+      summary: Alert deliveries of an incident
+      description: One entry per event and channel, with its delivery status. Message content is not returned.
+      tags: [Alerts]
+      parameters:
+        - $ref: "#/components/parameters/IncidentID"
+      responses:
+        "200":
+          description: The incident's deliveries, oldest event first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedAlertDeliveryResponse"
+        "404":
+          description: No incident with that id in the caller's workspaces.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/workspaces/{id}/alert-channels:
+    get:
+      operationId: listAlertChannels
+      summary: List alert channels
+      description: Any member can list. Slack and webhook targets are masked.
+      tags: [Alerts]
+      parameters:
+        - $ref: "#/components/parameters/AlertWorkspaceID"
+      responses:
+        "200":
+          description: The workspace's channels.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertChannelList"
+        "403":
+          description: The caller is not a member of the workspace.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: createAlertChannel
+      summary: Create an alert channel
+      description: >
+        Owner only. When an incident opens, escalates or resolves, every enabled
+        channel whose `min_severity` the incident reaches gets one message;
+        failed sends are retried 4 times (after 30s, 2m, 10m and 1h, or the
+        destination's `Retry-After` up to 1h) on 5xx, 408, 429, timeouts and
+        connection errors. Other 4xx answers and blocked targets fail at once.
+        Slack and webhook URLs must be https and reach a public address (Slack:
+        `hooks.slack.com`) unless the deployment sets
+        `ALERTS_ALLOW_PRIVATE_URLS=true`. Email needs a deployment that sends
+        mail (`EMAIL_DISABLED` otherwise).
+
+
+        A webhook gets a JSON POST of `{version, event, incident}` with headers
+        `X-Tracium-Event`, `X-Tracium-Timestamp` (unix seconds) and
+        `X-Tracium-Signature: sha256=<hex>`, the HMAC-SHA256 of
+        `<timestamp>.<raw body>` keyed with the channel's `secret`. To verify,
+        recompute it over the raw body, compare in constant time, and reject
+        timestamps more than 5 minutes old. The secret is returned only in
+        this response.
+      tags: [Alerts]
+      parameters:
+        - $ref: "#/components/parameters/AlertWorkspaceID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAlertChannelRequest"
+      responses:
+        "201":
+          description: The channel, with `secret` for webhooks.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertChannel"
+        "400":
+          description: >
+            Invalid request (`BAD_REQUEST`), a target that is not allowed
+            (`INVALID_TARGET`), or email delivery not configured
+            (`EMAIL_DISABLED`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: The caller does not own the workspace.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/workspaces/{id}/alert-channels/{channelId}:
+    patch:
+      operationId: updateAlertChannel
+      summary: Update an alert channel
+      description: Owner only. Fields left out keep their value. The target cannot change; create a new channel instead.
+      tags: [Alerts]
+      parameters:
+        - $ref: "#/components/parameters/AlertWorkspaceID"
+        - $ref: "#/components/parameters/AlertChannelID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAlertChannelRequest"
+      responses:
+        "200":
+          description: The updated channel.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertChannel"
+        "400":
+          description: Invalid request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: The caller does not own the workspace, or no such channel.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteAlertChannel
+      summary: Delete an alert channel
+      description: Owner only. Its queued deliveries are dropped.
+      tags: [Alerts]
+      parameters:
+        - $ref: "#/components/parameters/AlertWorkspaceID"
+        - $ref: "#/components/parameters/AlertChannelID"
+      responses:
+        "204":
+          description: Deleted.
+        "404":
+          description: The caller does not own the workspace, or no such channel.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/workspaces/{id}/alert-channels/{channelId}/test:
+    post:
+      operationId: testAlertChannel
+      summary: Send a test alert
+      description: Owner only. Sends a sample message now, without retries, and reports the outcome. Limited to 10 requests a minute per account.
+      tags: [Alerts]
+      parameters:
+        - $ref: "#/components/parameters/AlertWorkspaceID"
+        - $ref: "#/components/parameters/AlertChannelID"
+      responses:
+        "200":
+          description: Whether the destination accepted the message.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertTestResult"
+        "404":
+          description: The caller does not own the workspace, or no such channel.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too many test requests.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /v1/metrics/setup-checks:
     get:
       operationId: getSetupChecks
@@ -2733,6 +2911,18 @@ components:
         never authenticates ingest.
 
   parameters:
+    AlertWorkspaceID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    AlertChannelID:
+      name: channelId
+      in: path
+      required: true
+      schema:
+        type: string
     IncidentID:
       name: id
       in: path
@@ -4234,6 +4424,150 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Incident"
+        total:
+          type: integer
+        page:
+          type: integer
+        page_size:
+          type: integer
+
+    AlertChannel:
+      type: object
+      required: [id, workspace_id, kind, name, target, min_severity, notify_resolved, enabled, created_by, created_at]
+      properties:
+        id:
+          type: string
+        workspace_id:
+          type: string
+        kind:
+          type: string
+          enum: [slack, webhook, email]
+        name:
+          type: string
+        target:
+          type: string
+          description: Comma-separated addresses for email; for slack and webhook, the URL masked as `https://host/…/…a1b2`.
+        min_severity:
+          type: string
+          enum: [warning, critical]
+        notify_resolved:
+          type: boolean
+        enabled:
+          type: boolean
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        secret:
+          type: string
+          description: The webhook signing secret. Present only in the create response.
+
+    AlertChannelList:
+      type: object
+      required: [items, email_enabled]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AlertChannel"
+        email_enabled:
+          type: boolean
+          description: Whether this deployment can send email, so email channels can be created.
+
+    CreateAlertChannelRequest:
+      type: object
+      required: [kind, name, target]
+      properties:
+        kind:
+          type: string
+          enum: [slack, webhook, email]
+        name:
+          type: string
+          maxLength: 100
+        target:
+          type: string
+          description: A Slack incoming webhook URL, a webhook URL, or up to 20 comma-separated email addresses.
+        min_severity:
+          type: string
+          enum: [warning, critical]
+          default: warning
+        notify_resolved:
+          type: boolean
+          default: true
+        enabled:
+          type: boolean
+          default: true
+
+    UpdateAlertChannelRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 100
+        min_severity:
+          type: string
+          enum: [warning, critical]
+        notify_resolved:
+          type: boolean
+        enabled:
+          type: boolean
+
+    AlertTestResult:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+        error:
+          type: string
+          description: Why the send failed, when ok is false.
+
+    AlertDelivery:
+      type: object
+      required: [incident_id, channel_id, channel_name, channel_kind, event, seq, event_at, status, attempts, last_error, next_attempt_at, sent_at]
+      properties:
+        incident_id:
+          type: string
+        channel_id:
+          type: string
+        channel_name:
+          type: string
+        channel_kind:
+          type: string
+          enum: [slack, webhook, email]
+        event:
+          type: string
+          enum: [opened, escalated, resolved]
+        seq:
+          type: integer
+          description: 0 for the first delivery of this event, 1 after a reopen, and so on.
+        event_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [pending, sent, failed]
+        attempts:
+          type: integer
+        last_error:
+          type: string
+        next_attempt_at:
+          type: string
+          format: date-time
+        sent_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    PaginatedAlertDeliveryResponse:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AlertDelivery"
         total:
           type: integer
         page:

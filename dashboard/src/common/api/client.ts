@@ -107,6 +107,16 @@ export abstract class BaseAPIClient {
     });
   }
 
+  protected async patch<T>(path: string, body: unknown): Promise<T> {
+    const url = new URL(`/${API_VERSION}${path}`, this.config.baseUrl);
+
+    return this.request<T>(url.toString(), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
   protected async delete<T = void>(path: string): Promise<T> {
     const url = new URL(`/${API_VERSION}${path}`, this.config.baseUrl);
 

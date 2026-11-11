@@ -610,6 +610,96 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/incidents/{id}/deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Alert deliveries of an incident
+         * @description One entry per event and channel, with its delivery status. Message content is not returned.
+         */
+        get: operations["listIncidentDeliveries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspaces/{id}/alert-channels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List alert channels
+         * @description Any member can list. Slack and webhook targets are masked.
+         */
+        get: operations["listAlertChannels"];
+        put?: never;
+        /**
+         * Create an alert channel
+         * @description Owner only. When an incident opens, escalates or resolves, every enabled channel whose `min_severity` the incident reaches gets one message; failed sends are retried 4 times (after 30s, 2m, 10m and 1h, or the destination's `Retry-After` up to 1h) on 5xx, 408, 429, timeouts and connection errors. Other 4xx answers and blocked targets fail at once. Slack and webhook URLs must be https and reach a public address (Slack: `hooks.slack.com`) unless the deployment sets `ALERTS_ALLOW_PRIVATE_URLS=true`. Email needs a deployment that sends mail (`EMAIL_DISABLED` otherwise).
+         *
+         *     A webhook gets a JSON POST of `{version, event, incident}` with headers `X-Tracium-Event`, `X-Tracium-Timestamp` (unix seconds) and `X-Tracium-Signature: sha256=<hex>`, the HMAC-SHA256 of `<timestamp>.<raw body>` keyed with the channel's `secret`. To verify, recompute it over the raw body, compare in constant time, and reject timestamps more than 5 minutes old. The secret is returned only in this response.
+         */
+        post: operations["createAlertChannel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspaces/{id}/alert-channels/{channelId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete an alert channel
+         * @description Owner only. Its queued deliveries are dropped.
+         */
+        delete: operations["deleteAlertChannel"];
+        options?: never;
+        head?: never;
+        /**
+         * Update an alert channel
+         * @description Owner only. Fields left out keep their value. The target cannot change; create a new channel instead.
+         */
+        patch: operations["updateAlertChannel"];
+        trace?: never;
+    };
+    "/v1/workspaces/{id}/alert-channels/{channelId}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a test alert
+         * @description Owner only. Sends a sample message now, without retries, and reports the outcome. Limited to 10 requests a minute per account.
+         */
+        post: operations["testAlertChannel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/metrics/setup-checks": {
         parameters: {
             query?: never;
@@ -2032,6 +2122,84 @@ export interface components {
             page: number;
             page_size: number;
         };
+        AlertChannel: {
+            id: string;
+            workspace_id: string;
+            /** @enum {string} */
+            kind: "slack" | "webhook" | "email";
+            name: string;
+            /** @description Comma-separated addresses for email; for slack and webhook, the URL masked as `https://host/…/…a1b2`. */
+            target: string;
+            /** @enum {string} */
+            min_severity: "warning" | "critical";
+            notify_resolved: boolean;
+            enabled: boolean;
+            created_by: string;
+            /** Format: date-time */
+            created_at: string;
+            /** @description The webhook signing secret. Present only in the create response. */
+            secret?: string;
+        };
+        AlertChannelList: {
+            items: components["schemas"]["AlertChannel"][];
+            /** @description Whether this deployment can send email, so email channels can be created. */
+            email_enabled: boolean;
+        };
+        CreateAlertChannelRequest: {
+            /** @enum {string} */
+            kind: "slack" | "webhook" | "email";
+            name: string;
+            /** @description A Slack incoming webhook URL, a webhook URL, or up to 20 comma-separated email addresses. */
+            target: string;
+            /**
+             * @default warning
+             * @enum {string}
+             */
+            min_severity: "warning" | "critical";
+            /** @default true */
+            notify_resolved: boolean;
+            /** @default true */
+            enabled: boolean;
+        };
+        UpdateAlertChannelRequest: {
+            name?: string;
+            /** @enum {string} */
+            min_severity?: "warning" | "critical";
+            notify_resolved?: boolean;
+            enabled?: boolean;
+        };
+        AlertTestResult: {
+            ok: boolean;
+            /** @description Why the send failed, when ok is false. */
+            error?: string;
+        };
+        AlertDelivery: {
+            incident_id: string;
+            channel_id: string;
+            channel_name: string;
+            /** @enum {string} */
+            channel_kind: "slack" | "webhook" | "email";
+            /** @enum {string} */
+            event: "opened" | "escalated" | "resolved";
+            /** @description 0 for the first delivery of this event, 1 after a reopen, and so on. */
+            seq: number;
+            /** Format: date-time */
+            event_at: string;
+            /** @enum {string} */
+            status: "pending" | "sent" | "failed";
+            attempts: number;
+            last_error: string;
+            /** Format: date-time */
+            next_attempt_at: string;
+            /** Format: date-time */
+            sent_at: string | null;
+        };
+        PaginatedAlertDeliveryResponse: {
+            items: components["schemas"]["AlertDelivery"][];
+            total: number;
+            page: number;
+            page_size: number;
+        };
         PaginatedIncidentMuteResponse: {
             items: components["schemas"]["IncidentMute"][];
             total: number;
@@ -2295,6 +2463,8 @@ export interface components {
     };
     responses: never;
     parameters: {
+        AlertWorkspaceID: string;
+        AlertChannelID: string;
         IncidentID: string;
         /** @description The workflow name (the trace root span name). */
         WorkflowName: string;
@@ -3899,6 +4069,228 @@ export interface operations {
             };
             /** @description No mute with that id in the workspace. */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listIncidentDeliveries: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["IncidentID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The incident's deliveries, oldest event first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedAlertDeliveryResponse"];
+                };
+            };
+            /** @description No incident with that id in the caller's workspaces. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listAlertChannels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["AlertWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The workspace's channels. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertChannelList"];
+                };
+            };
+            /** @description The caller is not a member of the workspace. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    createAlertChannel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["AlertWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAlertChannelRequest"];
+            };
+        };
+        responses: {
+            /** @description The channel, with `secret` for webhooks. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertChannel"];
+                };
+            };
+            /** @description Invalid request (`BAD_REQUEST`), a target that is not allowed (`INVALID_TARGET`), or email delivery not configured (`EMAIL_DISABLED`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The caller does not own the workspace. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    deleteAlertChannel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["AlertWorkspaceID"];
+                channelId: components["parameters"]["AlertChannelID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The caller does not own the workspace, or no such channel. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    updateAlertChannel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["AlertWorkspaceID"];
+                channelId: components["parameters"]["AlertChannelID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateAlertChannelRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated channel. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertChannel"];
+                };
+            };
+            /** @description Invalid request. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The caller does not own the workspace, or no such channel. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    testAlertChannel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["AlertWorkspaceID"];
+                channelId: components["parameters"]["AlertChannelID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Whether the destination accepted the message. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertTestResult"];
+                };
+            };
+            /** @description The caller does not own the workspace, or no such channel. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too many test requests. */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

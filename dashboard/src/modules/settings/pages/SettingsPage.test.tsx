@@ -12,6 +12,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 const changePassword = vi.fn();
 const workspacesAPI = {
   members: vi.fn(), invites: vi.fn(), invite: vi.fn(), revokeInvite: vi.fn(), removeMember: vi.fn(),
+  alertChannels: vi.fn(), createAlertChannel: vi.fn(), updateAlertChannel: vi.fn(), deleteAlertChannel: vi.fn(), testAlertChannel: vi.fn(),
 };
 const apiKeysAPI = { listRead: vi.fn(() => Promise.resolve([])), createRead: vi.fn(), revokeRead: vi.fn() };
 vi.mock('../../../common/providers/APIProvider', () => ({
@@ -293,5 +294,43 @@ describe('read keys', () => {
     fireEvent.change(host, { target: { value: 'tracium.acme.com/extra' } });
     expect(screen.getByRole('button', { name: /^Cop/ })).toBeDisabled();
     expect(screen.getByText('Enter a host, without a path.')).toBeInTheDocument();
+  });
+});
+
+describe('alerts', () => {
+  const hook = { id: 'ch-1', workspace_id: workspace.id, kind: 'webhook', name: 'Pager', target: 'https://example.com/…/…hook', min_severity: 'warning', notify_resolved: true, enabled: true, created_by: 'u-1', created_at: '2026-11-01T00:00:00Z' };
+
+  beforeEach(() => {
+    Object.values(workspacesAPI).forEach(fn => fn.mockReset());
+    workspacesAPI.alertChannels.mockResolvedValue({ items: [hook], email_enabled: false });
+  });
+
+  function openAlerts() {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><SettingsPage workspace={workspace} /></QueryClientProvider>);
+    fireEvent.click(screen.getByRole('button', { name: 'Alerts' }));
+  }
+
+  it('lists masked channels, tests one inline and hides email when the deployment cannot send it', async () => {
+    workspacesAPI.testAlertChannel.mockResolvedValue({ ok: false, error: 'destination answered 500' });
+    openAlerts();
+    expect(await screen.findByRole('list', { name: 'Alert channels' })).toHaveTextContent('Webhook · https://example.com/…/…hook');
+    expect(screen.queryByRole('button', { name: 'Email' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Send test' }));
+    expect(await screen.findByText('Test failed: destination answered 500')).toBeInTheDocument();
+  });
+
+  it('shows a new webhook secret once', async () => {
+    workspacesAPI.createAlertChannel.mockResolvedValue({ ...hook, id: 'ch-2', secret: 'whsec_abc' });
+    openAlerts();
+    await screen.findByRole('list', { name: 'Alert channels' });
+    fireEvent.click(screen.getByRole('button', { name: 'Webhook' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Channel name' }), { target: { value: 'Ops' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Channel target' }), { target: { value: 'https://example.com/hook' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add channel' }));
+    expect(await screen.findByText('whsec_abc')).toBeInTheDocument();
+    expect(workspacesAPI.createAlertChannel).toHaveBeenCalledWith(workspace.id, expect.objectContaining({ kind: 'webhook', name: 'Ops', target: 'https://example.com/hook' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    expect(screen.queryByText('whsec_abc')).not.toBeInTheDocument();
   });
 });
