@@ -51,6 +51,9 @@ type Evaluator struct {
 	sources    []SignalSource
 	now        func() time.Time
 	cfg        Config
+	// unsent holds events whose incident was saved but not queued; deliveries are idempotent, so the next tick retries them.
+	// shortcut: lost if this replica stops first, move to a transactional outbox if that matters.
+	unsent []Event
 }
 
 func NewEvaluator(d Detector, s Store, l Locker, w WorkspaceLister, n Notifier, cfg Config, sources ...SignalSource) *Evaluator {
@@ -83,6 +86,11 @@ func (e *Evaluator) Tick(ctx context.Context) error {
 		return err
 	}
 	defer release()
+	unsent := e.unsent
+	e.unsent = nil
+	for _, ev := range unsent {
+		e.notify(ctx, ev)
+	}
 	now := e.now()
 	all, err := e.workspaces.AllIDs(ctx)
 	if err != nil {
@@ -168,12 +176,20 @@ func (e *Evaluator) evaluate(ctx context.Context, workspaceID string, now time.T
 			continue
 		}
 		if notify && c.Event != "" {
-			if err := e.notifier.Notify(ctx, Event{Type: c.Event, Incident: c.Incident}); err != nil {
+			if err := e.notify(ctx, Event{Type: c.Event, Incident: c.Incident}); err != nil {
 				errs = append(errs, fmt.Errorf("notify %s: %w", c.Event, err))
 			}
 		}
 	}
 	return errors.Join(errs...)
+}
+
+func (e *Evaluator) notify(ctx context.Context, ev Event) error {
+	err := e.notifier.Notify(ctx, ev)
+	if err != nil {
+		e.unsent = append(e.unsent, ev)
+	}
+	return err
 }
 
 // sample fills example runs for signals the incident did not hold before, so

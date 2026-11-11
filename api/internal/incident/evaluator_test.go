@@ -2,6 +2,7 @@ package incident_test
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -225,5 +226,33 @@ func TestEvaluatorLeavesAUserResolveAlone(t *testing.T) {
 	}
 	if store.Incidents[0].Status != incident.StatusResolved || len(rec.events) != 1 {
 		t.Fatalf("the tick overwrote the resolve: %+v, events %+v", store.Incidents[0], rec.events)
+	}
+}
+
+type flakyNotifier struct {
+	recorder
+	fail int
+}
+
+func (f *flakyNotifier) Notify(ctx context.Context, e incident.Event) error {
+	if f.fail > 0 {
+		f.fail--
+		return errors.New("postgres down")
+	}
+	return f.recorder.Notify(ctx, e)
+}
+
+func TestEvaluatorRetriesAnEventItCouldNotQueue(t *testing.T) {
+	det := &fakeDetector{anomalies: map[string][]model.Anomaly{"a": {truncation()}}}
+	store := &mocks.MockIncidentStore{}
+	n := &flakyNotifier{fail: 1}
+	e := incident.NewEvaluator(det, store, freeLock{}, workspaces{"a"}, n, config())
+	for range 3 {
+		if err := e.Tick(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(store.Incidents) != 1 || len(n.events) != 1 || n.events[0].Type != incident.EventOpened {
+		t.Fatalf("want the opened event queued once on the next tick, got %+v", n.events)
 	}
 }
