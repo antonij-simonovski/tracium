@@ -22,6 +22,7 @@ import {
 } from '../../../common';
 import { useAPIClient } from '../../../common/providers/APIProvider';
 import { ReadKeysSection } from '../../api-keys';
+import { useIncidentBacktest } from '../../overview/hooks/useMetrics';
 import { APIError, inviteLink, type AlertChannel, type AlertRule, type AlertTestResult, type CreatedInvite, type WorkspaceMember } from '../../../common/api';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
@@ -43,6 +44,8 @@ export interface SettingsPageProps {
   onCancelCreate?: () => void;
   /** When true, the Workspace tab opens on a create-workspace form. */
   createMode?: boolean;
+  /** The tab to open on, from a deep link such as /settings/alerts. */
+  initialTab?: TabId;
   /** When true, render the rich demo data (logged-out auth-page preview). */
   demo?: boolean;
   /** The real signed-in workspace. Used when not in demo mode. */
@@ -835,6 +838,7 @@ function AlertsView({ workspace }: { workspace: Workspace }) {
   const [actionError, setActionError] = useState('');
   const [results, setResults] = useState<Record<string, AlertTestResult>>({});
 
+  const backtest = useIncidentBacktest('30d', channels.data?.items.length === 0);
   const emailEnabled = channels.data?.email_enabled ?? false;
   const kinds = [
     { id: 'slack', label: 'Slack' },
@@ -887,6 +891,11 @@ function AlertsView({ workspace }: { workspace: Workspace }) {
     {actionError && <p role="alert" style={{ color: 'var(--error)', fontSize: 14 }}>{actionError}</p>}
     {channels.isLoading && <p style={meta}>Loading channels…</p>}
     {channels.isError && <p role="alert" style={{ color: 'var(--error)', fontSize: 14 }}>{errorMessage(channels.error, 'Could not load alert channels.')}</p>}
+    {channels.data && channels.data.items.length === 0 && backtest.data && <p style={{ fontSize: 14, margin: '0 0 8px' }}>
+      {backtest.data.incidents === 0
+        ? 'Nothing would have fired in the last 30 days.'
+        : `In the last 30 days Tracium would have alerted you ${backtest.data.incidents} time${backtest.data.incidents === 1 ? '' : 's'}.`}
+    </p>}
     {channels.data && channels.data.items.length === 0 && <p style={{ ...meta, fontSize: 14, lineHeight: 1.6, maxWidth: 620 }}>
       No channels yet. Each alert names the workflow or client, lists the signals that crossed their baseline, the release that likely caused it, and links to example runs and the incident.
       For Slack, create an <a href={SLACK_WEBHOOK_DOCS} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>incoming webhook</a> and paste its URL below.
@@ -1102,12 +1111,13 @@ export default function SettingsPage({
   ingestEndpoint,
   onCancelCreate,
   createMode = false,
+  initialTab,
   demo = false,
   workspace = null,
   account = null,
   onSessionRenewed,
 }: SettingsPageProps): React.JSX.Element {
-  const [tab, setTab] = useState<TabId>(createMode || !demo ? 'workspace' : 'account');
+  const [tab, setTab] = useState<TabId>(createMode ? 'workspace' : initialTab ?? (!demo ? 'workspace' : 'account'));
   const [creating, setCreating] = useState(createMode);
   const [createdId, setCreatedId] = useState<string | null>(null);
   const [prevCreateMode, setPrevCreateMode] = useState(createMode);

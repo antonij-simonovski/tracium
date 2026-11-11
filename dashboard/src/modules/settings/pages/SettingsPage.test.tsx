@@ -15,9 +15,10 @@ const workspacesAPI = {
   alertChannels: vi.fn(), createAlertChannel: vi.fn(), updateAlertChannel: vi.fn(), deleteAlertChannel: vi.fn(), testAlertChannel: vi.fn(),
   alertRules: vi.fn(), createAlertRule: vi.fn(), updateAlertRule: vi.fn(), deleteAlertRule: vi.fn(),
 };
+const metricsAPI = { getIncidentBacktest: vi.fn() };
 const apiKeysAPI = { listRead: vi.fn(() => Promise.resolve([])), createRead: vi.fn(), revokeRead: vi.fn() };
 vi.mock('../../../common/providers/APIProvider', () => ({
-  useAPIClient: () => ({ usersAPI: { changePassword }, workspacesAPI, apiKeysAPI }),
+  useAPIClient: () => ({ usersAPI: { changePassword }, workspacesAPI, apiKeysAPI, metricsAPI, workspaceId: 'ws_generated_123' }),
 }));
 
 // The account tab lists read keys through react-query.
@@ -320,6 +321,13 @@ describe('alerts', () => {
     expect(screen.queryByRole('button', { name: 'Email' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Send test' }));
     expect(await screen.findByText('Test failed: destination answered 500')).toBeInTheDocument();
+  });
+
+  it('says how often it would have alerted when there is no channel yet', async () => {
+    workspacesAPI.alertChannels.mockResolvedValue({ items: [], email_enabled: false });
+    metricsAPI.getIncidentBacktest.mockResolvedValue({ range: '30d', incidents: 7, by_severity: {}, by_metric: {}, items: [] });
+    openAlerts();
+    expect(await screen.findByText('In the last 30 days Tracium would have alerted you 7 times.')).toBeInTheDocument();
   });
 
   it('shows a new webhook secret once', async () => {

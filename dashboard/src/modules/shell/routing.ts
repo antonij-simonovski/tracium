@@ -21,7 +21,7 @@ export function stateToPath(view: ViewId, selected: Record<string, string>, page
     case 'users':    return '/clients';
     case 'user':     return selected.user ? `/clients/${enc(selected.user)}` : '/clients';
     case 'keys':       return '/api-keys';
-    case 'settings':   return '/settings';
+    case 'settings':   return selected.settingsTab ? `/settings/${enc(selected.settingsTab)}` : '/settings';
     default:           return '/';
   }
 }
@@ -58,7 +58,7 @@ export function pathToState(pathname: string, pages: readonly ExtensionPage[] = 
     case 'api-keys':
       return { view: 'keys', selected: {} };
     case 'settings':
-      return { view: 'settings', selected: {} };
+      return { view: 'settings', selected: seg[1] ? { settingsTab: seg[1] } : {} };
     default:
       return null;
   }

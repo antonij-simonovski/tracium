@@ -192,7 +192,7 @@ export function OverviewLivePage({ range, setView, setSelected }: OverviewLivePa
         <>
           {setupChecksBlock}
           {releases.data && <ReleaseLines reports={releases.data.items} />}
-          {workspaceId && <BacktestCard key={workspaceId} />}
+          {workspaceId && <BacktestCard key={workspaceId} onSetUpAlerts={() => { setSelected(() => ({ settingsTab: 'alerts' })); setView('settings'); }} />}
         </>
       }
       status={

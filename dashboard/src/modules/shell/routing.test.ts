@@ -37,3 +37,11 @@ describe('incidents routing', () => {
     expect(pathToState('/incidents/inc%201')).toEqual({ view: 'incidents', selected: { incident: 'inc 1' } });
   });
 });
+
+describe('settings routing', () => {
+  it('deep links to a settings tab', () => {
+    expect(stateToPath('settings', { settingsTab: 'alerts' })).toBe('/settings/alerts');
+    expect(pathToState('/settings/alerts')).toEqual({ view: 'settings', selected: { settingsTab: 'alerts' } });
+    expect(pathToState('/settings')).toEqual({ view: 'settings', selected: {} });
+  });
+});

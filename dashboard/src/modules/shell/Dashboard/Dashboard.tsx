@@ -12,6 +12,7 @@ import { UsersPage, UsersLivePage, UserDetailPage, UsagePage, UsageLivePage, USE
 import { UserDetailLivePage } from '../../usage/pages/UserDetailLivePage';
 import { ApiKeysPage } from '../../api-keys';
 import { SettingsPage } from '../../settings';
+import type { TabId } from '../../settings/ids';
 import { IncidentsPage, IncidentDetailPage, openIncidentList, useOpenIncidents } from '../../incidents';
 import { EmptyState, ErrorBoundary, Centered, SlicedButton, Spinner, useMaxWidth, BREAKPOINTS } from '../../../common';
 import { readAccount, REDIRECT_KEY, WORKSPACE_KEY, VIEW_KEY, RANGE_KEY } from '../../auth';
@@ -341,7 +342,7 @@ export function Dashboard({ embedded = false, onLogout, onSessionRenewed, extens
             ? <UsagePage />
             : <UsageLivePage range={range} setView={setView} setSelected={setSelected} />)}
           {view === 'keys'        && <ApiKeysPage demo={embedded} workspaceId={workspace?.id} workspaceName={workspace?.name} />}
-          {view === 'settings'    && <SettingsPage sections={extensions.settingsSections} createWorkspace={embedded ? undefined : createWorkspace} createMode={createWsIntent} onCancelCreate={() => setCreateWsIntent(false)} onOpenOverview={() => setView('overview')} onOpenApiKeys={() => setView('keys')} ingestEndpoint={extensions.ingestEndpoint} demo={embedded} workspace={workspace} account={embedded ? null : readAccount()} onSessionRenewed={onSessionRenewed} />}
+          {view === 'settings'    && <SettingsPage key={selected.settingsTab} initialTab={selected.settingsTab as TabId | undefined} sections={extensions.settingsSections} createWorkspace={embedded ? undefined : createWorkspace} createMode={createWsIntent} onCancelCreate={() => setCreateWsIntent(false)} onOpenOverview={() => setView('overview')} onOpenApiKeys={() => setView('keys')} ingestEndpoint={extensions.ingestEndpoint} demo={embedded} workspace={workspace} account={embedded ? null : readAccount()} onSessionRenewed={onSessionRenewed} />}
           {view === 'users'     && (embedded
             ? <UsersPage users={USERS} periodLabel="Apr 1 – Apr 30" setView={setView} setSelected={setSelected} />
             : <UsersLivePage range={range} setView={setView} setSelected={setSelected} />)}

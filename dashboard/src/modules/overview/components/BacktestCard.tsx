@@ -21,7 +21,7 @@ const fmtWhen = (iso: string) =>
   new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
 // What the incident evaluator would have opened over the last 30 days.
-export function BacktestCard() {
+export function BacktestCard({ onSetUpAlerts }: { onSetUpAlerts?: () => void }) {
   const [asked, setAsked] = useState(false);
   const [open, setOpen] = useState(false);
   const backtest = useIncidentBacktest('30d', asked);
@@ -39,6 +39,7 @@ export function BacktestCard() {
     action = <button style={linkStyle} onClick={() => backtest.refetch()}>Try again</button>;
   } else if (data.incidents === 0) {
     line = 'Nothing would have fired in the last 30 days.';
+    action = onSetUpAlerts && <button style={linkStyle} onClick={onSetUpAlerts}>Set up alerts</button>;
   } else {
     const severities = SEVERITIES.filter((s) => data.by_severity[s]).map((s) => `${data.by_severity[s]} ${s}`);
     const metrics = Object.entries(data.by_metric)
@@ -50,7 +51,12 @@ export function BacktestCard() {
         <span style={{ color: 'var(--muted-foreground)' }}> · {severities.join(', ')} · {metrics.join(', ')}</span>
       </>
     );
-    action = <button style={linkStyle} aria-expanded={open} onClick={() => setOpen((o) => !o)}>{open ? 'Hide' : 'See them'}</button>;
+    action = (
+      <>
+        <button style={linkStyle} aria-expanded={open} onClick={() => setOpen((o) => !o)}>{open ? 'Hide' : 'See them'}</button>
+        {onSetUpAlerts && <button style={linkStyle} onClick={onSetUpAlerts}>Set up alerts</button>}
+      </>
+    );
   }
 
   return (
