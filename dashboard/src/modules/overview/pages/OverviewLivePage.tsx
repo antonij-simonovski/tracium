@@ -170,7 +170,7 @@ export function OverviewLivePage({ range, setView, setSelected }: OverviewLivePa
     { onSelect: selectOutlier },
   );
   const open = openIncidents.data?.items ?? [];
-  const incidentFor = (a: Anomaly) => openIncidentFor(open, a.scope, a.scope === 'workflow' ? a.workflow : a.client)?.id;
+  const incidentFor = (a: Anomaly) => openIncidentFor(open, a.scope, a.scope === 'workflow' ? a.workflow : a.scope === 'service' ? a.service : a.client)?.id;
   const toIncident = (id: string) => openIncident(id, setView, setSelected);
   const dismissOutlier = (a: Anomaly) => setDismissed((s) => new Set(s).add(anomalyKey(a)));
   const inspectOutlier = (a: Anomaly) => {
