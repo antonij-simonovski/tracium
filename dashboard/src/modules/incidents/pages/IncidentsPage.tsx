@@ -72,7 +72,7 @@ export function IncidentsPage({ setView, setSelected }: IncidentsPageProps) {
               <p style={{ fontSize: 14, color: 'var(--muted)', margin: 0 }}>
                 {lastChecked ? `Last checked ${relativeTime(Date.parse(lastChecked))}.` : 'Not checked yet.'} Tracium checks every workspace for anomalies in the background.
               </p>
-              <button onClick={() => setView('settings')} className={hover.text} style={{ background: 'none', border: 'none', font: 'inherit', fontSize: 14, cursor: 'pointer', textDecoration: 'underline' }}>
+              <button onClick={() => { setSelected((s) => ({ ...s, settingsTab: 'alerts' })); setView('settings'); }} className={hover.text} style={{ background: 'none', border: 'none', font: 'inherit', fontSize: 14, cursor: 'pointer', textDecoration: 'underline' }}>
                 Alert settings
               </button>
             </div>

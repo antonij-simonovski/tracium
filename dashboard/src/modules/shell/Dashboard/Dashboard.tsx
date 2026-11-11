@@ -152,7 +152,11 @@ export function Dashboard({ embedded = false, onLogout, onSessionRenewed, extens
   };
   const openIncidents = useOpenIncidents(persist);
   // A nav click on Incidents lands on the list, not the last incident opened.
-  const navTo = (v: string) => (v === 'incidents' ? openIncidentList(setView, setSelected) : setView(v));
+  const navTo = (v: string) => {
+    if (v === 'incidents') return openIncidentList(setView, setSelected);
+    if (v === 'settings') setSelected(({ settingsTab: _, ...rest }) => rest);
+    setView(v);
+  };
   const deleteWorkspace = async (id: string) => {
     if (persist) await apiDelete(id);
   };
