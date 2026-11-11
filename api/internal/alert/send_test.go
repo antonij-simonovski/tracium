@@ -20,12 +20,12 @@ import (
 
 func TestBlockedRanges(t *testing.T) {
 	for _, ip := range []string{"127.0.0.1", "10.1.2.3", "172.16.0.1", "172.31.255.255", "192.168.1.1", "169.254.169.254",
-		"::1", "fc00::1", "fd00:ec2::254", "fe80::1", "0.0.0.0", "::", "100.100.100.200", "::ffff:127.0.0.1", "64:ff9b::a9fe:a9fe"} {
+		"::1", "fc00::1", "fd00:ec2::254", "fe80::1", "0.0.0.0", "::", "100.100.100.200", "::ffff:127.0.0.1", "64:ff9b::a9fe:a9fe", "198.18.0.1", "198.19.255.255", "240.0.0.1", "255.255.255.255"} {
 		if !blocked(netip.MustParseAddr(ip)) {
 			t.Errorf("%s not blocked", ip)
 		}
 	}
-	for _, ip := range []string{"8.8.8.8", "172.32.0.1", "2606:4700::1111"} {
+	for _, ip := range []string{"8.8.8.8", "172.32.0.1", "198.20.0.1", "2606:4700::1111"} {
 		if blocked(netip.MustParseAddr(ip)) {
 			t.Errorf("%s blocked", ip)
 		}
