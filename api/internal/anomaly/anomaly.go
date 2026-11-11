@@ -105,7 +105,7 @@ type Options struct {
 	VolumeFloor float64
 
 	// Weekly drops an anomaly whose value is usual for its weekday: within a
-	// quarter of the range the same weekday took in the baseline, from two such days.
+	// quarter of the range the same weekday took in the baseline.
 	// Daily buckets only, so a quiet weekend is not an outage.
 	Weekly bool
 
@@ -234,7 +234,7 @@ func usualForWeekday(series []Point, dir Direction) bool {
 	for i := len(series) - 8; i >= first; i -= 7 {
 		lo, hi, n = math.Min(lo, series[i].Value), math.Max(hi, series[i].Value), n+1
 	}
-	if n < 2 {
+	if n == 0 {
 		return false
 	}
 	if dir == Drop {

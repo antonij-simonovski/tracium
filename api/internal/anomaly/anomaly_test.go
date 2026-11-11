@@ -313,3 +313,16 @@ func TestDetect_WeeklyKnowsIdleWeekdays(t *testing.T) {
 		t.Fatalf("a Saturday the workflow never runs on fired: %+v", got)
 	}
 }
+
+func TestDetect_WeeklyNeedsOnlyOnePriorWeek(t *testing.T) {
+	o := Options{BaselineDays: 28, MinBaseline: 7, ZInfo: 3, ZWarning: 4.5, ZCritical: 6, AbsFloor: 5, VolumeFloor: 10, Drop: true, Weekly: true}
+	vals := []float64{1000, 1010, 990, 1005, 995, 110, 100, 1000, 1010, 990, 1005, 995, 105}
+	o.DetectFromMs = int64(len(vals)-1) * day
+	if got := Detect(series(vals...), o); len(got) != 0 {
+		t.Fatalf("a second Saturday like the first fired: %+v", got)
+	}
+	vals[len(vals)-1] = 0
+	if got := Detect(series(vals...), o); len(got) != 1 {
+		t.Fatalf("a second-week Saturday outage must still fire: %+v", got)
+	}
+}
