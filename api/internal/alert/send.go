@@ -236,6 +236,9 @@ func (s SlackSender) Send(ctx context.Context, ch Channel, m Message) error {
 	return s.post(ctx, ch.Target, body, http.Header{})
 }
 
+// slackEscape keeps telemetry names from becoming Slack mentions or links.
+var slackEscape = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;").Replace
+
 func slackBody(m Message) map[string]any {
 	header := m.Headline
 	if r := []rune(header); len(r) > 150 {
@@ -243,7 +246,7 @@ func slackBody(m Message) map[string]any {
 	}
 	blocks := []map[string]any{{"type": "header", "text": slackText{"plain_text", header}}}
 	section := func(text string) {
-		blocks = append(blocks, map[string]any{"type": "section", "text": slackText{"mrkdwn", text}})
+		blocks = append(blocks, map[string]any{"type": "section", "text": slackText{"mrkdwn", slackEscape(text)}})
 	}
 	if m.Workspace != "" {
 		section("Workspace: *" + m.Workspace + "*")
@@ -278,7 +281,7 @@ func slackBody(m Message) map[string]any {
 	if len(buttons) > 0 {
 		blocks = append(blocks, map[string]any{"type": "actions", "elements": buttons})
 	}
-	return map[string]any{"text": m.Text(), "blocks": blocks}
+	return map[string]any{"text": slackEscape(m.Text()), "blocks": blocks}
 }
 
 type WebhookSender struct {
@@ -320,7 +323,7 @@ type EmailSender struct{ Mailer extension.Mailer }
 func (s EmailSender) Send(ctx context.Context, ch Channel, m Message) error {
 	var errs []error
 	for _, to := range strings.Split(ch.Target, ",") {
-		if err := s.Mailer.Send(ctx, extension.Message{ID: m.ID + "/" + to, To: to, Subject: m.Headline, Text: m.Text()}); err != nil {
+		if err := s.Mailer.Send(ctx, extension.Message{ID: m.ID + "/" + to, To: to, Subject: strings.Join(strings.Fields(m.Headline), " "), Text: m.Text()}); err != nil {
 			errs = append(errs, err)
 		}
 	}

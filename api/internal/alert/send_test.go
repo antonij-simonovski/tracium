@@ -229,3 +229,26 @@ func TestPermanentClasses(t *testing.T) {
 		t.Fatal("transient error marked permanent")
 	}
 }
+
+type captureMailer struct{ got []extension.Message }
+
+func (c *captureMailer) Send(_ context.Context, m extension.Message) error {
+	c.got = append(c.got, m)
+	return nil
+}
+
+func TestTelemetryNamesCannotInject(t *testing.T) {
+	m := Message{Headline: "[warning] <!channel>\r\nBcc: x@evil.test", Lines: []string{"<https://evil.test|click> & more"}}
+	body := slackBody(m)
+	section := body["blocks"].([]map[string]any)[1]["text"].(slackText).Text
+	if section != "• &lt;https://evil.test|click&gt; &amp; more" || strings.Contains(body["text"].(string), "<") {
+		t.Fatalf("slack body not escaped: %+v", body)
+	}
+	mail := &captureMailer{}
+	if err := (EmailSender{Mailer: mail}).Send(context.Background(), Channel{Target: "a@example.com"}, m); err != nil {
+		t.Fatal(err)
+	}
+	if got := mail.got[0].Subject; got != "[warning] <!channel> Bcc: x@evil.test" {
+		t.Fatalf("subject %q", got)
+	}
+}
