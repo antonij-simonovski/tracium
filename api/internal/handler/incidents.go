@@ -14,6 +14,7 @@ import (
 	"github.com/tracium/api/internal/anomaly"
 	"github.com/tracium/api/internal/incident"
 	"github.com/tracium/api/internal/middleware"
+	"github.com/tracium/api/internal/model"
 )
 
 // IncidentHandler serves stored incidents and their mutes. An incident in a
@@ -30,6 +31,11 @@ func NewIncidentHandler(store incident.Store, access WorkspaceAccess, notifier i
 		notifier = incident.NopNotifier{}
 	}
 	return &IncidentHandler{store: store, access: access, notifier: notifier, now: time.Now}
+}
+
+type incidentPage struct {
+	model.Page
+	LastEvaluatedAt *time.Time `json:"last_evaluated_at"`
 }
 
 var muteDurations = map[string]time.Duration{"24h": 24 * time.Hour, "7d": 7 * 24 * time.Hour, "forever": 0}
@@ -66,7 +72,12 @@ func (h *IncidentHandler) List(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "INTERNAL", "failed to list incidents")
 		return
 	}
-	respondPage(w, items, total, page, pageSize)
+	last, err := h.store.LastEvaluated(r.Context(), scope)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "INTERNAL", "failed to list incidents")
+		return
+	}
+	respondJSON(w, http.StatusOK, incidentPage{model.Page{Items: items, Total: total, Page: page, PageSize: pageSize}, last})
 }
 
 // get loads the {id} incident within the caller's workspaces, answering the request on failure.

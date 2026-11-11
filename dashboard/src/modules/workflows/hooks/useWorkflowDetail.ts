@@ -1,5 +1,6 @@
 import { useQuery, type Query } from '@tanstack/react-query';
 import { APIError } from '../../../common/api/client';
+import type { TraceFilter } from '../../trace-explorer/interfaces';
 import { useAPIClient } from '../../../common/providers/APIProvider';
 
 // Same 1-minute refresh grid as the workflows list.
@@ -83,11 +84,11 @@ export function useWorkflowErrorSeries(name: string, range: string, enabled = tr
   });
 }
 
-export function useWorkflowRuns(name: string, range: string, enabled = true, version?: string) {
+export function useWorkflowRuns(name: string, range: string, enabled = true, version?: string, silentFailure?: TraceFilter['silent_failure']) {
   const { tracesAPI, workspaceId } = useAPIClient();
   return useQuery({
-    queryKey: ['workflows', 'runs', workspaceId, name, range, version],
-    queryFn: () => tracesAPI.listTraces({ workflow: name, version, range, page_size: WORKFLOW_RUNS_PAGE_SIZE }),
+    queryKey: ['workflows', 'runs', workspaceId, name, range, version, silentFailure],
+    queryFn: () => tracesAPI.listTraces({ workflow: name, version, range, silent_failure: silentFailure, page_size: WORKFLOW_RUNS_PAGE_SIZE }),
     ...shared(workspaceId, name, enabled),
   });
 }

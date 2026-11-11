@@ -103,6 +103,8 @@ func (e *Evaluator) Tick(ctx context.Context) error {
 		wctx, cancel := context.WithTimeout(ctx, e.cfg.Timeout)
 		if err := e.evaluate(wctx, id, now); err != nil {
 			log.Printf("incident evaluator: workspace %s: %v", id, err)
+		} else if err := e.store.MarkEvaluated(wctx, id, now); err != nil {
+			log.Printf("incident evaluator: workspace %s: %v", id, err)
 		}
 		cancel()
 	}

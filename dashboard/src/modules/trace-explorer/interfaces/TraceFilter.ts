@@ -1,4 +1,5 @@
 import type { UserId } from '../../../common/ids';
+import type { SilentFailure } from '../../../common';
 
 export interface TraceFilter {
   user_id?: UserId;
@@ -10,6 +11,7 @@ export interface TraceFilter {
   /** Time window token (24h/7d/30d/90d/1y); bounds the listing server-side. */
   range?: string;
   has_error?: boolean;
+  silent_failure?: SilentFailure | 'any';
   start_after?: string;
   start_before?: string;
   page?: number;

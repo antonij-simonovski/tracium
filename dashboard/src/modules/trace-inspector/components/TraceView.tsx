@@ -4,6 +4,7 @@ import {
   IconX,
   MetaRow,
   SetupIssueNote,
+  FlagBadge,
   StatTile,
   StatusPill,
   fmtCost,
@@ -173,6 +174,15 @@ function AvailableToolsList({ tools }: { tools: AvailableTool[] }) {
   );
 }
 
+function silentFailureNote(span: SpanDetail): string {
+  if (span.silentFailure === 'truncated') {
+    const reason = span.attributes.finish_reason;
+    return `The model stopped at the token limit${reason ? ` (finish reason: ${reason})` : ''}.`;
+  }
+  if (span.silentFailure === 'refused') return 'The model declined to answer, though the call reported no error.';
+  return 'The tool returned an error payload, though the span reported success.';
+}
+
 function SpanInspector({ span, review }: { span: SpanDetail | undefined; review?: (span: SpanDetail) => React.ReactNode }) {
   if (!span) return null;
   const isParent = isParentSpan(span);
@@ -184,7 +194,11 @@ function SpanInspector({ span, review }: { span: SpanDetail | undefined; review?
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <SpanTypeTag type={span.type} />
           <StatusPill status={span.status === 'ok' ? 'completed' : 'failed'} />
+          {span.silentFailure && <FlagBadge flag={span.silentFailure} />}
         </div>
+        {span.silentFailure && (
+          <div style={{ fontSize: 13.5, color: 'var(--muted)', lineHeight: 1.5 }}>{silentFailureNote(span)}</div>
+        )}
         <div style={{ fontSize: 17, fontWeight: 600, color: 'var(--foreground)', letterSpacing: '-0.01em', wordBreak: 'break-word' }}>
           {span.name}
         </div>
@@ -656,6 +670,7 @@ const SpanRow = memo(function SpanRow({ span, isLast, isActive, isCollapsed, tot
           <span style={{ display: 'inline-block', width: 7, height: 7, background: color, borderRadius: 2, flexShrink: 0 }} />
           <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--foreground)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{span.name}</span>
           <SpanTypeTag type={span.type} />
+          {span.silentFailure && <FlagBadge flag={span.silentFailure} />}
           {worstIssue && (
             <span
               title={plural(span.setupIssues!.length, 'setup issue')}

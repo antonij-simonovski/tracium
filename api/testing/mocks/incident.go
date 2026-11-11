@@ -13,6 +13,7 @@ import (
 type MockIncidentStore struct {
 	Incidents []incident.Incident
 	MuteList  []incident.Mute
+	Evaluated map[string]time.Time
 	Err       error
 	nextID    int
 }
@@ -119,4 +120,22 @@ func (m *MockIncidentStore) DeleteMute(_ context.Context, workspaceID, id string
 		}
 	}
 	return incident.ErrNotFound
+}
+
+func (m *MockIncidentStore) MarkEvaluated(_ context.Context, workspaceID string, at time.Time) error {
+	if m.Evaluated == nil {
+		m.Evaluated = map[string]time.Time{}
+	}
+	m.Evaluated[workspaceID] = at
+	return m.Err
+}
+
+func (m *MockIncidentStore) LastEvaluated(_ context.Context, workspaceIDs []string) (*time.Time, error) {
+	var oldest *time.Time
+	for _, id := range workspaceIDs {
+		if at, ok := m.Evaluated[id]; ok && (oldest == nil || at.Before(*oldest)) {
+			oldest = &at
+		}
+	}
+	return oldest, m.Err
 }

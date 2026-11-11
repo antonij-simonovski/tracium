@@ -53,6 +53,12 @@ paths:
           description: Filter to traces that have at least one error span.
           schema:
             type: boolean
+        - name: silent_failure
+          in: query
+          description: Filter to traces with a span flagged as this silent failure; any matches every flag.
+          schema:
+            type: string
+            enum: [truncated, refused, tool_error, any]
         - name: start_after
           in: query
           description: Return traces whose start_time_ms is after this ISO 8601 date-time.
@@ -4549,6 +4555,11 @@ components:
           type: integer
         page_size:
           type: integer
+        last_evaluated_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the background check last finished for these workspaces (the oldest across them). Null when none has been checked yet.
 
     AlertChannel:
       type: object

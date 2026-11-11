@@ -12,6 +12,7 @@ import { UsersPage, UsersLivePage, UserDetailPage, UsagePage, UsageLivePage, USE
 import { UserDetailLivePage } from '../../usage/pages/UserDetailLivePage';
 import { ApiKeysPage } from '../../api-keys';
 import { SettingsPage } from '../../settings';
+import { IncidentsPage, IncidentDetailPage, openIncidentList, useOpenIncidents } from '../../incidents';
 import { EmptyState, ErrorBoundary, Centered, SlicedButton, Spinner, useMaxWidth, BREAKPOINTS } from '../../../common';
 import { readAccount, REDIRECT_KEY, WORKSPACE_KEY, VIEW_KEY, RANGE_KEY } from '../../auth';
 import { createDemoWorkspace } from '../data';
@@ -148,6 +149,9 @@ export function Dashboard({ embedded = false, onLogout, onSessionRenewed, extens
     setCreateWsIntent(false);
     return ws;
   };
+  const openIncidents = useOpenIncidents(persist);
+  // A nav click on Incidents lands on the list, not the last incident opened.
+  const navTo = (v: string) => (v === 'incidents' ? openIncidentList(setView, setSelected) : setView(v));
   const deleteWorkspace = async (id: string) => {
     if (persist) await apiDelete(id);
   };
@@ -208,6 +212,9 @@ export function Dashboard({ embedded = false, onLogout, onSessionRenewed, extens
   const breadcrumb = useMemo((): BreadcrumbItem[] => {
     const page = pages.find(p => p.id === view);
     if (page) return [{ label: page.label }];
+    if (view === 'incidents')  return selected.incident
+      ? [{ label: 'Incidents', onClick: () => navTo('incidents') }, { label: selected.incident }]
+      : [{ label: 'Incidents' }];
     if (view === 'trace')      return [{ label: 'Overview', onClick: () => setView('overview') }, { label: selected.traceId ?? 'Trace' }];
     if (view === 'workflows')     return selected.workflow
       ? [{ label: 'Workflows', onClick: () => { setSelected(s => { const n = { ...s }; delete n.workflow; return n; }); setView('workflows'); } }, { label: selected.workflow }]
@@ -223,7 +230,7 @@ export function Dashboard({ embedded = false, onLogout, onSessionRenewed, extens
     if (view === 'keys')       return [{ label: 'Settings', onClick: () => setView('settings') }, { label: 'API Keys' }];
     if (view === 'settings')   return [{ label: 'Settings' }];
     return [{ label: 'Overview' }];
-  }, [view, selected.traceId, selected.workflow, selected.user]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [view, selected.traceId, selected.workflow, selected.user, selected.incident]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCommandSelect = (action: CommandAction | undefined) => {
     if (!action) return;
@@ -237,7 +244,7 @@ export function Dashboard({ embedded = false, onLogout, onSessionRenewed, extens
       setView('workflows');
       return;
     }
-    if (action.view) setView(action.view);
+    if (action.view) navTo(action.view);
   };
 
   const activePage = pages.find(p => p.id === view);
@@ -255,7 +262,8 @@ export function Dashboard({ embedded = false, onLogout, onSessionRenewed, extens
       <Sidebar
         items={pages}
         currentView={view}
-        setView={setView}
+        setView={navTo}
+        badges={{ incidents: openIncidents.data?.total ?? 0 }}
         workspace={workspace}
         workspaces={workspaces}
         setWorkspace={selectWorkspace}
@@ -305,7 +313,7 @@ export function Dashboard({ embedded = false, onLogout, onSessionRenewed, extens
           {view === 'workflows'      && (selected.workflow
             ? (embedded
               ? <WorkflowDetailDemoPage workflow={WORKFLOWS.find(a => a.name === selected.workflow) ?? WORKFLOWS[0]} range={range} setView={setView} setSelected={setSelected} />
-              : <WorkflowDetailLivePage key={selected.workflow} workflowName={selected.workflow} range={range} setView={setView} setSelected={setSelected} />)
+              : <WorkflowDetailLivePage key={selected.workflow} workflowName={selected.workflow} range={range} setView={setView} setSelected={setSelected} initialFlag={selected.runsFlag} />)
             : (embedded
               ? <WorkflowsPage workflows={WORKFLOWS} range={range} setView={setView} setSelected={setSelected} workspaceName={workspace?.name} />
               : <WorkflowsLivePage range={range} setView={setView} setSelected={setSelected} workspaceName={workspace?.name} />))}
@@ -318,6 +326,11 @@ export function Dashboard({ embedded = false, onLogout, onSessionRenewed, extens
                 onSelect={(base, candidate) => setSelected(s => ({ ...s, base, candidate }))}
               />
             : <EmptyState message="No versions selected" description="Pick two versions on a workflow's page to compare them." />)}
+          {view === 'incidents'   && (embedded
+            ? <EmptyState message="Incidents" description="Incidents appear here once Tracium's background checks find something wrong." />
+            : selected.incident
+              ? <IncidentDetailPage key={selected.incident} incidentId={selected.incident} setView={setView} setSelected={setSelected} setRange={setRange} />
+              : <IncidentsPage setView={setView} setSelected={setSelected} />)}
           {view === 'trace'       && (embedded
             ? <TraceDetailDashPage setView={setView} />
             : selected.traceId

@@ -3,6 +3,7 @@ package query
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -138,5 +139,39 @@ func TestSilentFailureDetectorsFromClickHouse(t *testing.T) {
 	}
 	if a := find("refusal_rate", "agent"); a != nil {
 		t.Errorf("refusal flagged without refusals: %s", a.Summary)
+	}
+}
+
+func TestListTracesSilentFailureFromClickHouse(t *testing.T) {
+	r, ws := newTestRepository(t)
+	start := time.Now().Add(-time.Hour).UnixMilli()
+	insertDetectorSpans(t, r, ws, []detectorSpan{
+		{trace: "clean", name: "chat", workflow: "agent", startMs: start, durMs: 5},
+		{trace: "cut", name: "chat", workflow: "agent", flag: "truncated", startMs: start + 1, durMs: 5},
+		{trace: "cut", name: "chat", workflow: "agent", flag: "refused", startMs: start + 2, durMs: 5},
+		{trace: "tool", name: "search", workflow: "agent", flag: "tool_error", startMs: start + 3, durMs: 5},
+	})
+	for flag, want := range map[string]string{"": "tool,cut,clean", "truncated": "cut", "refused": "cut", "tool_error": "tool", "any": "tool,cut"} {
+		f := TraceFilter{WorkspaceIDs: []string{ws}, SilentFailure: flag}
+		if err := f.Validate(); err != nil {
+			t.Fatal(err)
+		}
+		traces, _, err := r.ListTraces(context.Background(), f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var ids []string
+		for _, tr := range traces {
+			ids = append(ids, tr.TraceID)
+			if tr.TraceID == "cut" && fmt.Sprint(tr.SilentFailures) != "[refused truncated]" {
+				t.Errorf("cut flags = %v", tr.SilentFailures)
+			}
+			if tr.TraceID == "clean" && (tr.SilentFailures == nil || len(tr.SilentFailures) != 0) {
+				t.Errorf("clean flags = %#v, want empty array", tr.SilentFailures)
+			}
+		}
+		if got := strings.Join(ids, ","); got != want {
+			t.Errorf("silent_failure=%q: %s, want %s", flag, got, want)
+		}
 	}
 }

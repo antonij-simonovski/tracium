@@ -2169,6 +2169,11 @@ export interface components {
             total: number;
             page: number;
             page_size: number;
+            /**
+             * Format: date-time
+             * @description When the background check last finished for these workspaces (the oldest across them). Null when none has been checked yet.
+             */
+            last_evaluated_at?: string | null;
         };
         AlertChannel: {
             id: string;
@@ -2582,6 +2587,8 @@ export interface operations {
                 version?: string;
                 /** @description Filter to traces that have at least one error span. */
                 has_error?: boolean;
+                /** @description Filter to traces with a span flagged as this silent failure; any matches every flag. */
+                silent_failure?: "truncated" | "refused" | "tool_error" | "any";
                 /** @description Return traces whose start_time_ms is after this ISO 8601 date-time. */
                 start_after?: string;
                 /** @description Return traces whose start_time_ms is before this ISO 8601 date-time. */

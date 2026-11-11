@@ -138,4 +138,22 @@ func TestStore(t *testing.T) {
 	if err := s.DeleteMute(ctx, "ws-1", mutes[0].ID); err != nil {
 		t.Fatal(err)
 	}
+
+	if last, err := s.LastEvaluated(ctx, []string{"ws-1"}); err != nil || last != nil {
+		t.Fatalf("never evaluated: %v %v", last, err)
+	}
+	for _, ev := range []struct {
+		ws string
+		at time.Time
+	}{{"ws-1", at.Add(-time.Hour)}, {"ws-1", at}, {"ws-2", at.Add(-time.Minute)}} {
+		if err := s.MarkEvaluated(ctx, ev.ws, ev.at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if last, err := s.LastEvaluated(ctx, []string{"ws-1"}); err != nil || last == nil || !last.Equal(at) {
+		t.Fatalf("ws-1 last evaluated: %v %v", last, err)
+	}
+	if last, _ := s.LastEvaluated(ctx, []string{"ws-1", "ws-2"}); last == nil || !last.Equal(at.Add(-time.Minute)) {
+		t.Fatalf("oldest across scope: %v", last)
+	}
 }

@@ -1,5 +1,6 @@
 import { Centered, EmptyState, Spinner } from '../../../common';
 import { useWorkflows } from '../hooks/useWorkflows';
+import { useOpenIncidents, workflowStatus } from '../../incidents';
 import { WorkflowsPage } from './WorkflowsPage';
 
 interface WorkflowsLivePageProps {
@@ -11,6 +12,7 @@ interface WorkflowsLivePageProps {
 
 export function WorkflowsLivePage({ range, setView, setSelected, workspaceName }: WorkflowsLivePageProps) {
   const { data, isLoading, isError, dataUpdatedAt } = useWorkflows(range);
+  const open = useOpenIncidents();
 
   if (isLoading) {
     return (
@@ -41,6 +43,7 @@ export function WorkflowsLivePage({ range, setView, setSelected, workspaceName }
       setSelected={setSelected}
       workspaceName={workspaceName}
       updatedAt={dataUpdatedAt}
+      status={workflowStatus(open.data?.items ?? [])}
     />
   );
 }

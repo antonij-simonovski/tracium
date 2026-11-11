@@ -47,6 +47,7 @@ import {
 import type { KpiSet, ActivityItem, Anomaly } from '../interfaces';
 import { anomalyKey, anomalyValue, toChartMarkers } from '../utils/anomalies';
 import { failuresSummary, syncStatus } from '../utils/status';
+import { StatusStrip, openIncident, openIncidentFor, openIncidentList, useOpenIncidents, workflowStatus } from '../../incidents';
 
 interface OverviewLivePageProps {
   range: string;
@@ -90,6 +91,7 @@ export function OverviewLivePage({ range, setView, setSelected }: OverviewLivePa
   const setupChecks = useSetupChecks();
   const { workspaceId } = useAPIClient();
   const activity = useRecentActivity();
+  const openIncidents = useOpenIncidents();
 
   // Dismissal is session-local; there is no dismiss endpoint yet.
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
@@ -166,6 +168,9 @@ export function OverviewLivePage({ range, setView, setSelected }: OverviewLivePa
     errorAxisMs,
     { onSelect: selectOutlier },
   );
+  const open = openIncidents.data?.items ?? [];
+  const incidentFor = (a: Anomaly) => openIncidentFor(open, a.scope, a.scope === 'workflow' ? a.workflow : a.client)?.id;
+  const toIncident = (id: string) => openIncident(id, setView, setSelected);
   const dismissOutlier = (a: Anomaly) => setDismissed((s) => new Set(s).add(anomalyKey(a)));
   const inspectOutlier = (a: Anomaly) => {
     if (a.workflow) setSelected((s) => ({ ...s, workflow: a.workflow }));
@@ -187,6 +192,11 @@ export function OverviewLivePage({ range, setView, setSelected }: OverviewLivePa
           {setupChecksBlock}
           {releases.data && <ReleaseLines reports={releases.data.items} />}
         </>
+      }
+      status={
+        openIncidents.data && (
+          <StatusStrip incidents={open} total={openIncidents.data.total} onOpen={toIncident} onViewAll={() => openIncidentList(setView, setSelected)} />
+        )
       }
       kpis={
         <Section isLoading={kpis.isLoading} isError={kpis.isError}>
@@ -218,6 +228,8 @@ export function OverviewLivePage({ range, setView, setSelected }: OverviewLivePa
                 onDismiss={dismissOutlier}
                 onRestoreAll={() => setDismissed(new Set())}
                 onInspect={inspectOutlier}
+                incidentFor={incidentFor}
+                onOpenIncident={toIncident}
               />
             )}
           </Section>
@@ -259,6 +271,7 @@ export function OverviewLivePage({ range, setView, setSelected }: OverviewLivePa
             <TopWorkflows
               range={range}
               workflows={workflows.data.items}
+              status={workflowStatus(open)}
               onSelectWorkflow={(name) => {
                 setSelected((s) => ({ ...s, workflow: name }));
                 setView('workflows');

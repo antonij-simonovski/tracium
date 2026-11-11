@@ -3,3 +3,5 @@ export type { Span, Trace, TraceDetail, TraceFilter } from './interfaces';
 export { toRunRow } from './utils/toRunRow';
 export { useReviewQueue } from './hooks/useReview';
 export { QUEUE_REASONS } from './utils/queue';
+export { SilentFailureFilter } from './components/SilentFailureFilter';
+export type { SilentFailureValue } from './components/SilentFailureFilter';

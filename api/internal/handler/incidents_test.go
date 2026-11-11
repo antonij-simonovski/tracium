@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -132,5 +133,17 @@ func TestIncidentListValidation(t *testing.T) {
 		if rec := serveIncident(r, http.MethodGet, "/v1/incidents?"+q, ""); rec.Code != http.StatusBadRequest {
 			t.Errorf("%s: got %d, want 400", q, rec.Code)
 		}
+	}
+}
+
+func TestIncidentListReportsLastEvaluation(t *testing.T) {
+	store := incidentStore()
+	r := incidentRouter(store, nil)
+	if rec := serveIncident(r, http.MethodGet, "/v1/incidents", ""); !strings.Contains(rec.Body.String(), `"last_evaluated_at":null`) {
+		t.Fatalf("never evaluated: %s", rec.Body.String())
+	}
+	store.Evaluated = map[string]time.Time{"mine": time.Date(2026, 11, 10, 20, 0, 0, 0, time.UTC), "theirs": time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	if rec := serveIncident(r, http.MethodGet, "/v1/incidents", ""); !strings.Contains(rec.Body.String(), `"last_evaluated_at":"2026-11-10T20:00:00Z"`) {
+		t.Fatalf("last evaluated: %s", rec.Body.String())
 	}
 }

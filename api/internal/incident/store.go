@@ -248,3 +248,20 @@ func (s *PostgresStore) DeleteMute(ctx context.Context, workspaceID, id string) 
 	}
 	return nil
 }
+
+func (s *PostgresStore) MarkEvaluated(ctx context.Context, workspaceID string, at time.Time) error {
+	_, err := s.pool.Exec(ctx, `INSERT INTO incident_evaluations (workspace_id, evaluated_at) VALUES ($1, $2)
+		ON CONFLICT (workspace_id) DO UPDATE SET evaluated_at = EXCLUDED.evaluated_at`, workspaceID, at)
+	if err != nil {
+		return fmt.Errorf("postgres: mark evaluated: %w", err)
+	}
+	return nil
+}
+
+func (s *PostgresStore) LastEvaluated(ctx context.Context, workspaceIDs []string) (*time.Time, error) {
+	var at *time.Time
+	if err := s.pool.QueryRow(ctx, `SELECT min(evaluated_at) FROM incident_evaluations WHERE workspace_id = ANY($1)`, workspaceIDs).Scan(&at); err != nil {
+		return nil, fmt.Errorf("postgres: last evaluated: %w", err)
+	}
+	return at, nil
+}
