@@ -262,20 +262,22 @@ func (s *PostgresStore) Reviewed(ctx context.Context, workspaceIDs, traceIDs []s
 	return out, nil
 }
 
-// RunAccuracy counts the workspace's run reviews per workflow version, each
-// workflow's versions in the order they were first reviewed.
+// RunAccuracy counts the workspace's run reviews per workflow version, with
+// the version's ship date from its release report when it has one.
 func (s *PostgresStore) RunAccuracy(ctx context.Context, workspaceID string) ([]VersionReviews, error) {
-	rows, err := s.pool.Query(ctx, `SELECT workflow_name, workflow_version, count(*), count(*) FILTER (WHERE verdict = 'correct'),
-		  count(*) FILTER (WHERE reason IN ('', 'sample')), count(*) FILTER (WHERE reason IN ('', 'sample') AND verdict = 'correct'),
-		  min(created_at), max(updated_at)
-		 FROM run_reviews WHERE workspace_id = $1 AND span_id = ''
-		GROUP BY 1, 2 ORDER BY 1, min(created_at), 2`, workspaceID)
+	rows, err := s.pool.Query(ctx, `SELECT r.workflow_name, r.workflow_version, count(*), count(*) FILTER (WHERE r.verdict = 'correct'),
+		  count(*) FILTER (WHERE r.reason IN ('', 'sample')), count(*) FILTER (WHERE r.reason IN ('', 'sample') AND r.verdict = 'correct'),
+		  min(r.created_at), max(r.updated_at), min(rr.first_seen_at)
+		 FROM run_reviews r
+		 LEFT JOIN release_reports rr ON rr.workspace_id = r.workspace_id AND rr.workflow = r.workflow_name AND rr.version = r.workflow_version
+		 WHERE r.workspace_id = $1 AND r.span_id = ''
+		GROUP BY 1, 2 ORDER BY 1, 2`, workspaceID)
 	if err != nil {
 		return nil, fmt.Errorf("postgres: run accuracy: %w", err)
 	}
 	out, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (VersionReviews, error) {
 		var v VersionReviews
-		err := row.Scan(&v.Workflow, &v.Version, &v.Reviews, &v.Correct, &v.Unflagged, &v.UnflaggedCorrect, &v.FirstAt, &v.LastAt)
+		err := row.Scan(&v.Workflow, &v.Version, &v.Reviews, &v.Correct, &v.Unflagged, &v.UnflaggedCorrect, &v.FirstAt, &v.LastAt, &v.ShippedAt)
 		return v, err
 	})
 	if err != nil {

@@ -41,15 +41,19 @@ func TestStoreReviewedAndRunAccuracy(t *testing.T) {
 		t.Errorf("reason = %q", rev.Reason)
 	}
 
+	if _, err := pool.Exec(ctx, `INSERT INTO release_reports (workspace_id, workflow, version, prev_version, first_seen_at, status)
+		VALUES ('ws-1', 'wf', 'v2', 'v1', '2026-11-01T00:00:00Z', 'pending')`); err != nil {
+		t.Fatal(err)
+	}
 	acc, err := s.RunAccuracy(ctx, "ws-1")
 	if err != nil || len(acc) != 2 {
 		t.Fatalf("run accuracy = %+v, %v", acc, err)
 	}
 	v1, v2 := acc[0], acc[1]
-	if v1.Version != "v1" || v1.Reviews != 2 || v1.Correct != 2 || v1.Unflagged != 1 || v1.UnflaggedCorrect != 1 {
+	if v1.Version != "v1" || v1.Reviews != 2 || v1.Correct != 2 || v1.Unflagged != 1 || v1.UnflaggedCorrect != 1 || v1.ShippedAt != nil {
 		t.Errorf("v1 = %+v", v1)
 	}
-	if v2.Version != "v2" || v2.Reviews != 1 || v2.Correct != 0 || v2.Unflagged != 1 || v2.FirstAt.IsZero() {
+	if v2.Version != "v2" || v2.Reviews != 1 || v2.Correct != 0 || v2.Unflagged != 1 || v2.FirstAt.IsZero() || v2.ShippedAt == nil || v2.ShippedAt.Day() != 1 {
 		t.Errorf("v2 = %+v", v2)
 	}
 }

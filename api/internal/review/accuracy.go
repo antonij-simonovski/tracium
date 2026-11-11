@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/tracium/api/internal/anomaly"
@@ -12,12 +13,26 @@ import (
 )
 
 // VersionReviews counts one workflow version's run reviews. Unflagged counts
-// reviews of runs with no silent-failure flag and no incident.
+// reviews of runs with no silent-failure flag and no incident. ShippedAt is
+// when the version was first seen in telemetry, nil when it has no release report.
 type VersionReviews struct {
 	Workflow, Version           string
 	Reviews, Correct            int64
 	Unflagged, UnflaggedCorrect int64
 	FirstAt, LastAt             time.Time
+	ShippedAt                   *time.Time
+}
+
+// shippedBefore orders versions by ship date. Versions without a release report
+// shipped before tracking began, so they sort first, by first review.
+func shippedBefore(a, b VersionReviews) bool {
+	if (a.ShippedAt == nil) != (b.ShippedAt == nil) {
+		return a.ShippedAt == nil
+	}
+	if a.ShippedAt != nil && !a.ShippedAt.Equal(*b.ShippedAt) {
+		return a.ShippedAt.Before(*b.ShippedAt)
+	}
+	return a.FirstAt.Before(b.FirstAt)
 }
 
 // AccuracyOptions holds every threshold of the accuracy-drop alert.
@@ -78,6 +93,7 @@ func (w *AccuracyWatch) Anomalies(ctx context.Context, workspaceID string, now t
 		if len(vs) < 2 {
 			continue
 		}
+		sort.SliceStable(vs, func(i, j int) bool { return shippedBefore(vs[i], vs[j]) })
 		a, ok := AccuracyDrop(vs[len(vs)-2], vs[len(vs)-1], now, w.o)
 		if !ok {
 			continue
@@ -117,12 +133,15 @@ func AccuracyDrop(prev, next VersionReviews, now time.Time, o AccuracyOptions) (
 	if p-n >= o.CriticalDrop {
 		severity = "critical"
 	}
-	first := next.FirstAt.UnixMilli()
+	first, shipped := next.FirstAt.UnixMilli(), next.FirstAt.UnixMilli()
+	if next.ShippedAt != nil {
+		shipped = next.ShippedAt.UnixMilli()
+	}
 	return model.Anomaly{
 		Metric: incident.AccuracyMetric, Scope: "workflow", Workflow: next.Workflow, BucketMs: first,
 		Observed: n, Expected: p, Deviation: n - p, Score: z, Direction: "down", Severity: severity,
 		Summary: fmt.Sprintf("Reviewed accuracy %.1f%% on %s, %.1f%% on %s (%d reviews against %d; %s).",
 			n*100, next.Version, p*100, prev.Version, nn, pn, basis),
-		VersionChange: &model.VersionChange{Workflow: next.Workflow, Version: next.Version, FirstSeenMs: first},
+		VersionChange: &model.VersionChange{Workflow: next.Workflow, Version: next.Version, FirstSeenMs: shipped},
 	}, true
 }

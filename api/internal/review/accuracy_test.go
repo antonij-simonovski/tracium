@@ -85,3 +85,23 @@ func TestAccuracyWatchComparesNewestTwoVersionsWithEnoughReviews(t *testing.T) {
 		t.Errorf("findings = %+v", findings)
 	}
 }
+
+func TestAccuracyWatchNewestIsLatestShippedNotLatestReviewed(t *testing.T) {
+	shipped := func(v VersionReviews, at time.Time) VersionReviews { v.ShippedAt = &at; return v }
+	// v1 shipped first but was reviewed only after v2; v2 is still the newer version.
+	v1 := shipped(ver("v1", 30, 12, 0, 0), accNow.Add(-10*24*time.Hour))
+	v1.FirstAt = accNow.Add(-2 * time.Hour)
+	v2 := shipped(ver("v2", 30, 28, 0, 0), accNow.Add(-3*24*time.Hour))
+	got, err := NewAccuracyWatch(fakeAccuracy{v2, v1}, nil, DefaultAccuracyOptions()).Anomalies(context.Background(), "ws", accNow)
+	if err != nil || len(got) != 0 {
+		t.Fatalf("v2 improved on v1, nothing fires: %+v, %v", got, err)
+	}
+
+	// A version shipped before release tracking began sorts before tracked ones.
+	untracked := ver("v0", 30, 28, 0, 0)
+	untracked.FirstAt = accNow.Add(-time.Hour)
+	got, _ = NewAccuracyWatch(fakeAccuracy{v1, untracked}, nil, DefaultAccuracyOptions()).Anomalies(context.Background(), "ws", accNow)
+	if len(got) != 1 || got[0].VersionChange.Version != "v1" || got[0].VersionChange.FirstSeenMs != v1.ShippedAt.UnixMilli() {
+		t.Fatalf("anomalies = %+v", got)
+	}
+}
