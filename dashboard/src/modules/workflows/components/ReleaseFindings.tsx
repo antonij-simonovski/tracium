@@ -28,7 +28,7 @@ export function releaseSignalLabel(metric: string): string | undefined {
 
 const VERDICT_COLOR = { regressed: 'var(--error)', improved: 'var(--accent)', same: 'var(--muted)' } as const;
 
-function fmtValue(metric: string, v: number): string {
+export function fmtValue(metric: string, v: number): string {
   if (RATES.has(metric)) return `${(v * 100).toFixed(1)}%`;
   if (metric === 'cost_per_run') return fmtRunCost(v);
   if (metric === 'latency_p95') return fmtMs(v);

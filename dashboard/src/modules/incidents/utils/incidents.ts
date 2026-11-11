@@ -1,6 +1,7 @@
-import { SEVERITY_META, relativeTime, type Severity, type SilentFailure } from '../../../common';
+import { SEVERITY_META, fmtCost, relativeTime, type Severity, type SilentFailure } from '../../../common';
 import type { AnomalyMetric } from '../../overview/interfaces';
-import { METRIC_META } from '../../overview/utils/anomalies';
+import { METRIC_META, anomalyValue } from '../../overview/utils/anomalies';
+import { fmtValue, releaseSignalLabel } from '../../workflows/components/ReleaseFindings';
 import type { Incident, IncidentSignal } from '../interfaces';
 
 export const METRIC_FLAG: Partial<Record<AnomalyMetric, SilentFailure>> = {
@@ -30,12 +31,36 @@ export function sampleTraceIds(inc: Incident): string[] {
   return [...new Set(signalsOf(inc).flatMap((s) => s.trace_ids ?? []))];
 }
 
+// Most severe first, then the strongest, then the latest: the same pick as the incident title.
+const strongestFirst = (a: IncidentSignal, b: IncidentSignal) =>
+  SEVERITY_META[b.severity].rank - SEVERITY_META[a.severity].rank || Math.abs(b.score) - Math.abs(a.score) || b.bucket_ms - a.bucket_ms;
+
+// One group per metric, its strongest signal first and the rest newest first.
 export function groupByMetric(signals: IncidentSignal[]): [AnomalyMetric, IncidentSignal[]][] {
   const groups = new Map<AnomalyMetric, IncidentSignal[]>();
   for (const s of [...signals].sort((a, b) => b.bucket_ms - a.bucket_ms)) {
     (groups.get(s.metric) ?? groups.set(s.metric, []).get(s.metric)!).push(s);
   }
-  return [...groups];
+  return [...groups].map(([m, g]) => {
+    const top = [...g].sort(strongestFirst)[0];
+    return [m, [top, ...g.filter((s) => s !== top)]];
+  });
+}
+
+export function signalLabel(metric: string): string {
+  if (metric === 'review_accuracy') return 'Reviewed accuracy';
+  if (metric === 'budget') return 'Budget spent';
+  return METRIC_META[metric as AnomalyMetric]?.noun ?? releaseSignalLabel(metric) ?? metric;
+}
+
+// Observed against expected in the signal's own terms.
+export function signalValues(s: { metric: string; observed: number; expected: number }): [string, string] {
+  if (s.metric === 'budget') return [fmtCost(s.observed), `of ${fmtCost(s.expected)}`];
+  if (s.metric === 'review_accuracy') return [fmtValue(s.metric, s.observed), `vs ${fmtValue(s.metric, s.expected)} on the previous version`];
+  const finding = s.metric.startsWith('release_regression:') ? s.metric.slice('release_regression:'.length) : undefined;
+  if (finding) return [`${fmtValue(finding, s.observed)} new version`, `vs ${fmtValue(finding, s.expected)} previous`];
+  const m = s.metric as AnomalyMetric;
+  return [anomalyValue(m, s.observed), `vs ${anomalyValue(m, s.expected)}`];
 }
 
 // The flag of the incident's first silent-failure signal, for the pre-filtered run list.

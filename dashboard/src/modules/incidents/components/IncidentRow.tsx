@@ -1,7 +1,7 @@
 import { SeverityTag, plural } from '../../../common';
 import hover from '../../../common/styles/hover.module.css';
 import type { Incident } from '../interfaces';
-import { signalsOf, sinceLabel, subjectLabel } from '../utils/incidents';
+import { groupByMetric, signalsOf, sinceLabel, subjectLabel } from '../utils/incidents';
 
 interface IncidentRowProps {
   incident: Incident;
@@ -11,7 +11,7 @@ interface IncidentRowProps {
 
 export function IncidentRow({ incident: inc, onOpen, onOpenSubject }: IncidentRowProps) {
   const linked = inc.scope === 'workflow' || inc.scope === 'client';
-  const n = signalsOf(inc).length;
+  const n = groupByMetric(signalsOf(inc)).length;
   return (
     <div
       className={hover.row}

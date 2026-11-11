@@ -1,11 +1,11 @@
 import { Centered, SEVERITY_META, SeverityTag, Spinner, formatDateTime, type Severity } from '../../../common';
 import hover from '../../../common/styles/hover.module.css';
-import { METRIC_META, anomalyTime, anomalyValue } from '../../overview/utils/anomalies';
-import { releaseSignalLabel } from '../../workflows/components/ReleaseFindings';
+import { anomalyTime } from '../../overview/utils/anomalies';
 import { LikelyCause } from '../components/LikelyCause';
 import { MuteMenu } from '../components/MuteMenu';
 import { useIncident, useIncidentActions } from '../hooks/useIncidents';
-import { groupByMetric, incidentFlag, incidentRange, sampleTraceIds, signalsOf, subjectLabel } from '../utils/incidents';
+import type { IncidentSignal } from '../interfaces';
+import { groupByMetric, incidentFlag, incidentRange, sampleTraceIds, signalLabel, signalValues, signalsOf, subjectLabel } from '../utils/incidents';
 import { openSubject } from '../utils/navigation';
 
 interface IncidentDetailPageProps {
@@ -70,7 +70,7 @@ export function IncidentDetailPage({ incidentId, setView, setSelected, setRange 
             >
               Resolve
             </button>
-            {top && <MuteMenu metric={top.metric} metricLabel={METRIC_META[top.metric]?.noun ?? releaseSignalLabel(top.metric) ?? top.metric} disabled={busy} onMute={(input) => mute.mutate(input)} />}
+            {top && <MuteMenu metric={top.metric} metricLabel={signalLabel(top.metric)} disabled={busy} onMute={(input) => mute.mutate(input)} />}
           </div>
         )}
       </div>
@@ -90,19 +90,16 @@ export function IncidentDetailPage({ incidentId, setView, setSelected, setRange 
 
       <section>
         <h2 style={label}>Signals</h2>
-        {groupByMetric(signals).map(([metric, group]) => (
+        {groupByMetric(signals).map(([metric, [latest, ...earlier]]) => (
           <div key={metric} style={{ padding: '12px 0', borderTop: '1px solid var(--border)' }}>
-            <div style={{ fontSize: 14.5, fontWeight: 600, marginBottom: 8 }}>{METRIC_META[metric]?.noun ?? releaseSignalLabel(metric) ?? metric}</div>
-            {group.map((s) => (
-              <div key={s.bucket_ms} style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 16px', alignItems: 'baseline', padding: '4px 0' }}>
-                <SeverityTag severity={s.severity} compact />
-                <span style={{ fontSize: 14, flex: '1 1 300px', lineHeight: 1.5 }}>{s.summary}</span>
-                <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
-                  {anomalyValue(s.metric, s.observed)} <span style={{ color: 'var(--muted)' }}>vs {anomalyValue(s.metric, s.expected)}</span>
-                </span>
-                <span style={{ fontSize: 12.5, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>{anomalyTime(s, '7d')}</span>
-              </div>
-            ))}
+            <div style={{ fontSize: 14.5, fontWeight: 600, marginBottom: 8 }}>{signalLabel(metric)}</div>
+            <SignalLine s={latest} />
+            {earlier.length > 0 && (
+              <details style={{ marginTop: 4 }}>
+                <summary style={{ fontSize: 12.5, color: 'var(--muted)', cursor: 'pointer' }}>{earlier.length} more {earlier.length === 1 ? 'bucket' : 'buckets'}</summary>
+                {earlier.map((s) => <SignalLine key={s.bucket_ms} s={s} />)}
+              </details>
+            )}
           </div>
         ))}
       </section>
@@ -126,6 +123,20 @@ export function IncidentDetailPage({ incidentId, setView, setSelected, setRange 
           </button>
         )}
       </section>
+    </div>
+  );
+}
+
+function SignalLine({ s }: { s: IncidentSignal }) {
+  const [observed, expected] = signalValues(s);
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 16px', alignItems: 'baseline', padding: '4px 0' }}>
+      <SeverityTag severity={s.severity} compact />
+      <span style={{ fontSize: 14, flex: '1 1 300px', lineHeight: 1.5 }}>{s.summary}</span>
+      <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
+        {observed} <span style={{ color: 'var(--muted)' }}>{expected}</span>
+      </span>
+      <span style={{ fontSize: 12.5, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>{anomalyTime(s, '7d')}</span>
     </div>
   );
 }
