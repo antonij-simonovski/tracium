@@ -139,7 +139,7 @@ func AccuracyDrop(prev, next VersionReviews, now time.Time, o AccuracyOptions) (
 	}
 	return model.Anomaly{
 		Metric: incident.AccuracyMetric, Scope: "workflow", Workflow: next.Workflow, BucketMs: first,
-		Observed: n, Expected: p, Deviation: n - p, Score: z, Direction: "down", Severity: severity,
+		Observed: n, Expected: p, Deviation: n - p, Score: z, Direction: "drop", Severity: severity,
 		Summary: fmt.Sprintf("Reviewed accuracy %.1f%% on %s, %.1f%% on %s (%d reviews against %d; %s).",
 			n*100, next.Version, p*100, prev.Version, nn, pn, basis),
 		VersionChange: &model.VersionChange{Workflow: next.Workflow, Version: next.Version, FirstSeenMs: shipped},

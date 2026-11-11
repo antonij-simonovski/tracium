@@ -197,9 +197,9 @@ func Signals(r Report) []model.Anomaly {
 		if f.Verdict != anomaly.Regressed || !anomaly.FindingMetrics[f.Metric] {
 			continue
 		}
-		direction := "up"
+		direction := "spike"
 		if f.Next < f.Prev {
-			direction = "down"
+			direction = "drop"
 		}
 		out = append(out, model.Anomaly{Metric: incident.ReleaseMetric + ":" + f.Metric, Scope: "workflow", Workflow: r.Workflow,
 			BucketMs: r.FirstSeenAt.UnixMilli(), Observed: f.Next, Expected: f.Prev, Direction: direction, Severity: f.Severity,

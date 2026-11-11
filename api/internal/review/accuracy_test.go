@@ -49,7 +49,7 @@ func TestAccuracyDrop(t *testing.T) {
 		if !ok {
 			continue
 		}
-		if a.Severity != c.severity || a.Metric != "review_accuracy" || a.Scope != "workflow" || a.VersionChange.Version != "v2" || a.Direction != "down" {
+		if a.Severity != c.severity || a.Metric != "review_accuracy" || a.Scope != "workflow" || a.VersionChange.Version != "v2" || a.Direction != "drop" {
 			t.Errorf("%s: %+v", c.name, a)
 		}
 		if got := strings.Contains(a.Summary, "unflagged runs only"); got != c.likeLike {

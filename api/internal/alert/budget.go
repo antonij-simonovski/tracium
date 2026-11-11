@@ -108,7 +108,7 @@ func budgetAnomalies(rules []Rule, spend map[spendKey]map[string]float64, now ti
 				continue
 			}
 			a := model.Anomaly{Metric: BudgetMetric, Scope: r.Scope, BucketMs: bucket, Observed: cost, Expected: r.ThresholdUSD,
-				Deviation: cost - r.ThresholdUSD, Score: ratio, Direction: "up", Severity: sev,
+				Deviation: cost - r.ThresholdUSD, Score: ratio, Direction: "spike", Severity: sev,
 				Summary: fmt.Sprintf("Spent $%.2f of the $%.2f %s budget (%.0f%%)", cost, r.ThresholdUSD, periodNames[r.Period], ratio*100)}
 			switch r.Scope {
 			case "workflow":
