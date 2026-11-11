@@ -42,7 +42,11 @@ type RateOptions struct {
 	// RateFloor stands in for a baseline rate below it, so a first failure after
 	// a clean baseline is not an infinite multiple.
 	RateFloor float64
-	Bands     Bands
+	// MinBaseTotal and MaxBaseRate, when set, skip hours whose baseline is too
+	// thin or already too high to judge.
+	MinBaseTotal int64
+	MaxBaseRate  float64
+	Bands        Bands
 }
 
 // RateSpike flags hours whose hit rate is a multiple of the trailing baseline rate.
@@ -63,6 +67,9 @@ func RateSpike(series []Count, o RateOptions) []Result {
 		var base float64
 		if total > 0 {
 			base = float64(hits) / float64(total)
+		}
+		if total < o.MinBaseTotal || (o.MaxBaseRate > 0 && base > o.MaxBaseRate) {
+			continue
 		}
 		multiple := rate / math.Max(base, o.RateFloor)
 		if sev := o.Bands.severity(multiple); sev != SeverityNone {
@@ -203,6 +210,11 @@ type SilenceOptions struct {
 	MissedBands Bands
 	// Bands are multiples of the usual gap between days, for irregular clients.
 	Bands Bands
+	// A client active in at least BusyHours of the 24 before its silence uses
+	// BusyMinSilenceMs and BusyMissedBands instead.
+	BusyHours        int
+	BusyMinSilenceMs int64
+	BusyMissedBands  Bands
 }
 
 // SilenceResult is a client gone quiet: Observed is the silence and Expected
@@ -255,7 +267,11 @@ func Silence(clients []Activity, o SilenceOptions) []SilenceResult {
 		}
 		last := hours[len(hours)-1] + HourMs
 		silence := o.NowMs - last
-		if silence < o.MinSilenceMs {
+		minSilence, missedBands := o.MinSilenceMs, o.MissedBands
+		if o.BusyHours > 0 && len(hours) >= o.BusyHours && hours[len(hours)-o.BusyHours] >= last-24*HourMs {
+			minSilence, missedBands = o.BusyMinSilenceMs, o.BusyMissedBands
+		}
+		if silence < minSilence {
 			continue
 		}
 		res := SilenceResult{Client: c.Client, LastSeenMs: last - HourMs}
@@ -269,13 +285,13 @@ func Silence(clients []Activity, o SilenceOptions) []SilenceResult {
 					if res.Missed++; res.Missed == 1 {
 						first = h
 					}
-					if res.Missed == int(o.MissedBands.Info) {
+					if res.Missed == int(missedBands.Info) {
 						overdue = h
 					}
 				}
 			}
 			multiple = float64(res.Missed)
-			sev = o.MissedBands.severity(multiple)
+			sev = missedBands.severity(multiple)
 			interval = float64(first - last)
 		} else {
 			gaps := make([]float64, 0, len(days)-1)
@@ -309,5 +325,318 @@ func slot(h int64) int { return int(h / HourMs % slotsPerWeek) }
 func sorted(xs []int64) []int64 {
 	out := append([]int64(nil), xs...)
 	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
+}
+
+// Volume is one hour's count of events (e.g. spans rejected at ingest).
+type Volume struct {
+	BucketMs int64
+	N        int64
+}
+
+type VolumeOptions struct {
+	BaselineHours int
+	DetectFromMs  int64
+	MinCount      int64
+	// Bands are multiples of the baseline hourly average; a zero baseline is
+	// Bands.Warning.
+	Bands Bands
+}
+
+// VolumeSpike flags hours whose count is a multiple of the trailing hourly average.
+func VolumeSpike(series []Volume, o VolumeOptions) []Result {
+	var out []Result
+	for i, p := range series {
+		if p.BucketMs < o.DetectFromMs || p.N < o.MinCount {
+			continue
+		}
+		var sum int64
+		for _, b := range series[max(0, i-o.BaselineHours):i] {
+			sum += b.N
+		}
+		base := float64(sum) / float64(o.BaselineHours)
+		multiple := o.Bands.Warning
+		if base > 0 {
+			multiple = float64(p.N) / base
+		}
+		if sev := o.Bands.severity(multiple); sev != SeverityNone {
+			out = append(out, Result{BucketMs: p.BucketMs, Observed: float64(p.N), Expected: base,
+				Deviation: float64(p.N) - base, Score: multiple, Direction: Spike, Severity: sev})
+		}
+	}
+	return out
+}
+
+// Presence is one hour's runs and, per step name, how many of them ran it.
+type Presence struct {
+	BucketMs int64
+	Runs     int64
+	Steps    map[string]int64
+}
+
+type PresenceOptions struct {
+	BaselineHours         int
+	FallbackBaselineHours int
+	DetectFromMs          int64
+	MinBaseRuns           int64
+	MinRuns               int64
+	// Expected is the baseline share of runs that makes a step expected.
+	Expected float64
+	// TopSteps caps the baseline steps considered, most frequent first.
+	TopSteps int
+	// Warning and Critical are the presence shares below which a step is missing.
+	Warning, Critical float64
+}
+
+// PresenceResult names the worst missing step and how many others went missing
+// in the same hour. Observed is its share of runs, Expected its baseline share.
+type PresenceResult struct {
+	Step   string
+	Others int
+	Result
+}
+
+// PresenceDrop flags hours in which a step that runs in nearly every run stopped
+// appearing: one result per hour, for the step with the lowest presence.
+func PresenceDrop(series []Presence, o PresenceOptions) []PresenceResult {
+	var out []PresenceResult
+	for i, p := range series {
+		if p.BucketMs < o.DetectFromMs || p.Runs < o.MinRuns {
+			continue
+		}
+		runs, steps := presenceBaseline(series[max(0, i-o.BaselineHours):i])
+		if runs < o.MinBaseRuns && o.FallbackBaselineHours > 0 {
+			runs, steps = presenceBaseline(series[max(0, i-o.FallbackBaselineHours):i])
+		}
+		if runs < o.MinBaseRuns {
+			continue
+		}
+		var res PresenceResult
+		found := 0
+		for _, name := range topSteps(steps, o.TopSteps) {
+			base := float64(steps[name]) / float64(runs)
+			cur := float64(p.Steps[name]) / float64(p.Runs)
+			if base < o.Expected || cur >= o.Warning {
+				continue
+			}
+			if found++; found == 1 || cur < res.Observed || (cur == res.Observed && base > res.Expected) {
+				res.Step, res.Result = name, Result{BucketMs: p.BucketMs, Observed: cur, Expected: base,
+					Deviation: cur - base, Score: -base / math.Max(cur, 0.01), Direction: Drop}
+			}
+		}
+		if found == 0 {
+			continue
+		}
+		res.Others, res.Severity = found-1, SeverityWarning
+		if res.Observed < o.Critical {
+			res.Severity = SeverityCritical
+		}
+		out = append(out, res)
+	}
+	return out
+}
+
+func presenceBaseline(hours []Presence) (int64, map[string]int64) {
+	var runs int64
+	steps := map[string]int64{}
+	for _, h := range hours {
+		runs += h.Runs
+		for name, n := range h.Steps {
+			steps[name] += n
+		}
+	}
+	return runs, steps
+}
+
+func topSteps(steps map[string]int64, n int) []string {
+	names := make([]string, 0, len(steps))
+	for name := range steps {
+		names = append(names, name)
+	}
+	sort.Slice(names, func(i, j int) bool {
+		if steps[names[i]] != steps[names[j]] {
+			return steps[names[i]] > steps[names[j]]
+		}
+		return names[i] < names[j]
+	})
+	return names[:min(n, len(names))]
+}
+
+// Level is one hour's value of a statistic over N observations (e.g. p95
+// context use over N LLM calls).
+type Level struct {
+	BucketMs int64
+	N        int64
+	Value    float64
+}
+
+type CrossOptions struct {
+	DetectFromMs int64
+	// LagHours is how far back the earlier value is read, both hours needing MinN.
+	LagHours int
+	MinN     int64
+	Above    float64
+	Below    float64
+}
+
+// LevelCross flags hours whose value reached Above while it was under Below
+// LagHours earlier, as a warning. Expected is the earlier value.
+func LevelCross(series []Level, o CrossOptions) []Result {
+	var out []Result
+	for i, p := range series {
+		if p.BucketMs < o.DetectFromMs || i < o.LagHours || p.N < o.MinN || p.Value < o.Above {
+			continue
+		}
+		then := series[i-o.LagHours]
+		if then.N < o.MinN || then.Value >= o.Below {
+			continue
+		}
+		out = append(out, Result{BucketMs: p.BucketMs, Observed: p.Value, Expected: then.Value,
+			Deviation: p.Value - then.Value, Score: p.Value / math.Max(then.Value, 0.01), Direction: Spike, Severity: SeverityWarning})
+	}
+	return out
+}
+
+// Shares is one hour's calls, in total and per key (e.g. per model).
+type Shares struct {
+	BucketMs int64
+	Total    int64
+	By       map[string]int64
+}
+
+type ShareOptions struct {
+	BaselineHours int
+	DetectFromMs  int64
+	MinBaseTotal  int64
+	// A key is new when its baseline share is under MaxBaseShare, and flagged
+	// once it holds MinShare and MinCount calls of an hour.
+	MaxBaseShare float64
+	MinShare     float64
+	MinCount     int64
+	Critical     float64
+}
+
+// ShareResult is the key that took over: Observed is its share of the hour,
+// Expected its baseline share.
+type ShareResult struct {
+	Key string
+	Result
+}
+
+// ShareShift flags hours in which a key that was rare over the baseline took a
+// large share: one warning per hour, for the largest, critical from Critical.
+func ShareShift(series []Shares, o ShareOptions) []ShareResult {
+	var out []ShareResult
+	for i, p := range series {
+		if p.BucketMs < o.DetectFromMs || p.Total == 0 {
+			continue
+		}
+		var total int64
+		by := map[string]int64{}
+		for _, b := range series[max(0, i-o.BaselineHours):i] {
+			total += b.Total
+			for k, n := range b.By {
+				by[k] += n
+			}
+		}
+		if total < max(o.MinBaseTotal, 1) {
+			continue
+		}
+		var res *ShareResult
+		for k, n := range p.By {
+			cur, base := float64(n)/float64(p.Total), float64(by[k])/float64(total)
+			if k == "" || n < o.MinCount || cur < o.MinShare || base >= o.MaxBaseShare {
+				continue
+			}
+			if res == nil || cur > res.Observed || (cur == res.Observed && k < res.Key) {
+				res = &ShareResult{Key: k, Result: Result{BucketMs: p.BucketMs, Observed: cur, Expected: base,
+					Deviation: cur - base, Score: cur / math.Max(base, 0.01), Direction: Spike, Severity: SeverityWarning}}
+			}
+		}
+		if res != nil {
+			if res.Observed >= o.Critical {
+				res.Severity = SeverityCritical
+			}
+			out = append(out, *res)
+		}
+	}
+	return out
+}
+
+// Repeat is one output returned in an hour: Dup counts the calls that returned
+// it for an input other than its most common one, Inputs its distinct inputs.
+type Repeat struct {
+	Dup, Inputs int64
+}
+
+// Outputs is one hour's calls with a hashed output, and the outputs repeated
+// across inputs, by hash.
+type Outputs struct {
+	BucketMs int64
+	Total    int64
+	Repeats  map[uint64]Repeat
+}
+
+type DuplicateOptions struct {
+	BaselineHours int
+	DetectFromMs  int64
+	MinBaseTotal  int64
+	MinCalls      int64
+	MinInputs     int64
+	MinShare      float64
+	MaxBaseShare  float64
+	Critical      float64
+}
+
+// DuplicateResult is the output repeated most: Observed is its share of the
+// hour's calls, Expected the most repeated output's share over the baseline.
+type DuplicateResult struct {
+	Hash uint64
+	Result
+}
+
+// DuplicateShare flags hours in which one output was returned for many
+// different inputs while no output was over the baseline, so workflows with a
+// few fixed answers never fire.
+func DuplicateShare(series []Outputs, o DuplicateOptions) []DuplicateResult {
+	var out []DuplicateResult
+	for i, p := range series {
+		if p.BucketMs < o.DetectFromMs || p.Total < o.MinCalls {
+			continue
+		}
+		var hash uint64
+		var top int64
+		for h, r := range p.Repeats {
+			if r.Inputs >= o.MinInputs && (r.Dup > top || (r.Dup == top && h < hash)) {
+				hash, top = h, r.Dup
+			}
+		}
+		cur := float64(top) / float64(p.Total)
+		if top == 0 || cur < o.MinShare {
+			continue
+		}
+		var total, baseTop int64
+		dup := map[uint64]int64{}
+		for _, b := range series[max(0, i-o.BaselineHours):i] {
+			total += b.Total
+			for h, r := range b.Repeats {
+				dup[h] += r.Dup
+				baseTop = max(baseTop, dup[h])
+			}
+		}
+		if total < max(o.MinBaseTotal, 1) {
+			continue
+		}
+		base := float64(baseTop) / float64(total)
+		if base >= o.MaxBaseShare {
+			continue
+		}
+		res := DuplicateResult{Hash: hash, Result: Result{BucketMs: p.BucketMs, Observed: cur, Expected: base,
+			Deviation: cur - base, Score: cur / math.Max(base, 0.01), Direction: Spike, Severity: SeverityWarning}}
+		if cur >= o.Critical {
+			res.Severity = SeverityCritical
+		}
+		out = append(out, res)
+	}
 	return out
 }

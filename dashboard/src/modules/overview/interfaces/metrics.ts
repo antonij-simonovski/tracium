@@ -68,8 +68,15 @@ export type AnomalyMetric =
   | 'llm_calls_per_run'
   | 'tool_repeat'
   | 'cache_hit_ratio'
-  | 'heartbeat';
-export type AnomalyScope = 'workspace' | 'workflow' | 'client';
+  | 'heartbeat'
+  | 'ingest_silence'
+  | 'ingest_rejected'
+  | 'missing_step'
+  | 'stuck_runs'
+  | 'context_pressure'
+  | 'model_mix'
+  | 'duplicate_output';
+export type AnomalyScope = 'workspace' | 'workflow' | 'client' | 'service';
 export type AnomalyDirection = 'spike' | 'drop';
 export type AnomalySeverity = Severity;
 
@@ -78,6 +85,7 @@ export interface Anomaly {
   scope: AnomalyScope;
   workflow: string; // set when scope === 'workflow', else ''
   client: string; // set when scope === 'client', else ''
+  service: string; // set when scope === 'service', else ''
   bucket_ms: number; // UTC day for daily metrics, hour for hourly ones
   observed: number; // the bucket's value, in the metric's unit
   expected: number; // baseline

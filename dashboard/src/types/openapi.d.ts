@@ -1918,20 +1918,22 @@ export interface components {
         };
         Anomaly: {
             /**
-             * @description The metric that deviated. cost, error_rate, runs and latency_p95 (p95 root-span duration in ms) are daily robust-z outliers. The rest are hourly checks against the prior 24 hours: truncation_rate, refusal_rate and tool_error_rate (share of LLM or tool calls flagged at ingest), llm_calls_per_run and tool_repeat (the worst run's LLM calls against the workflow's median run, or calls of one tool against its p95 run; a workflow with under 20 runs in 24 hours is compared with the last 7 days, and with under 5 runs there only a run of 50 LLM calls or 30 calls of one tool is flagged, with expected 0), cache_hit_ratio (cache-read over input tokens) and heartbeat (hours a regular client has been silent, raised once it misses 3 hours of the week it is usually active in).
+             * @description The metric that deviated. cost, error_rate, runs and latency_p95 (p95 root-span duration in ms) are daily robust-z outliers. The rest are hourly checks against the prior 24 hours: truncation_rate, refusal_rate and tool_error_rate (share of LLM or tool calls flagged at ingest), llm_calls_per_run and tool_repeat (the worst run's LLM calls against the workflow's median run, or calls of one tool against its p95 run; a workflow with under 20 runs in 24 hours is compared with the last 7 days, and with under 5 runs there only a run of 50 LLM calls or 30 calls of one tool is flagged, with expected 0), cache_hit_ratio (cache-read over input tokens) and heartbeat (hours a regular client has been silent, raised once it misses 3 hours of the week it is usually active in), ingest_silence (the same for a service, or the whole workspace when every service stopped, from 1 missed hour for a service active in 20 of the 24 hours before), ingest_rejected (spans the collector rejected in the hour against the prior 24-hour average, from 20 spans and 5×), missing_step (share of runs that ran a step present in 90% of baseline runs, raised below 50%) and stuck_runs (share of runs with spans but no root span 30 minutes after their newest span, for workflows whose baseline runs have a root span 95% of the time), context_pressure (share of LLM calls using 85% or more of the model's context window, from 5 calls and 5%, once the prior 24 hours hold 20 calls of a known window; or, without a spike, the hour's p95 context use reaching 85% from under 70% in the same hour a week earlier), model_mix (share of LLM calls on a requested model that held under 2% of the prior 24 hours, from 20% and 10 calls; or the share answered by a model of another family than requested, snapshot suffixes ignored, from 20 answered calls in the prior 24 hours) and duplicate_output (share of LLM calls returning one output for inputs other than its most common one, from 10 calls, 5 distinct inputs and 30%, when no output held 10% over the prior 24 hours).
              * @enum {string}
              */
-            metric: "cost" | "error_rate" | "runs" | "latency_p95" | "truncation_rate" | "refusal_rate" | "tool_error_rate" | "llm_calls_per_run" | "tool_repeat" | "cache_hit_ratio" | "heartbeat";
+            metric: "cost" | "error_rate" | "runs" | "latency_p95" | "truncation_rate" | "refusal_rate" | "tool_error_rate" | "llm_calls_per_run" | "tool_repeat" | "cache_hit_ratio" | "heartbeat" | "ingest_silence" | "ingest_rejected" | "missing_step" | "stuck_runs" | "context_pressure" | "model_mix" | "duplicate_output";
             /**
-             * @description Whether this anomaly is workspace-wide, for one workflow, or for one client (heartbeat).
+             * @description Whether this anomaly is workspace-wide, for one workflow, for one client (heartbeat), or for one service (ingest_silence).
              * @enum {string}
              */
-            scope: "workspace" | "workflow" | "client";
+            scope: "workspace" | "workflow" | "client" | "service";
             /** @description The workflow name when scope is "workflow"; empty otherwise. */
             workflow: string;
             /** @description The client (user_id) when scope is "client"; empty otherwise. */
             client: string;
-            /** @description Anomalous bucket, Unix epoch milliseconds: a UTC day for daily metrics, an hour for hourly ones, and the hour a heartbeat became overdue. */
+            /** @description The service (service_name) when scope is "service"; empty otherwise. */
+            service: string;
+            /** @description Anomalous bucket, Unix epoch milliseconds: a UTC day for daily metrics, an hour for hourly ones, and the hour a heartbeat or ingest silence became overdue. */
             bucket_ms: number;
             /** @description The bucket's value: USD, a 0–1 rate or ratio, a count, latency in ms, or silent hours. */
             observed: number;
@@ -1955,7 +1957,9 @@ export interface components {
             summary: string;
             /** @description A workflow version first seen on the anomaly's day or the day before, or null. Scope "workflow" names its own workflow's version; scope "workspace" names the version of the workflow that carried the most of the metric that day (errored runs for error_rate), and null when that workflow did not change version. A workflow's first versioned day is not a change. */
             version_change: components["schemas"]["VersionChange"] | null;
-            /** @description Sample runs behind the anomaly: the worst run for llm_calls_per_run and tool_repeat. Empty for other metrics. */
+            /** @description For scope "workflow": a response model the workflow was first answered by within the 24 hours before the anomaly's bucket, against the week before the hourly checks' range, or null. A workflow's first response model is not a change. */
+            model_change: components["schemas"]["ModelChange"] | null;
+            /** @description Sample runs behind the anomaly: the worst run for llm_calls_per_run and tool_repeat, up to 3 stuck runs for stuck_runs, and a run that returned the repeated output for duplicate_output. Empty for other metrics. */
             trace_ids: string[];
         };
         Incident: {
@@ -2038,6 +2042,12 @@ export interface components {
             workflow: string;
             version: string;
             /** @description The day the version was first seen, Unix epoch milliseconds (UTC midnight). */
+            first_seen_ms: number;
+        };
+        ModelChange: {
+            /** @description Normalized response model (gen_ai.response.model), snapshot suffix included. */
+            model: string;
+            /** @description The hour the model first answered the workflow, Unix epoch milliseconds. */
             first_seen_ms: number;
         };
         SetupIssue: {
@@ -3640,7 +3650,7 @@ export interface operations {
                 /** @description Scope the read to one workspace. This is an access boundary, not just a filter: the caller must be a member of the workspace or the request is refused with 403. Omitted, the read covers every workspace the caller is a member of (an account that is a member of none sees nothing). The dashboard passes the active workspace from its switcher. */
                 workspace_id?: components["parameters"]["WorkspaceFilter"];
                 /** @description Restrict to one metric. Omitted, all are detected. */
-                metric?: "cost" | "error_rate" | "runs" | "latency_p95" | "truncation_rate" | "refusal_rate" | "tool_error_rate" | "llm_calls_per_run" | "tool_repeat" | "cache_hit_ratio" | "heartbeat";
+                metric?: "cost" | "error_rate" | "runs" | "latency_p95" | "truncation_rate" | "refusal_rate" | "tool_error_rate" | "llm_calls_per_run" | "tool_repeat" | "cache_hit_ratio" | "heartbeat" | "ingest_silence" | "ingest_rejected" | "missing_step" | "stuck_runs" | "context_pressure" | "model_mix" | "duplicate_output";
                 /** @description Drop anomalies below this severity. Omitted, all severities are returned. */
                 min_severity?: "info" | "warning" | "critical";
             };
