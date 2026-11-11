@@ -161,3 +161,13 @@ func TestMutedReleaseFindings(t *testing.T) {
 		t.Error("release findings should always be current")
 	}
 }
+
+func TestFoldGroupsServicesApart(t *testing.T) {
+	a := model.Anomaly{Metric: "ingest_silence", Scope: "service", Service: "svc-a", BucketMs: now.UnixMilli(), Severity: "warning"}
+	b := a
+	b.Service = "svc-b"
+	changes := Fold("ws", now, []model.Anomaly{a, b}, State{}, DefaultOptions())
+	if len(changes) != 2 || changes[0].Incident.Subject == changes[1].Incident.Subject {
+		t.Fatalf("want one incident per service, got %+v", changes)
+	}
+}

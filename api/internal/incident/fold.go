@@ -66,6 +66,8 @@ func Subject(a model.Anomaly) (scope, subject string) {
 		return a.Scope, a.Workflow
 	case "client":
 		return a.Scope, a.Client
+	case "service":
+		return a.Scope, a.Service
 	}
 	return a.Scope, ""
 }
