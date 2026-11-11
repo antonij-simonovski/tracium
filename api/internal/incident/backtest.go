@@ -115,6 +115,7 @@ func (b *Backtester) run(ctx context.Context, workspaceID, rng string, now time.
 		return nil, err
 	}
 	f.WorkspaceIDs = []string{workspaceID}
+	f.AnomalyAll = true
 	anomalies, err := detectRange(ctx, b.detector, f)
 	if err != nil {
 		return nil, err

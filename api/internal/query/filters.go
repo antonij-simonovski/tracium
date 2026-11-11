@@ -72,6 +72,9 @@ type MetricsFilter struct {
 	// "warning" | "critical"). Empty means no restriction.
 	AnomalyMetric      string
 	AnomalyMinSeverity string
+	// AnomalyAll returns every anomaly instead of the 100 most severe, for the
+	// incident evaluator and backtest, which keep only the current ones afterwards.
+	AnomalyAll bool
 }
 
 // rollupThreshold: windows longer than this are served from the daily rollup

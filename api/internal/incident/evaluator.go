@@ -125,6 +125,7 @@ func (e *Evaluator) evaluate(ctx context.Context, workspaceID string, now time.T
 		return err
 	}
 	f.WorkspaceIDs = []string{workspaceID}
+	f.AnomalyAll = true
 	anomalies, err := e.detector.Anomalies(ctx, f)
 	if err != nil {
 		return err

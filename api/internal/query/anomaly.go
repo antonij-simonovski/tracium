@@ -149,7 +149,7 @@ func (r *ClickHouseRepository) Anomalies(ctx context.Context, f MetricsFilter) (
 	}
 
 	sortAnomalies(out)
-	if len(out) > anomalyResultLimit {
+	if len(out) > anomalyResultLimit && !f.AnomalyAll {
 		out = out[:anomalyResultLimit]
 	}
 	for i := range out {
