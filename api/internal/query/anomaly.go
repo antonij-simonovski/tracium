@@ -25,8 +25,7 @@ import (
 const (
 	// anomalyBaselineDays is how many days precede a candidate as its baseline.
 	// Four weeks: enough robust samples to be stable, short enough to track real
-	// drift in usage. (Weekly seasonality is not modelled in v1 — see the package
-	// doc in internal/anomaly.)
+	// drift in usage. A value usual for its weekday is not flagged (Options.Weekly).
 	anomalyBaselineDays = 28
 	// anomalyMinBaseline is the fewest baseline days needed to score a bucket.
 	anomalyMinBaseline = 7
@@ -202,9 +201,11 @@ func detectSeries(f MetricsFilter, scope, workflow string, axis []int64, byBucke
 			VolumeFloor:       m.volumeFloor,
 			Spike:             m.spike,
 			Drop:              m.drop,
+			Weekly:            true,
 		}
 		for _, res := range anomaly.Detect(pts, opts) {
-			if severityRank(string(res.Severity)) < minSev {
+			// A day still in progress has not had all its runs yet, so it cannot drop.
+			if severityRank(string(res.Severity)) < minSev || (res.Direction == anomaly.Drop && res.BucketMs+(24*time.Hour).Milliseconds() > f.End.UnixMilli()) {
 				continue
 			}
 			a := model.Anomaly{

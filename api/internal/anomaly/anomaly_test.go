@@ -279,3 +279,37 @@ func TestMedianOf(t *testing.T) {
 		}
 	}
 }
+
+func TestDetect_WeeklyKeepsQuietWeekendsAndRealOutages(t *testing.T) {
+	o := Options{BaselineDays: 28, MinBaseline: 7, ZInfo: 3, ZWarning: 4.5, ZCritical: 6, AbsFloor: 5, VolumeFloor: 10, Drop: true, Spike: true}
+	var vals []float64
+	for w := 0; w < 4; w++ {
+		vals = append(vals, 1000, 1010, 990, 1005, 995, 110, 100)
+	}
+	saturday := append(append([]float64{}, vals...), 1000, 1010, 990, 1005, 995, 105)
+	o.DetectFromMs = int64(len(saturday)-1) * day
+	if got := Detect(series(saturday...), o); len(got) == 0 {
+		t.Fatal("without Weekly a usual Saturday reads as a drop; the test needs that baseline")
+	}
+	o.Weekly = true
+	if got := Detect(series(saturday...), o); len(got) != 0 {
+		t.Fatalf("a usual Saturday fired: %+v", got)
+	}
+	saturday[len(saturday)-1] = 0
+	if got := Detect(series(saturday...), o); len(got) != 1 || got[0].Direction != Drop {
+		t.Fatalf("a Saturday outage must still fire: %+v", got)
+	}
+}
+
+func TestDetect_WeeklyKnowsIdleWeekdays(t *testing.T) {
+	o := Options{BaselineDays: 28, MinBaseline: 7, MinBaselineActive: 10, ZInfo: 3, ZWarning: 4.5, ZCritical: 6, AbsFloor: 5, VolumeFloor: 10, Drop: true, Weekly: true}
+	var vals []float64
+	for w := 0; w < 4; w++ {
+		vals = append(vals, 100, 100, 100, 100, 100, 0, 0)
+	}
+	vals = append(vals, 100, 100, 100, 100, 100, 0)
+	o.DetectFromMs = int64(len(vals)-1) * day
+	if got := Detect(series(vals...), o); len(got) != 0 {
+		t.Fatalf("a Saturday the workflow never runs on fired: %+v", got)
+	}
+}

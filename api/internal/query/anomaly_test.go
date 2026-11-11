@@ -3,6 +3,7 @@ package query
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tracium/api/internal/model"
 )
@@ -234,5 +235,23 @@ func TestModelAndOutputSummaries(t *testing.T) {
 	d := model.Anomaly{Metric: "duplicate_output", Workflow: "rag", Observed: 0.45, Expected: 0.02}
 	if got := hourlySummary(d, "t1", ""); !strings.Contains(got, "45.0% of LLM calls returned the same output for different inputs") {
 		t.Errorf("duplicate_output summary = %q", got)
+	}
+}
+
+func TestDetectSeriesSkipsDropsOnTheDayInProgress(t *testing.T) {
+	axis := make([]int64, 30)
+	by := map[int64]dailyAgg{}
+	for i := range axis {
+		axis[i] = int64(i) * day
+		by[axis[i]] = dailyAgg{runs: 1000}
+	}
+	by[axis[29]] = dailyAgg{runs: 400}
+	f := MetricsFilter{AnomalyMetric: "runs", End: time.UnixMilli(axis[29] + day/2)}
+	if got := detectSeries(f, "workspace", "", axis, by, axis[29], 0); len(got) != 0 {
+		t.Fatalf("half a day of runs is no drop: %+v", got)
+	}
+	f.End = time.UnixMilli(axis[29] + day)
+	if got := detectSeries(f, "workspace", "", axis, by, axis[29], 0); len(got) != 1 || got[0].Direction != "drop" {
+		t.Fatalf("a finished day still drops: %+v", got)
 	}
 }
