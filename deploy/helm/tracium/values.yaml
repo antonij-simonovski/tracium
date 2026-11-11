@@ -170,7 +170,7 @@ ingress:
   # Ingress routes /v1 to the API directly. Keep /v1/mcp/ out of the
   # controller's access log.
   annotations:
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "75"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
   tls:
     enabled: false

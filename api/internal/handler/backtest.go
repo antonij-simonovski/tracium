@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/tracium/api/internal/incident"
 )
@@ -24,6 +25,8 @@ func NewBacktestHandler(b Backtests, access WorkspaceAccess) *BacktestHandler {
 
 // Get handles GET /v1/incidents/backtest?workspace_id=&range=7d|30d.
 func (h *BacktestHandler) Get(w http.ResponseWriter, r *http.Request) {
+	// A replay may run for a minute, longer than the server's write timeout.
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(70 * time.Second))
 	q := r.URL.Query()
 	rng := q.Get("range")
 	if rng == "" {
