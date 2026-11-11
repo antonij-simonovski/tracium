@@ -38,8 +38,8 @@ var filterReasons = map[string]bool{
 const refusalSubject = `(?:i|we)(?:\s+(?:can't|cannot|can not|won't|am unable to|am not able to)|'m\s+(?:unable to|not able to)|'re\s+(?:unable to|not able to))`
 
 var refusalPattern = regexp.MustCompile(`^(?:` +
-	`(?:i'm sorry|i am sorry|sorry|i apologi[sz]e)[,.!]?\s+(?:but\s+)?` + refusalSubject +
-	`|` + refusalSubject + `\s+(?:help|assist|comply|provide|fulfill|fulfil|answer|do that|support)` +
+	`(?:(?:i'm sorry|i am sorry|sorry|i apologi[sz]e)[,.!]?\s+(?:but\s+)?)?` + refusalSubject +
+	`(?:\s+(?:help|assist|comply|provide|fulfill|fulfil|answer|do that|support)|[.!]?$)` +
 	`|i must decline` +
 	`)`)
 
