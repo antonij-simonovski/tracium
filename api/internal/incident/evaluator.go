@@ -137,6 +137,7 @@ func (e *Evaluator) evaluate(ctx context.Context, workspaceID string, now time.T
 		}
 		anomalies = append(anomalies, extra...)
 	}
+	sourceFailed := len(errs) > 0
 	st := State{}
 	if st.Open, err = e.store.ListOpen(ctx, workspaceID); err != nil {
 		return err
@@ -167,6 +168,10 @@ func (e *Evaluator) evaluate(ctx context.Context, workspaceID string, now time.T
 	}
 
 	for _, c := range Fold(workspaceID, now, anomalies, st, e.cfg.Fold) {
+		// A source that failed may have dropped live signals, so its incidents are not quiet.
+		if sourceFailed && c.Kind == ChangeResolve {
+			continue
+		}
 		if err := e.sample(ctx, f, &c, prior[c.Incident.ID]); err != nil {
 			errs = append(errs, err)
 		}

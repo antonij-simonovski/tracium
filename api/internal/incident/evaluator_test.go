@@ -197,6 +197,32 @@ func TestEvaluatorFoldsSourceSignals(t *testing.T) {
 	}
 }
 
+type flakySource struct {
+	source
+	fail bool
+}
+
+func (s *flakySource) Anomalies(ctx context.Context, ws string, now time.Time) ([]model.Anomaly, error) {
+	if s.fail {
+		return nil, errors.New("clickhouse timeout")
+	}
+	return s.source.Anomalies(ctx, ws, now)
+}
+
+func TestEvaluatorKeepsIncidentsOpenWhenASourceFails(t *testing.T) {
+	det := &fakeDetector{anomalies: map[string][]model.Anomaly{"a": nil}}
+	store := &mocks.MockIncidentStore{}
+	rec := &recorder{}
+	src := &flakySource{source: source{{Metric: "budget", Scope: "client", Client: "acme", Severity: "critical", Observed: 60, Expected: 50}}}
+	e := incident.NewEvaluator(det, store, freeLock{}, workspaces{"a"}, rec, config(), src)
+	_ = e.Tick(context.Background())
+	src.fail = true
+	_ = e.Tick(context.Background())
+	if len(store.Incidents) != 1 || store.Incidents[0].Status != incident.StatusOpen || len(rec.events) != 1 {
+		t.Fatalf("a failing source resolved its incident: %+v %+v", store.Incidents, rec.events)
+	}
+}
+
 // resolvingDetector stands in for a user resolving the incident while a tick samples a new signal.
 type resolvingDetector struct {
 	*fakeDetector
