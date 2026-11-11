@@ -54,7 +54,7 @@ export function zLabel(score: number): string {
 
 // Hourly metrics score a multiple of their baseline, not a z-score.
 export function scoreLabel(a: Pick<Anomaly, 'metric' | 'score'>): string {
-  return METRIC_META[a.metric].hourly ? `${Math.abs(a.score).toFixed(1)}×` : zLabel(a.score);
+  return METRIC_META[a.metric]?.hourly ? `${Math.abs(a.score).toFixed(1)}×` : zLabel(a.score);
 }
 
 export function anomalyTarget(a: { scope: AnomalyScope; workflow: string; client: string; service: string }): string {
@@ -65,7 +65,7 @@ export function anomalyTarget(a: { scope: AnomalyScope; workflow: string; client
 }
 
 export function anomalyTime(a: Pick<Anomaly, 'metric' | 'bucket_ms'>, range: string): string {
-  if (!METRIC_META[a.metric].hourly) return bucketLabel(a.bucket_ms, range);
+  if (!METRIC_META[a.metric]?.hourly) return bucketLabel(a.bucket_ms, range);
   const d = new Date(a.bucket_ms);
   return `${d.getUTCMonth() + 1}/${d.getUTCDate()} ${String(d.getUTCHours()).padStart(2, '0')}:00 UTC`;
 }

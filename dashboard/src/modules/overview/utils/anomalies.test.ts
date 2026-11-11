@@ -46,6 +46,14 @@ describe('hourly anomalies', () => {
     expect(anomalyTarget(a)).toBe('Client acme');
   });
 
+  it('treat incident-only signals as daily', () => {
+    for (const metric of ['release_regression:cost_per_run', 'review_accuracy', 'budget']) {
+      const a = anom({ metric: metric as Anomaly['metric'], score: 3 });
+      expect(scoreLabel(a)).toBe('3.0σ');
+      expect(() => anomalyTime(a, '7d')).not.toThrow();
+    }
+  });
+
   it('keep two silent clients in the same hour apart', () => {
     const a = anom({ metric: 'heartbeat', scope: 'client', workflow: '', client: 'a' });
     expect(groupIncidents([a, { ...a, client: 'b' }])).toHaveLength(2);
