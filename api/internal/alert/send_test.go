@@ -200,6 +200,10 @@ func TestRenderText(t *testing.T) {
 	if m.Headline != "Escalated to critical: x" || len(m.Lines) != 6 || m.Lines[5] != "+2 more" || !strings.Contains(m.Text(), "Example runs: t\nIncident: i") {
 		t.Fatalf("escalated without links: %+v\n%s", m, m.Text())
 	}
+	daily := []incident.Signal{{Metric: "cost", BucketMs: 1, Severity: "warning", Summary: "day 1"}, {Metric: "cost", BucketMs: 2, Severity: "critical", Summary: "day 2"}}
+	if m := Render(incident.Event{Type: incident.EventOpened, Incident: incident.Incident{Signals: daily}}, "", ""); len(m.Lines) != 1 || m.Lines[0] != "day 2" || len(m.Incident.Signals) != 2 {
+		t.Fatalf("one line per metric, payload keeps every bucket: %+v", m)
+	}
 	resolved := at.Add(2*time.Hour + 10*time.Minute)
 	m = Render(incident.Event{Type: incident.EventResolved, Incident: incident.Incident{Title: "x", OpenedAt: at, ResolvedAt: &resolved}}, "", "")
 	if m.Headline != "Resolved after 2h 10m: x" || len(m.Lines) != 0 {

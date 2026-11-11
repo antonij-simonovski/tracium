@@ -1,6 +1,7 @@
 package incident
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -149,9 +150,34 @@ func TestTitle(t *testing.T) {
 	if got := Title("client", "acme", []Signal{{Metric: "budget", Observed: 41.5, Expected: 50, Severity: "warning"}}); got != "acme: spent $41.50 of $50.00 budget" {
 		t.Fatal(got)
 	}
+	for _, m := range []string{"cost", "error_rate", "runs", "latency_p95", "truncation_rate", "refusal_rate", "tool_error_rate",
+		"llm_calls_per_run", "tool_repeat", "cache_hit_ratio", "heartbeat", "ingest_silence", "ingest_rejected", "missing_step",
+		"stuck_runs", "context_pressure", "model_mix", "duplicate_output", AccuracyMetric, "budget"} {
+		if got := Title("workflow", "wf", []Signal{{Metric: m, Observed: 0.5, Expected: 1, Severity: "warning"}}); strings.Contains(got, "_") || strings.Contains(got, "%!") || got == "wf: "+m {
+			t.Errorf("%s: %q", m, got)
+		}
+	}
+	if got := Title("service", "etl", []Signal{{Metric: "ingest_silence", Observed: 7, Severity: "critical"}}); got != "etl: no spans for 7h" {
+		t.Fatal(got)
+	}
+	if got := Title("workflow", "wf", []Signal{{Metric: AccuracyMetric, Observed: 0.4, Severity: "critical"}}); got != "wf: reviewed accuracy at 40.0%" {
+		t.Fatal(got)
+	}
 	sigs = append(sigs, Signal{Metric: "cost", Observed: 12, Severity: "critical"}, Signal{Metric: "runs", Severity: "info"})
 	if got := Title("workspace", "", sigs); got != "Workspace: cost at $12.00 (+2 more signals)" {
 		t.Fatal(got)
+	}
+}
+
+func TestPerMetricKeepsTopSignalPerMetric(t *testing.T) {
+	got := PerMetric([]Signal{
+		{Metric: "cost", BucketMs: 1, Severity: "warning", Score: 3},
+		{Metric: "runs", BucketMs: 1, Severity: "warning"},
+		{Metric: "cost", BucketMs: 2, Severity: "critical", Score: 2},
+		{Metric: "cost", BucketMs: 3, Severity: "critical", Score: 1},
+	})
+	if len(got) != 2 || got[0].Metric != "cost" || got[0].BucketMs != 2 || got[1].Metric != "runs" {
+		t.Fatalf("%+v", got)
 	}
 }
 

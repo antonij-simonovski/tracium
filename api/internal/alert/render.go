@@ -78,14 +78,17 @@ func Render(e incident.Event, workspace, publicURL string) Message {
 		OpenedAt: inc.OpenedAt, ResolvedAt: inc.ResolvedAt, URL: link("/incidents/" + url.PathEscape(inc.ID)),
 		VersionChange: inc.VersionChange, Signals: []PayloadSignal{},
 	}}
-	seen := map[string]bool{}
-	for _, s := range signals {
+	seen, first := map[string]bool{}, int64(0)
+	for i, s := range signals {
 		ids := s.TraceIDs
 		if ids == nil {
 			ids = []string{}
 		}
 		m.Incident.Signals = append(m.Incident.Signals, PayloadSignal{Metric: s.Metric, BucketMs: s.BucketMs, Observed: s.Observed,
 			Expected: s.Expected, Severity: s.Severity, Summary: s.Summary, TraceIDs: ids})
+		if i == 0 || s.BucketMs < first {
+			first = s.BucketMs
+		}
 		for _, id := range ids {
 			if len(m.Runs) < 3 && !seen[id] {
 				seen[id] = true
@@ -93,6 +96,8 @@ func Render(e incident.Event, workspace, publicURL string) Message {
 			}
 		}
 	}
+
+	signals = incident.PerMetric(signals)
 
 	switch e.Type {
 	case incident.EventResolved:
@@ -116,10 +121,6 @@ func Render(e incident.Event, workspace, publicURL string) Message {
 		m.Lines = append(m.Lines, s.Summary)
 	}
 	if vc := inc.VersionChange; vc != nil && len(signals) > 0 {
-		first := signals[0].BucketMs
-		for _, s := range signals {
-			first = min(first, s.BucketMs)
-		}
 		seenAt := time.UnixMilli(vc.FirstSeenMs).UTC()
 		if gap := time.UnixMilli(first).Sub(seenAt); gap >= 0 {
 			m.Cause = fmt.Sprintf("Likely cause: version %s first seen %s, %s before the first signal.", vc.Version, seenAt.Format("Jan 2 15:04 UTC"), span(gap))

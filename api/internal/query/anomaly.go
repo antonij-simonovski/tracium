@@ -581,8 +581,8 @@ func anomalySummary(a model.Anomaly) string {
 }
 
 func FormatAnomalyValue(metric string, v float64) string {
-	switch metric {
-	case "cost":
+	switch metric = strings.TrimPrefix(metric, "release_regression:"); metric {
+	case "cost", "budget":
 		return fmt.Sprintf("$%.2f", v)
 	case "cost_per_run":
 		return fmt.Sprintf("$%.4f", v)
@@ -594,7 +594,7 @@ func FormatAnomalyValue(metric string, v float64) string {
 			return fmt.Sprintf("%.1fs", v/1000)
 		}
 		return fmt.Sprintf("%.0fms", v)
-	case "heartbeat":
+	case "heartbeat", "ingest_silence":
 		return fmt.Sprintf("%.0fh", v)
 	default:
 		return fmt.Sprintf("%.0f", v)

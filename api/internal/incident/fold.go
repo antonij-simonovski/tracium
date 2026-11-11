@@ -241,11 +241,14 @@ func quiet(inc Incident, o Options) time.Duration {
 	return d
 }
 
-var metricNouns = map[string]string{
-	"cost": "cost", "error_rate": "error rate", "runs": "run volume", "latency_p95": "p95 run latency",
-	"truncation_rate": "truncated LLM calls", "refusal_rate": "refused LLM calls", "tool_error_rate": "tool errors",
-	"llm_calls_per_run": "LLM calls per run", "tool_repeat": "repeated tool calls", "cache_hit_ratio": "cache hit ratio",
-	AccuracyMetric: "reviewed accuracy",
+var metricTitles = map[string]string{
+	"cost": "cost at %s", "error_rate": "error rate at %s", "runs": "run volume at %s", "latency_p95": "p95 run latency at %s",
+	"truncation_rate": "truncated LLM calls at %s", "refusal_rate": "refused LLM calls at %s", "tool_error_rate": "tool errors at %s",
+	"llm_calls_per_run": "LLM calls per run at %s", "tool_repeat": "repeated tool calls at %s", "cache_hit_ratio": "cache hit ratio at %s",
+	"heartbeat": "silent for %s", "ingest_silence": "no spans for %s", "ingest_rejected": "%s spans rejected at ingest",
+	"missing_step": "a usual step ran in only %s of runs", "stuck_runs": "unfinished runs at %s",
+	"context_pressure": "LLM calls near the context limit at %s", "model_mix": "model mix shifted to %s of LLM calls",
+	"duplicate_output": "repeated outputs at %s", AccuracyMetric: "reviewed accuracy at %s",
 }
 
 // Title names the subject and its most severe signal, e.g.
@@ -265,13 +268,11 @@ func Title(scope, subject string, signals []Signal) string {
 	}
 	value := query.FormatAnomalyValue(top.Metric, top.Observed)
 	var title string
-	if noun, ok := metricNouns[top.Metric]; ok {
-		title = fmt.Sprintf("%s: %s at %s", name, noun, value)
+	if tmpl, ok := metricTitles[top.Metric]; ok {
+		title = name + ": " + fmt.Sprintf(tmpl, value)
 	} else if IsReleaseMetric(top.Metric) {
 		headline, _, _ := strings.Cut(top.Summary, ": ")
 		title = fmt.Sprintf("%s: %s", name, headline)
-	} else if top.Metric == "heartbeat" {
-		title = fmt.Sprintf("%s: silent for %s", name, value)
 	} else if top.Metric == "budget" {
 		title = fmt.Sprintf("%s: spent $%.2f of $%.2f budget", name, top.Observed, top.Expected)
 	} else {
@@ -284,6 +285,25 @@ func Title(scope, subject string, signals []Signal) string {
 		title += fmt.Sprintf(" (+%d more signals)", n)
 	}
 	return title
+}
+
+// PerMetric keeps each metric's top signal, in order of first appearance. An
+// incident holds one signal per bucket, so reopening can tell new evidence from
+// old; messages show one line per metric.
+func PerMetric(signals []Signal) []Signal {
+	var order []string
+	by := map[string][]Signal{}
+	for _, s := range signals {
+		if _, ok := by[s.Metric]; !ok {
+			order = append(order, s.Metric)
+		}
+		by[s.Metric] = append(by[s.Metric], s)
+	}
+	out := make([]Signal, len(order))
+	for i, m := range order {
+		out[i] = topSignal(by[m])
+	}
+	return out
 }
 
 // topSignal is the most severe signal, the strongest among equals.
