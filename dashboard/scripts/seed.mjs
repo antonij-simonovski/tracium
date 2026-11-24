@@ -864,7 +864,7 @@ async function putReview(path, body, token) {
       continue;
     }
     if (!res.ok) throw new Error(`review ${path} failed (${res.status}): ${await res.text()}`);
-    return res.json();
+    return;
   }
 }
 

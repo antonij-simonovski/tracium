@@ -175,7 +175,7 @@ other version attribute, is ignored. Runs without it are unversioned.
   runs the checks at a time.
 - **Alerts:** each workspace's owner adds channels in **Settings → Alerts**
   (Slack incoming webhook, signed webhook, or email when the deployment sends
-  mail). Slack and webhook URLs must be https and resolve to public addresses;
+  mail; the open-source build doesn't, so email isn't offered). Slack and webhook URLs must be https and resolve to public addresses;
   `ALERTS_ALLOW_PRIVATE_URLS=true` lifts that for internal services. Links in
   messages use `PUBLIC_URL`; without it they carry the incident and trace ids.
   Webhook signature verification is described on `POST

@@ -5,7 +5,7 @@ Breaking changes require a `schema_version` bump. Additive changes do not.
 
 ---
 
-## Unreleased
+## [1.3.0] - 2026-11-23
 
 ### Added
 - Run reviews: mark a run or one of its spans correct, incorrect or missing, or correct its output, from the new Review tab in the trace view. JSON outputs are graded field by field

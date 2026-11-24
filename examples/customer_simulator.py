@@ -24,15 +24,26 @@ The company runs two workspaces:
 Background noise everywhere: about 1.5% errored runs, 0.5% refusals, 0.5%
 truncations, 1% MCP errors, weekday/weekend and day/night traffic.
 
-    seed --days 21    history up to now. Client umbrella goes quiet 7h before
-                      now and service billing-sync stops 4h before now.
-    live --minutes 50 streams now, printing each injection as it starts:
+    seed --days 21    history up to now. Client umbrella goes quiet 7h before now and
+                      service billing-sync stops 4h before now. The last 3 hours already
+                      hold the incidents below, so the first detection pass opens them;
+                      support-agent runs at least 20 times an hour there, so hourly rates
+                      have enough calls at night too:
+       3h ago  rag-answerer v3 (30% truncated, about 2x cost), rolled back to v2 1h ago;
+               ticket-classifier v6 (healthy)
+     2.5h ago  support-agent requests gpt-4o, gets gpt-4o-mini for 70% of calls
+     2.2h ago  one support-agent run loops: 45 LLM calls, 20 x search_kb
+       2h ago  a quarter of support-agent runs never finish (no root span)   until 1h ago
+    1.75h ago  crm_lookup returns MCP isError payloads for 40% of calls
+     1.5h ago  workspace B uploads a contract batch: 200 contract-reviewer runs
+    live --minutes 50 replays the timeline in real time and shows incidents resolving when
+                      umbrella and billing-sync come back:
        2m  rag-answerer v3 (30% truncated, about 2x cost); ticket-classifier v6 (healthy)
        8m  support-agent requests gpt-4o, gets gpt-4o-mini for 70% of calls   until 35m
       12m  one support-agent run loops: 45 LLM calls, 20 x search_kb
       15m  a quarter of support-agent runs never finish (no root span)        until 25m
       18m  crm_lookup returns MCP isError payloads for 40% of calls           until 38m
-      20m  workspace B uploads a contract batch: 40 contract-reviewer runs
+      20m  workspace B uploads a contract batch: 200 contract-reviewer runs
       30m  umbrella and billing-sync come back; rag-answerer rolls back to v2
 
     pip install opentelemetry-sdk opentelemetry-exporter-otlp-proto-http
@@ -142,7 +153,7 @@ def noise_output(text, finish="stop"):
 class State:
     rag_version = "v2"
     classifier_version = "v5"
-    fallback = loop_once = stuck = mcp_errors = False
+    fallback = loop_once = stuck = mcp_errors = busy = False
     umbrella_quiet_since = None  # epoch seconds; None means active
     billing_quiet_since = None
 
@@ -183,7 +194,7 @@ def classifier_run(t, client):
 
 
 def rag_run(t):
-    v = S.rag_version if t >= NOW else ("v2" if t >= NOW - 10 * DAY else "v1")
+    v = S.rag_version if t >= NOW - 10 * DAY else "v1"
     q = rng.choice(TOPICS)
     answer = f"To handle '{q}', open Account, then Orders, choose the order and follow the guided steps; article {rng.randint(100, 999)} has details."
     tin, tout, finish = 2600 + rng.randint(-300, 300), 260 + rng.randint(0, 80), "stop"
@@ -232,7 +243,7 @@ def rates(t):
     quiet_umbrella = S.umbrella_quiet_since is not None and t >= S.umbrella_quiet_since
     quiet_billing = S.billing_quiet_since is not None and t >= S.billing_quiet_since
     return {
-        ("support", "globex"): office(t, 12, 0.5),
+        ("support", "globex"): max(office(t, 12, 0.5), 20 if S.busy else 0),
         ("support", "initech"): office(t, 10, 0.3),
         ("support", "umbrella"): 0 if quiet_umbrella else 4,
         ("support", "hooli"): 6 if g.tm_wday == 0 and 9 <= g.tm_hour < 12 else 0,
@@ -258,20 +269,37 @@ def poisson(lam):
         n += 1
 
 
+def seed_state(t):
+    ago = (NOW - t) / HOUR
+    S.rag_version = "v3" if 1 < ago <= 3 else "v2"
+    S.classifier_version = "v6" if ago <= 3 else "v5"
+    S.busy = ago <= 3
+    S.fallback = ago <= 2.5
+    S.stuck = 1 < ago <= 2
+    S.mcp_errors = ago <= 1.75
+
+
 def seed(days):
     S.umbrella_quiet_since, S.billing_quiet_since = NOW - 7 * HOUR, NOW - 4 * HOUR
     start = int(NOW - days * DAY) // HOUR * HOUR
     runs = 0
     for h in range(start, int(NOW), HOUR):
+        seed_state(h + HOUR)
         for (kind, client), r in rates(h).items():
             for _ in range(poisson(r)):
                 t = h + rng.random() * HOUR
                 if t < NOW - 60:
+                    seed_state(t)
                     run_kind(kind, client, t)
                     runs += 1
         if (h - start) % DAY == 0:
             print(f"seeded {time.strftime('%Y-%m-%d', time.gmtime(h))}, {runs} runs so far", flush=True)
-    return runs
+    seed_state(NOW - 2.2 * HOUR)
+    S.loop_once = True
+    support_run(NOW - 2.2 * HOUR, "globex")
+    for i in range(200):
+        contract_run(NOW - 1.5 * HOUR + i * 3, "contoso-batch")
+    return runs + 201
 
 
 TIMELINE = [
@@ -281,7 +309,7 @@ TIMELINE = [
     (12, "support-agent loop run", lambda: setattr(S, "loop_once", True)),
     (15, "support-agent runs start getting stuck", lambda: setattr(S, "stuck", True)),
     (18, "crm_lookup MCP errors start", lambda: setattr(S, "mcp_errors", True)),
-    (20, "workspace B contract batch (40 runs)", lambda: [contract_run(time.time() + i * 2, "contoso-batch") for i in range(40)]),
+    (20, "workspace B contract batch (200 runs)", lambda: [contract_run(time.time() + i * 2, "contoso-batch") for i in range(200)]),
     (25, "stuck runs stop", lambda: setattr(S, "stuck", False)),
     (30, "umbrella and billing-sync come back; rag-answerer rolls back to v2",
      lambda: (setattr(S, "umbrella_quiet_since", None), setattr(S, "billing_quiet_since", None), setattr(S, "rag_version", "v2"))),
@@ -291,6 +319,7 @@ TIMELINE = [
 
 
 def live(minutes, tick=10):
+    seed_state(NOW - 4 * HOUR)
     S.umbrella_quiet_since, S.billing_quiet_since = NOW - 7 * HOUR, NOW - 4 * HOUR
     t0, pending = time.time(), list(TIMELINE)
     while (elapsed := time.time() - t0) < minutes * 60:
