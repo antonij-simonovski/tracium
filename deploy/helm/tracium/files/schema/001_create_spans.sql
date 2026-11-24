@@ -107,6 +107,9 @@ CREATE TABLE IF NOT EXISTS tracium.spans (
     --   ALTER TABLE tracium.spans ADD COLUMN IF NOT EXISTS
     --     attributes Map(String, String) DEFAULT map();
     attributes Map(String, String) DEFAULT map(),
+    -- Added to existing tables by migration 016. silent_failure: truncated, refused or tool_error.
+    cache_read_tokens Int64 DEFAULT 0,
+    silent_failure    LowCardinality(String) DEFAULT '',
     INDEX idx_trace_id trace_id  TYPE bloom_filter(0.001) GRANULARITY 1,
     INDEX idx_user   user_id TYPE bloom_filter(0.01) GRANULARITY 4,
     INDEX idx_workspace workspace_id TYPE bloom_filter(0.01) GRANULARITY 4

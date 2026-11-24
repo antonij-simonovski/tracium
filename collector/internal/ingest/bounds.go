@@ -61,3 +61,8 @@ func SanitizeIdentifier(s string, maxBytes int) string {
 	}
 	return strings.ToValidUTF8(s[:maxBytes], "")
 }
+
+// NormalizeModel is the form model_normalized and response_model are stored in.
+func NormalizeModel(model string) string {
+	return SanitizeIdentifier(strings.ToLower(model), MaxModelNameBytes)
+}

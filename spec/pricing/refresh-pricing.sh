@@ -6,10 +6,10 @@
 #
 # It projects LiteLLM's model_prices_and_context_window down to only the fields
 # Tracium prices on (per-token input/output cost, prompt-cache read/write cost,
-# and the >N-token tier overrides some long-context models carry). Everything
-# else (context windows, capability flags, provider metadata) is dropped so the
-# vendored file stays small and the parser (internal/pricing/file.go) stays
-# trivial.
+# the >N-token tier overrides some long-context models carry, and the input and
+# output token limits). Everything else (capability flags, provider metadata)
+# is dropped so the vendored file stays small and the parser
+# (internal/pricing/file.go) stays trivial.
 #
 # Usage:  ./refresh-pricing.sh [ref]
 #   ref   LiteLLM git ref to pin to (branch, tag, or commit). Default: main.
@@ -61,6 +61,8 @@ printf '%s' "$RAW" | jq \
                   output_cost_per_token:           $m.output_cost_per_token,
                   cache_read_input_token_cost:     $m.cache_read_input_token_cost,
                   cache_creation_input_token_cost: $m.cache_creation_input_token_cost,
+                  max_input_tokens:                $m.max_input_tokens,
+                  max_output_tokens:               $m.max_output_tokens,
                   tiers: (tiers($m) | if length == 0 then null else . end) }
                 | with_entries(select(.value != null))
               ) }

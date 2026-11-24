@@ -30,7 +30,9 @@ type Tier struct {
 // long-context tiers, ordered ascending by threshold.
 type ModelPrice struct {
 	Rates
-	Tiers []Tier
+	Tiers           []Tier
+	MaxInputTokens  int64
+	MaxOutputTokens int64
 }
 
 // StaticResolver resolves pricing from an in-memory map loaded at startup.
@@ -55,6 +57,23 @@ func (s *StaticResolver) Resolve(_ context.Context, model string, u Usage) (floa
 	}
 	billable, promptTokens := u.normalize()
 	return p.ratesFor(promptTokens).cost(billable), nil
+}
+
+// Limits returns the model's context window and output limit, ok false when the
+// table does not know the input limit.
+func (s *StaticResolver) Limits(model string) (maxInput, maxOutput int64, ok bool) {
+	p, found := s.lookup(model)
+	if !found || p.MaxInputTokens <= 0 {
+		return 0, 0, false
+	}
+	return p.MaxInputTokens, p.MaxOutputTokens, true
+}
+
+// PromptTokens is the call's whole prompt, cached tokens included, under the
+// same provider reconciliation that prices it.
+func (u Usage) PromptTokens() int64 {
+	_, prompt := u.normalize()
+	return prompt
 }
 
 // normalize reconciles the two conventions instrumentations use for

@@ -25,6 +25,8 @@ type fileEntry struct {
 	OutputPerToken        float64    `json:"output_cost_per_token"`
 	CacheReadPerToken     float64    `json:"cache_read_input_token_cost"`
 	CacheCreationPerToken float64    `json:"cache_creation_input_token_cost"`
+	MaxInputTokens        int64      `json:"max_input_tokens"`
+	MaxOutputTokens       int64      `json:"max_output_tokens"`
 	Tiers                 []fileTier `json:"tiers"`
 }
 
@@ -67,7 +69,7 @@ func (e fileEntry) toModelPrice() ModelPrice {
 		OutputPerToken:        e.OutputPerToken,
 		CacheReadPerToken:     e.CacheReadPerToken,
 		CacheCreationPerToken: e.CacheCreationPerToken,
-	}}
+	}, MaxInputTokens: e.MaxInputTokens, MaxOutputTokens: e.MaxOutputTokens}
 	for _, t := range e.Tiers {
 		p.Tiers = append(p.Tiers, Tier{
 			AboveInputTokens: t.AboveInputTokens,

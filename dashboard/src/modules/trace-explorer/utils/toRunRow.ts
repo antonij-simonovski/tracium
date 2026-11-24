@@ -11,5 +11,6 @@ export function toRunRow(t: Trace): RunRow {
     duration: t.duration_ms,
     cost: t.total_cost_usd,
     version: t.workflow_version,
+    flags: t.silent_failures,
   };
 }

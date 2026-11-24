@@ -10,6 +10,7 @@ import (
 
 	"github.com/tracium/api/internal/model"
 	"github.com/tracium/api/internal/query"
+	"github.com/tracium/api/internal/release"
 )
 
 // overviewLimit caps the top-workflows and failures lists; the overview shows five of each.
@@ -23,14 +24,16 @@ const workflowsLimit = 200
 
 // MetricsHandler serves the aggregated metrics powering the dashboard overview.
 type MetricsHandler struct {
-	repo   query.MetricsRepository
-	access WorkspaceAccess
-	now    func() time.Time
+	repo    query.MetricsRepository
+	access  WorkspaceAccess
+	reports release.Store
+	now     func() time.Time
 }
 
-// NewMetricsHandler constructs a MetricsHandler scoped by the caller's workspace access.
-func NewMetricsHandler(repo query.MetricsRepository, access WorkspaceAccess) *MetricsHandler {
-	return &MetricsHandler{repo: repo, access: access, now: time.Now}
+// NewMetricsHandler constructs a MetricsHandler scoped by the caller's workspace
+// access. reports may be nil, leaving versions without verdicts.
+func NewMetricsHandler(repo query.MetricsRepository, access WorkspaceAccess, reports release.Store) *MetricsHandler {
+	return &MetricsHandler{repo: repo, access: access, reports: reports, now: time.Now}
 }
 
 type filterFunc func(http.ResponseWriter, *http.Request) (query.MetricsFilter, bool)
@@ -121,11 +124,20 @@ func withLimit[T any](load func(context.Context, query.MetricsFilter, int) ([]T,
 	}
 }
 
-var validAnomalyMetrics = map[string]bool{"cost": true, "error_rate": true, "runs": true}
+var validAnomalyMetrics = map[string]bool{
+	"cost": true, "error_rate": true, "runs": true, "latency_p95": true,
+	"truncation_rate": true, "refusal_rate": true, "tool_error_rate": true,
+	"llm_calls_per_run": true, "tool_repeat": true, "cache_hit_ratio": true, "heartbeat": true,
+	"ingest_silence": true, "ingest_rejected": true, "missing_step": true, "stuck_runs": true,
+	"context_pressure": true, "model_mix": true, "duplicate_output": true,
+}
+
+const anomalyMetricList = "cost, error_rate, runs, latency_p95, truncation_rate, refusal_rate, tool_error_rate, llm_calls_per_run, tool_repeat, cache_hit_ratio, heartbeat, ingest_silence, ingest_rejected, missing_step, stuck_runs, context_pressure, model_mix, duplicate_output"
+
 var validAnomalySeverities = map[string]bool{"info": true, "warning": true, "critical": true}
 
-// Anomalies handles GET /v1/metrics/anomalies. Detection is daily, so ranges
-// shorter than 7d are rejected. Optional `metric` and `min_severity` narrow the results.
+// Anomalies handles GET /v1/metrics/anomalies. Daily detection needs a baseline,
+// so ranges shorter than 7d are rejected. Optional `metric` and `min_severity` narrow the results.
 func (h *MetricsHandler) Anomalies(w http.ResponseWriter, r *http.Request) {
 	f, ok := h.filter(w, r)
 	if !ok {
@@ -137,7 +149,7 @@ func (h *MetricsHandler) Anomalies(w http.ResponseWriter, r *http.Request) {
 	}
 	if m := r.URL.Query().Get("metric"); m != "" {
 		if !validAnomalyMetrics[m] {
-			respondError(w, http.StatusBadRequest, "BAD_REQUEST", "metric must be one of cost, error_rate, runs")
+			respondError(w, http.StatusBadRequest, "BAD_REQUEST", "metric must be one of "+anomalyMetricList)
 			return
 		}
 		f.AnomalyMetric = m
@@ -244,7 +256,17 @@ func (h *MetricsHandler) WorkflowDetail(w http.ResponseWriter, r *http.Request) 
 
 // WorkflowVersions handles GET /v1/metrics/workflows/{name}/versions.
 func (h *MetricsHandler) WorkflowVersions(w http.ResponseWriter, r *http.Request) {
-	serveList(w, r, workflowFilter(h.filter), "workflow versions", withLimit(h.repo.WorkflowVersions, workflowsLimit))
+	serveList(w, r, workflowFilter(h.filter), "workflow versions", func(ctx context.Context, f query.MetricsFilter) ([]model.WorkflowVersion, error) {
+		versions, err := h.repo.WorkflowVersions(ctx, f, workflowsLimit)
+		if err != nil || h.reports == nil || len(versions) == 0 {
+			return versions, err
+		}
+		verdicts, err := h.reports.Verdicts(ctx, f.WorkspaceIDs, f.Workflow)
+		for i := range versions {
+			versions[i].ReportVerdict = verdicts[versions[i].Version]
+		}
+		return versions, err
+	})
 }
 
 // Failures handles GET /v1/metrics/failures. Total counts every failed run in

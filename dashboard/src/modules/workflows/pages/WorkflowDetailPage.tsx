@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import {
   Centered,
   CostBarChart,
@@ -20,6 +21,7 @@ import hover from '../../../common/styles/hover.module.css';
 import { VersionDropdown } from '../components/VersionDropdown';
 import { VersionsTable } from '../components/VersionsTable';
 import type { WorkflowVersion } from '../interfaces';
+import type { VersionAccuracy } from '../../../common/interfaces';
 import { ERR_BAD, ERR_WARN, fmtRunCost } from '../utils';
 import styles from './WorkflowDetailPage.module.css';
 
@@ -44,6 +46,7 @@ export interface WorkflowDetailPageProps {
   latencySeries: LatencyPoint[];
   errorSeries: ErrorPoint[];
   runs: RunRow[];
+  runsFilter?: ReactNode;
   markers?: ChartMarker[];
   // Present once the workflow has versions; drives the filter, table and compare.
   versions?: WorkflowVersion[];
@@ -52,6 +55,9 @@ export interface WorkflowDetailPageProps {
   onCompare?: (base: string, candidate: string) => void;
   defaultCompare?: [string, string] | null;
   costAlert?: { version: string; from: number; to: number; change: string };
+  accuracy?: VersionAccuracy[];
+  // Accuracy, field accuracy and corrections for the version in view.
+  quality?: React.ReactNode;
   loadErrors?: Partial<Record<'cost' | 'latency' | 'errors' | 'runs', boolean>>;
 
   setView: (v: string) => void;
@@ -71,8 +77,8 @@ export function WorkflowDetailPage(props: WorkflowDetailPageProps) {
   const {
     name, version, versionSince, description, range, scope,
     calls, completed, failed, cost, p95Ms, errorRate,
-    configRows, costSeries, latencySeries, errorSeries, runs, markers = [], loadErrors = {},
-    versions, versionFilter = null, onVersionFilter, onCompare, defaultCompare, costAlert,
+    configRows, costSeries, latencySeries, errorSeries, runs, runsFilter, markers = [], loadErrors = {},
+    versions, versionFilter = null, onVersionFilter, onCompare, defaultCompare, costAlert, accuracy, quality,
     setView, setSelected,
   } = props;
 
@@ -212,8 +218,10 @@ export function WorkflowDetailPage(props: WorkflowDetailPageProps) {
       </div>
 
       {versions && versions.length > 0 && onCompare && (
-        <VersionsTable versions={versions} rangeLabel={windowLabel} onCompare={onCompare} />
+        <VersionsTable versions={versions} rangeLabel={windowLabel} onCompare={onCompare} accuracy={accuracy} />
       )}
+
+      {quality}
 
       <div style={{ marginBottom: 44 }}>
         <div
@@ -249,7 +257,8 @@ export function WorkflowDetailPage(props: WorkflowDetailPageProps) {
               </span>
             )}
           </div>
-          {loadErrors.runs ? <Centered minHeight={120}>Couldn't load runs</Centered> : <RunsTable runs={runs} onOpen={openTrace} showVersion={!!versions?.length} />}
+          {runsFilter && <div style={{ marginBottom: 12 }}>{runsFilter}</div>}
+          {loadErrors.runs ? <Centered minHeight={120}>Couldn't load runs</Centered> : <RunsTable runs={runs} onOpen={openTrace} showVersion={!!versions?.length} emptyText={runsFilter ? 'No matching runs in this window.' : undefined} />}
         </div>
 
         <div>

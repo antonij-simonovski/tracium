@@ -6,10 +6,13 @@ import (
 	"github.com/tracium/api/internal/apikey"
 	"github.com/tracium/api/internal/auth"
 	"github.com/tracium/api/internal/handler"
+	"github.com/tracium/api/internal/incident"
 	"github.com/tracium/api/internal/middleware"
 	"github.com/tracium/api/internal/model"
 	"github.com/tracium/api/internal/oauth"
 	"github.com/tracium/api/internal/query"
+	"github.com/tracium/api/internal/release"
+	"github.com/tracium/api/internal/review"
 	"github.com/tracium/api/internal/version"
 	"github.com/tracium/api/internal/workspace"
 	"log"
@@ -17,7 +20,7 @@ import (
 	"time"
 )
 
-func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, inviteStore workspace.InviteStore, userStore *auth.UserStore, authenticator middleware.Authenticator, authService *auth.Service, apiKeyService *apikey.Service, healthChecks []handler.DependencyCheck, opts Options, oauthService *oauth.Service) http.Handler {
+func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, inviteStore workspace.InviteStore, userStore *auth.UserStore, authenticator middleware.Authenticator, authService *auth.Service, apiKeyService *apikey.Service, healthChecks []handler.DependencyCheck, opts Options, oauthService *oauth.Service, reviews review.Store, incidents incident.Store, reports release.Store, alerts *handler.AlertHandler) http.Handler {
 	authHandler := handler.NewAuthHandler(authService)
 	workspaceHandler := handler.NewWorkspaceHandler(wsStore, userStore, opts.Entitlements)
 	apiKeyHandler := handler.NewAPIKeyHandler(apiKeyService, wsStore)
@@ -26,8 +29,14 @@ func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, invit
 
 	traceHandler := handler.NewTraceHandler(repo, wsStore)
 	spanHandler := handler.NewSpanHandler(repo, wsStore)
-	metricsHandler := handler.NewMetricsHandler(repo, wsStore)
-	queryHandler := handler.NewQueryHandler(repo, repo, wsStore)
+	reviewHandler := handler.NewReviewHandler(repo, reviews, wsStore)
+	metricsHandler := handler.NewMetricsHandler(repo, wsStore, reports)
+	incidentHandler := handler.NewIncidentHandler(incidents, wsStore, opts.Notifier)
+	queueHandler := handler.NewReviewQueueHandler(repo, reviews, incidents, wsStore)
+	fold := incident.DefaultOptions()
+	fold.MinSeverity = cfg.Detection.MinSeverity
+	backtestHandler := handler.NewBacktestHandler(incident.NewBacktester(repo, fold, time.Hour, time.Minute), wsStore)
+	queryHandler := handler.NewQueryHandler(repo, repo, incidents, wsStore)
 	healthHandler := handler.NewHealthHandler(healthChecks...)
 	var oauthHandler *handler.OAuthHandler
 	if oauthService != nil {
@@ -130,6 +139,19 @@ func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, invit
 		r.Post(version.Route(version.V1, "/account/api-keys"), apiKeyHandler.CreateRead)
 		r.Delete(version.Route(version.V1, "/account/api-keys/{keyId}"), apiKeyHandler.RevokeRead)
 
+		// Alert channels: members list them, the owner manages them. Tests make an
+		// outbound request each, so they are throttled per account.
+		r.Get(version.Route(version.V1, "/workspaces/{id}/alert-channels"), alerts.List)
+		r.Post(version.Route(version.V1, "/workspaces/{id}/alert-channels"), alerts.Create)
+		r.Patch(version.Route(version.V1, "/workspaces/{id}/alert-channels/{channelId}"), alerts.Update)
+		r.Delete(version.Route(version.V1, "/workspaces/{id}/alert-channels/{channelId}"), alerts.Delete)
+		r.With(middleware.NewRateLimiter(10, time.Minute, cfg.Auth.TrustedProxies).PerPrincipal()).
+			Post(version.Route(version.V1, "/workspaces/{id}/alert-channels/{channelId}/test"), alerts.Test)
+		r.Get(version.Route(version.V1, "/workspaces/{id}/alert-rules"), alerts.ListRules)
+		r.Post(version.Route(version.V1, "/workspaces/{id}/alert-rules"), alerts.CreateRule)
+		r.Patch(version.Route(version.V1, "/workspaces/{id}/alert-rules/{ruleId}"), alerts.UpdateRule)
+		r.Delete(version.Route(version.V1, "/workspaces/{id}/alert-rules/{ruleId}"), alerts.DeleteRule)
+
 		if oauthHandler != nil {
 			r.Get(version.Route(version.V1, "/oauth/authorize"), oauthHandler.AuthorizeInfo)
 			r.Post(version.Route(version.V1, "/oauth/authorize"), oauthHandler.Authorize)
@@ -159,6 +181,16 @@ func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, invit
 		r.Get(version.Route(version.V1, "/traces/{id}"), traceHandler.GetTrace)
 		r.Get(version.Route(version.V1, "/traces/{traceId}/spans"), spanHandler.ListSpans)
 
+		for _, p := range []string{"/traces/{id}/review", "/traces/{id}/spans/{spanId}/review"} {
+			r.Get(version.Route(version.V1, p), reviewHandler.Get)
+			r.Delete(version.Route(version.V1, p), reviewHandler.Delete)
+		}
+		r.Get(version.Route(version.V1, "/workflows/{name}/reviews"), reviewHandler.List)
+		r.Get(version.Route(version.V1, "/workflows/{name}/accuracy"), reviewHandler.Accuracy)
+		r.Get(version.Route(version.V1, "/workflows/{name}/fields"), reviewHandler.Fields)
+		r.Get(version.Route(version.V1, "/workflows/{name}/review-spans"), reviewHandler.Spans)
+		r.Get(version.Route(version.V1, "/reviews/queue"), queueHandler.Queue)
+
 		r.Get(version.Route(version.V1, "/metrics/kpis"), metricsHandler.KPIs)
 		r.Get(version.Route(version.V1, "/metrics/cost-series"), metricsHandler.CostSeries)
 		r.Get(version.Route(version.V1, "/metrics/latency-series"), metricsHandler.LatencySeries)
@@ -168,6 +200,8 @@ func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, invit
 		r.Get(version.Route(version.V1, "/metrics/workflows"), metricsHandler.Workflows)
 		r.Get(version.Route(version.V1, "/metrics/workflows/{name}"), metricsHandler.WorkflowDetail)
 		r.Get(version.Route(version.V1, "/metrics/workflows/{name}/versions"), metricsHandler.WorkflowVersions)
+		r.Get(version.Route(version.V1, "/metrics/workflows/{name}/versions/{version}/report"), metricsHandler.ReleaseReport)
+		r.Get(version.Route(version.V1, "/release-reports"), metricsHandler.ReleaseReports)
 		r.Get(version.Route(version.V1, "/metrics/failures"), metricsHandler.Failures)
 		r.Get(version.Route(version.V1, "/metrics/model-costs"), metricsHandler.ModelCosts)
 		r.Get(version.Route(version.V1, "/metrics/usage-users"), metricsHandler.UserUsage)
@@ -175,6 +209,14 @@ func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, invit
 		r.Get(version.Route(version.V1, "/metrics/attribute-keys"), metricsHandler.AttributeKeys)
 		r.Get(version.Route(version.V1, "/metrics/usage-by-attribute"), metricsHandler.UsageByAttribute)
 		r.Get(version.Route(version.V1, "/metrics/anomalies"), metricsHandler.Anomalies)
+
+		r.Get(version.Route(version.V1, "/incidents"), incidentHandler.List)
+		r.Get(version.Route(version.V1, "/incidents/{id}"), incidentHandler.Get)
+		r.Post(version.Route(version.V1, "/incidents/{id}/resolve"), incidentHandler.Resolve)
+		r.Post(version.Route(version.V1, "/incidents/{id}/mute"), incidentHandler.Mute)
+		r.Get(version.Route(version.V1, "/workspaces/{id}/incident-mutes"), incidentHandler.ListMutes)
+		r.Delete(version.Route(version.V1, "/workspaces/{id}/incident-mutes/{muteId}"), incidentHandler.DeleteMute)
+		r.Get(version.Route(version.V1, "/incidents/{id}/deliveries"), alerts.Deliveries)
 	})
 
 	// One bucket per account for the query API and both MCP routes: read keys
@@ -187,6 +229,9 @@ func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, invit
 	} else {
 		log.Println("WARNING: query and MCP endpoint rate limiting is disabled")
 	}
+
+	r.With(middleware.Auth(authenticator), queryLimit, services.Gate("telemetry.read")).
+		Get(version.Route(version.V1, "/incidents/backtest"), backtestHandler.Get)
 
 	// The query API and the MCP server also accept read keys, which act as their
 	// owner since MCP clients outlive sessions. Ingest keys never read here.
@@ -209,6 +254,16 @@ func newRouter(cfg Config, repo query.Repository, wsStore workspace.Store, invit
 	// MCP connectors that take only a URL carry the read key as its last segment.
 	r.With(middleware.BearerFromPath("key"), middleware.APIKeyOr(apiKeyService, middleware.Auth(authenticator), model.ScopeRead), queryLimit, services.Gate("telemetry.read")).
 		Post(version.Route(version.V1, "/mcp/{key}"), queryHandler.MCP)
+
+	// Ingest keys can send reviews, so evaluators score runs and spans of their
+	// workspace. Read keys cannot: they only read.
+	for _, p := range []string{"/traces/{id}/review", "/traces/{id}/spans/{spanId}/review"} {
+		r.With(middleware.APIKeyOr(apiKeyService, middleware.Auth(authenticator), model.ScopeIngest), services.Gate("telemetry.read")).
+			Put(version.Route(version.V1, p), reviewHandler.Put)
+	}
+	// Finding the run scans 90 days of attributes, so it shares the query limit.
+	r.With(middleware.APIKeyOr(apiKeyService, middleware.Auth(authenticator), model.ScopeIngest), queryLimit, services.Gate("telemetry.read")).
+		Put(version.Route(version.V1, "/workflows/{name}/reviews"), reviewHandler.PutByKey)
 
 	// Setup checks also accept the workspace's api keys, so a coding agent can
 	// verify instrumentation without a dashboard login.

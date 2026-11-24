@@ -151,6 +151,37 @@ func TestStaticResolver_UnknownModelErrors(t *testing.T) {
 	}
 }
 
+func TestStaticResolver_Limits(t *testing.T) {
+	r := NewStaticResolver(map[string]ModelPrice{
+		"gpt-4o":  {MaxInputTokens: 128000, MaxOutputTokens: 16384},
+		"no-size": {Rates: Rates{InputPerToken: 1}},
+	})
+	if in, out, ok := r.Limits("openai/gpt-4o"); !ok || in != 128000 || out != 16384 {
+		t.Errorf("Limits(openai/gpt-4o) = %d, %d, %v", in, out, ok)
+	}
+	for _, m := range []string{"no-size", "mystery"} {
+		if _, _, ok := r.Limits(m); ok {
+			t.Errorf("Limits(%q) ok, want unknown", m)
+		}
+	}
+}
+
+func TestUsage_PromptTokens(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		u    Usage
+		want int64
+	}{
+		{"openai input includes cache", Usage{Input: 1000, CacheRead: 800}, 1000},
+		{"anthropic input excludes cache", Usage{Input: 50, CacheRead: 800, CacheCreation: 150}, 1000},
+		{"no cache", Usage{Input: 300}, 300},
+	} {
+		if got := tt.u.PromptTokens(); got != tt.want {
+			t.Errorf("%s: PromptTokens = %d, want %d", tt.name, got, tt.want)
+		}
+	}
+}
+
 func TestStaticResolver_CandidateKeyMatching(t *testing.T) {
 	prices := map[string]ModelPrice{
 		"gpt-4o":                           {Rates: Rates{InputPerToken: 0.0000025}},

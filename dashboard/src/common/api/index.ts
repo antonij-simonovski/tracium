@@ -2,7 +2,8 @@ export { API_VERSION, apiBaseUrl, APIError, NetworkError, ConfigError, BaseAPICl
 export { TracesAPI } from './traces';
 export { UsersAPI } from './users';
 export { MetricsAPI } from './metrics';
+export { IncidentsAPI } from './incidents';
 export { WorkspacesAPI, inviteLink } from './workspaces';
-export type { CreateWorkspaceInput, WorkspaceMember, WorkspaceInvite, CreatedInvite } from './workspaces';
+export type { CreateWorkspaceInput, WorkspaceMember, WorkspaceInvite, CreatedInvite, AlertChannel, AlertTestResult, AlertRule } from './workspaces';
 export { ApiKeysAPI } from './apikeys';
 export type { ApiKeyRecord, ApiKeyScope, CreatedApiKey } from './apikeys';

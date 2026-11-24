@@ -67,6 +67,16 @@ api:
   # https://tracium.example.com. Setting it lets MCP clients such as Claude
   # connect with a sign-in page instead of a pasted read key.
   publicURL: ""
+  # Background incident detection. Only one replica evaluates at a time.
+  detection:
+    enabled: true
+    intervalSeconds: 300
+    # Lowest severity that opens an incident: info, warning or critical.
+    minSeverity: warning
+  alerts:
+    # Let Slack and webhook channels post over http and to private addresses,
+    # for internal receivers. Leave off when users you do not trust can add channels.
+    allowPrivateURLs: false
 
 dashboard:
   replicaCount: 1
@@ -160,7 +170,7 @@ ingress:
   # Ingress routes /v1 to the API directly. Keep /v1/mcp/ out of the
   # controller's access log.
   annotations:
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "75"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
   tls:
     enabled: false

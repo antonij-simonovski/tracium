@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tracium/collector/internal/genai"
+
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 )
@@ -95,8 +97,8 @@ func TestSpanKind_DerivationPriority(t *testing.T) {
 			for k, v := range tt.attrs {
 				attrs.PutStr(k, v)
 			}
-			if got := spanKind(attrs, tt.model, tt.inputTokens, tt.outputTokens); got != tt.want {
-				t.Errorf("spanKind(%v, %q, %d, %d) = %q, want %q", tt.attrs, tt.model, tt.inputTokens, tt.outputTokens, got, tt.want)
+			if got := genai.Kind(attrMap(attrs), tt.model, tt.inputTokens, tt.outputTokens); got != tt.want {
+				t.Errorf("Kind(%v, %q, %d, %d) = %q, want %q", tt.attrs, tt.model, tt.inputTokens, tt.outputTokens, got, tt.want)
 			}
 		})
 	}
@@ -276,5 +278,21 @@ func TestFromOTLP_IgnoresClientReportedCost(t *testing.T) {
 
 	if row := fromOTLP(s, "", pcommon.NewMap()); row.CostUSD != 0 {
 		t.Errorf("cost = %v, want 0", row.CostUSD)
+	}
+}
+
+func TestFromOTLP_DetectorColumns(t *testing.T) {
+	s := ptrace.NewSpan()
+	a := s.Attributes()
+	a.PutStr(attrModelRequest, "gpt-4o")
+	a.PutStr(attrModelResponse, " GPT-4o-2024-08-06 ")
+	a.PutDouble(attrContextRatio, 0.5)
+	a.PutInt(attrOutputHash, -1)
+	a.PutInt(attrInputHash, 7)
+
+	row := fromOTLP(s, "", pcommon.NewMap())
+	if row.ResponseModel != "gpt-4o-2024-08-06" || row.ContextRatio != 0.5 ||
+		row.OutputHash != ^uint64(0) || row.InputHash != 7 {
+		t.Errorf("row = %q %v %d %d", row.ResponseModel, row.ContextRatio, row.OutputHash, row.InputHash)
 	}
 }

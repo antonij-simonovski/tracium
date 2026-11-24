@@ -16,6 +16,10 @@ vi.mock('../../../common/providers/APIProvider', () => ({
     metricsAPI: {
       getWorkflowDetail: api.getWorkflowDetail,
       getWorkflowVersions: api.getWorkflowVersions,
+      getWorkflowAccuracy: async () => [],
+      getStepAccuracy: async () => [],
+      getFieldAccuracy: async () => [],
+      getReviewedSpans: async () => [],
       getCostSeries: api.getCostSeries,
       getLatencySeries: api.getLatencySeries,
       getErrorSeries: api.getErrorSeries,

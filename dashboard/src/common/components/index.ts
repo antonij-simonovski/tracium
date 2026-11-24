@@ -23,3 +23,6 @@ export * from './Sparkline';
 export * from './StatusPill';
 export * from './charts';
 export * from './icons';
+export { FlagBadge, SILENT_FAILURE_LABEL } from './FlagBadge';
+export type { SilentFailure } from './FlagBadge';
+export { SeverityTag } from './SeverityTag';

@@ -4,19 +4,26 @@ package model
 // dashboard owns formatting (currency, percentages, seconds).
 
 // Anomaly is one bucket of one series that deviated significantly from its own
-// recent history — the output of statistical anomaly detection. It is daily,
-// rollup-backed, and workspace-scoped like every other metric. Metric is
-// "cost" | "error_rate" | "runs"; Scope is "workspace" (the whole window) or
-// "workflow" (Workflow names which one). Direction is "spike" | "drop"; Severity is
-// "info" | "warning" | "critical". Observed is the bucket's value, Expected the
-// baseline median, Deviation their difference, and Score the signed robust
-// z-score behind the ranking. Summary is a ready-to-read sentence; the dashboard
+// recent history. Daily metrics ("cost" | "error_rate" | "runs" | "latency_p95")
+// are rollup-backed robust-z outliers with day buckets; Score is the signed
+// robust z-score. Hourly metrics ("truncation_rate" | "refusal_rate" |
+// "tool_error_rate" | "llm_calls_per_run" | "tool_repeat" | "cache_hit_ratio" |
+// "heartbeat" | "ingest_silence" | "ingest_rejected" | "missing_step" |
+// "stuck_runs" | "context_pressure" | "model_mix" | "duplicate_output") compare
+// an hour with the hours before it; Score is the signed
+// multiple of the baseline. Scope is "workspace", "workflow" (Workflow names
+// which one), "client" (heartbeat; Client names the user_id) or "service"
+// (ingest_silence; Service names the service_name). Direction is
+// "spike" | "drop"; Severity is "info" | "warning" | "critical". Observed is the
+// bucket's value, Expected the baseline, Deviation their difference. Summary is a ready-to-read sentence; the dashboard
 // may reformat from the raw fields instead. VersionChange is a workflow version
 // first seen on the anomaly's day or the day before, or nil.
 type Anomaly struct {
 	Metric    string  `json:"metric"`
 	Scope     string  `json:"scope"`
 	Workflow  string  `json:"workflow"` // set when Scope == "workflow", else ""
+	Client    string  `json:"client"`   // set when Scope == "client", else ""
+	Service   string  `json:"service"`  // set when Scope == "service", else ""
 	BucketMs  int64   `json:"bucket_ms"`
 	Observed  float64 `json:"observed"`
 	Expected  float64 `json:"expected"`
@@ -27,6 +34,14 @@ type Anomaly struct {
 	Summary   string  `json:"summary"`
 
 	VersionChange *VersionChange `json:"version_change"`
+	ModelChange   *ModelChange   `json:"model_change"`
+	TraceIDs      []string       `json:"trace_ids"`
+}
+
+// ModelChange is a response model a workflow was first answered by in the hour at FirstSeenMs.
+type ModelChange struct {
+	Model       string `json:"model"`
+	FirstSeenMs int64  `json:"first_seen_ms"`
 }
 
 // VersionChange is a workflow version and the day it was first seen.
@@ -149,6 +164,33 @@ type WorkflowVersion struct {
 	P95LatencyMs *float64 `json:"p95_latency_ms"`
 	ErrorRate    float64  `json:"error_rate"`
 	TokensPerRun float64  `json:"tokens_per_run"`
+	// ReportVerdict is the version's release report verdict, "" when it has none.
+	ReportVerdict string `json:"report_verdict,omitempty"`
+}
+
+// NewVersion is a workflow version first seen recently, after PrevVersion.
+type NewVersion struct {
+	Workflow    string
+	Version     string
+	PrevVersion string
+	FirstSeenMs int64
+	Runs        int64
+}
+
+// VersionStats are one workflow version's runs in a window, computed per run.
+type VersionStats struct {
+	Runs                   int64
+	ErrorRuns              int64
+	TruncatedCalls         int64
+	RefusedCalls           int64
+	LLMCalls               int64
+	ToolErrors             int64
+	ToolCalls              int64
+	CostPerRunP50          float64
+	LatencyP50, LatencyP95 float64
+	LLMCallsPerRunP50      float64
+	OutputTokensPerRunP50  float64
+	CacheRead, InputTokens float64
 }
 
 // Failure aggregates errored runs for one workflow. Pct is the fraction of that

@@ -104,6 +104,11 @@ type Options struct {
 	// candidate) for a bucket to be considered.
 	VolumeFloor float64
 
+	// Weekly drops an anomaly whose value is usual for its weekday: within a
+	// quarter of the range the same weekday took in the baseline.
+	// Daily buckets only, so a quiet weekend is not an outage.
+	Weekly bool
+
 	// Spike / Drop enable upward / downward detection. A metric where only one
 	// direction is meaningful (cost spikes matter, cost dips are not incidents)
 	// enables just that one.
@@ -196,7 +201,7 @@ func Detect(series []Point, o Options) []Result {
 		}
 
 		sev := severity(math.Abs(z), o)
-		if sev == SeverityNone {
+		if sev == SeverityNone || (o.Weekly && usualForWeekday(series[lo:i+1], dir)) {
 			continue
 		}
 		out = append(out, Result{
@@ -210,6 +215,32 @@ func Detect(series []Point, o Options) []Result {
 		})
 	}
 	return out
+}
+
+// usualForWeekday reports whether the last point sits within the range of the
+// points 7, 14, 21... buckets before it, widened by a quarter. Idle days count
+// once the series has shown activity, so a workflow that never runs on Sundays
+// is not down on one.
+func usualForWeekday(series []Point, dir Direction) bool {
+	first := len(series)
+	for i, s := range series[:len(series)-1] {
+		if s.Support > 0 {
+			first = i
+			break
+		}
+	}
+	p := series[len(series)-1]
+	lo, hi, n := math.Inf(1), math.Inf(-1), 0
+	for i := len(series) - 8; i >= first; i -= 7 {
+		lo, hi, n = math.Min(lo, series[i].Value), math.Max(hi, series[i].Value), n+1
+	}
+	if n == 0 {
+		return false
+	}
+	if dir == Drop {
+		return p.Value >= 0.75*lo
+	}
+	return p.Value <= 1.25*hi
 }
 
 func severity(absZ float64, o Options) Severity {

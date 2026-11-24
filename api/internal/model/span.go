@@ -36,6 +36,7 @@ type Span struct {
 	SchemaVersion       int    `json:"schema_version"`
 	ErrorType           string `json:"error_type"`
 	ErrorMessage        string `json:"error_message"`
+	SilentFailure       string `json:"silent_failure,omitempty"`
 
 	// Input/Output are present only when the collector has content capture enabled.
 	Input          string          `json:"input,omitempty"`

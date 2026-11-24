@@ -156,3 +156,32 @@ If you run your own reverse proxy instead of the bundled nginx or the Helm
 Ingress, route `/.well-known/oauth-protected-resource` and
 `/.well-known/oauth-authorization-server` (and paths below them) to the API, and
 `/oauth/authorize` to the dashboard, next to the existing `/v1` rule.
+
+## Silent-failure detection and alerts (1.3.0)
+
+ClickHouse migrations `016`–`025` add the `silent_failure`, `cache_read_tokens`,
+`context_ratio`, `response_model`, `output_hash` and `input_hash` columns to
+`tracium.spans`, recreate the `calls` and `usage_metrics` views, and add the
+`metrics_daily_latency` and `activity_hourly` rollups. `019`, `022` and `025`
+backfill the rollups from stored spans: latency for the last 60 days, client
+and service activity for the last 35. On a large `tracium.spans` they take a
+while.
+
+Stop the collector while they run: spans written while a backfill is running
+can be counted twice. Every step is safe to
+rerun. Spans stored before the upgrade have no silent-failure flag and no
+detector columns, so those detectors only see new spans; the latency and
+activity baselines come from the backfill.
+
+Postgres migrations `007`–`014` add run reviews, incidents, alert channels,
+release reports, budget rules and the review reason. The API applies them at
+startup.
+
+Detection starts on its own: the API checks every workspace every 5 minutes and
+opens incidents at warning or above. Set `DETECTION_ENABLED=false` (Helm:
+`api.detection.enabled`) to turn it off. Nothing is sent anywhere until a
+workspace owner adds a channel in **Settings → Alerts**. Slack and webhook URLs
+must be https to public addresses; set `ALERTS_ALLOW_PRIVATE_URLS=true` (Helm:
+`api.alerts.allowPrivateURLs`) for internal targets. Email channels need a
+deployment that sends mail; the open-source build doesn't, so it offers Slack
+and webhooks only. Set `PUBLIC_URL` so alert links open the dashboard.

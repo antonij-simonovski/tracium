@@ -28,3 +28,20 @@ describe('version compare routing', () => {
     expect(pathToState('/workflows/checkout/compare/v1')).toEqual({ view: 'workflows', selected: { workflow: 'checkout' } });
   });
 });
+
+describe('incidents routing', () => {
+  it('round-trips the list and one incident', () => {
+    expect(stateToPath('incidents', {})).toBe('/incidents');
+    expect(pathToState('/incidents')).toEqual({ view: 'incidents', selected: {} });
+    expect(stateToPath('incidents', { incident: 'inc 1' })).toBe('/incidents/inc%201');
+    expect(pathToState('/incidents/inc%201')).toEqual({ view: 'incidents', selected: { incident: 'inc 1' } });
+  });
+});
+
+describe('settings routing', () => {
+  it('deep links to a settings tab', () => {
+    expect(stateToPath('settings', { settingsTab: 'alerts' })).toBe('/settings/alerts');
+    expect(pathToState('/settings/alerts')).toEqual({ view: 'settings', selected: { settingsTab: 'alerts' } });
+    expect(pathToState('/settings')).toEqual({ view: 'settings', selected: {} });
+  });
+});

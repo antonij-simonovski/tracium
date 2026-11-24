@@ -34,8 +34,12 @@ Anthropic, Bedrock, Vertex AI, LangChain, LlamaIndex and more work out of the bo
 
 ## Features
 
-- **Anomaly detection**: spikes and drops in cost, error rate and runs, linked to the workflow version that likely caused them.
-- **Workflow versions**: compare cost, latency and errors between releases of a prompt or agent.
+- **Silent-failure detection**: catches what doesn't throw: truncated or refused answers, tool errors returned as OK, runaway agent loops, cache drops, model swaps, missing steps and clients or services that went quiet, next to spikes and drops in cost, latency, errors and runs.
+- **Incidents and alerts**: current anomalies grouped into one incident per workflow, client or service, linked to the release that likely caused it, and sent to Slack or a signed webhook. A backtest shows what Tracium would have alerted on over the last 30 days.
+- **Budgets**: daily or monthly spend limits per workspace, workflow or client.
+- **Release reports**: every new workflow version compared with the last one on its first runs, with a healthy, improved or regressed verdict.
+- **Run reviews**: mark runs correct or incorrect, or fix their output, from the dashboard or the API, and track accuracy per version and field.
+- **Workflow versions**: compare cost, latency, errors and accuracy between releases of a prompt or agent.
 - **Trace viewer**: every step of a run with its prompt, completion, tokens, cost and timing.
 - **Cost allocation**: split spend by model, or by any attribute you attach (`team`, `environment`, …).
 - **Clients**: meter spend and failures per end client.

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   IconHome,
+  IconAlert,
   IconWorkflows,
   IconUsers,
   IconUsage,
@@ -27,6 +28,7 @@ interface NavItemData {
 
 interface NavItemProps {
   item: NavItemData;
+  badge?: number;
   active: boolean;
   onClick: () => void;
   collapsed?: boolean;
@@ -50,22 +52,26 @@ interface SidebarProps {
   open?: boolean;
   /** Closes the drawer — called on backdrop click and after navigation. */
   onClose?: () => void;
+  /** Counts shown beside nav items, by view id; zero hides the badge. */
+  badges?: Record<string, number>;
 }
 
 const NAV_ITEMS: NavItemData[] = [
   { id: 'overview', icon: <IconHome size={16} />, label: 'Overview' },
+  { id: 'incidents', icon: <IconAlert size={16} />, label: 'Incidents' },
   { id: 'workflows', icon: <IconWorkflows size={16} />, label: 'Workflows' },
   { id: 'usage', icon: <IconUsage size={16} />, label: 'Usage' },
   { id: 'users', icon: <IconUsers size={16} />, label: 'Clients' },
   { id: 'keys', icon: <IconKey size={16} />, label: 'API Keys' },
 ];
 
-function NavItem({ item, active, onClick, collapsed }: NavItemProps): React.ReactElement {
+function NavItem({ item, active, onClick, collapsed, badge = 0 }: NavItemProps): React.ReactElement {
+  const label = badge > 0 ? `${item.label}, ${badge} open` : item.label;
   return (
     <button
       onClick={onClick}
-      title={collapsed ? item.label : undefined}
-      aria-label={collapsed ? item.label : undefined}
+      title={collapsed ? label : undefined}
+      aria-label={collapsed || badge > 0 ? label : undefined}
       onMouseEnter={(e) => {
         if (!active) {
           e.currentTarget.style.background = 'var(--surface-alt)';
@@ -96,8 +102,21 @@ function NavItem({ item, active, onClick, collapsed }: NavItemProps): React.Reac
         transition: 'all .12s',
       }}
     >
-      <span style={{ flexShrink: 0, opacity: active ? 1 : 0.65 }}>{item.icon}</span>
+      <span style={{ position: 'relative', flexShrink: 0, display: 'flex', opacity: active ? 1 : 0.65 }}>
+        {item.icon}
+        {collapsed && badge > 0 && (
+          <span aria-hidden style={{ position: 'absolute', top: -3, right: -4, width: 7, height: 7, borderRadius: '50%', background: 'var(--error)' }} />
+        )}
+      </span>
       {!collapsed && item.label}
+      {!collapsed && badge > 0 && (
+        <span
+          aria-hidden
+          style={{ marginLeft: 'auto', minWidth: 18, padding: '0 6px', borderRadius: 999, background: 'color-mix(in srgb, var(--error) 16%, transparent)', color: 'var(--error)', fontSize: 11.5, fontWeight: 600, lineHeight: '18px', textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}
+        >
+          {badge}
+        </span>
+      )}
     </button>
   );
 }
@@ -116,6 +135,7 @@ export function Sidebar({
   mobile = false,
   open = false,
   onClose,
+  badges = {},
 }: SidebarProps): React.ReactElement {
   const closeRef = useRef<HTMLButtonElement>(null);
   const [theme, setTheme] = useState(document.documentElement.dataset.theme);
@@ -291,6 +311,7 @@ export function Sidebar({
             }
             onClick={() => navigate(item.id)}
             collapsed={collapsed}
+            badge={badges[item.id]}
           />
         ))}
       </nav>

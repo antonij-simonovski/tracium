@@ -27,7 +27,7 @@ func (allowAllAccess) AllowedIDs(context.Context, string) ([]string, error) {
 // newMetricsHandler builds a MetricsHandler wired with a permissive access
 // resolver — the drop-in the tests use in place of the production constructor.
 func newMetricsHandler(repo query.MetricsRepository) *MetricsHandler {
-	return NewMetricsHandler(repo, allowAllAccess{})
+	return NewMetricsHandler(repo, allowAllAccess{}, nil)
 }
 
 // authed attaches an authenticated principal to a request, as the middleware
@@ -493,7 +493,7 @@ func TestMetricsSetupChecksSince(t *testing.T) {
 		{"yesterday", http.StatusBadRequest, time.Time{}},
 	} {
 		spy := &setupFilterSpy{}
-		h := NewMetricsHandler(spy, allowAllAccess{})
+		h := NewMetricsHandler(spy, allowAllAccess{}, nil)
 		h.now = func() time.Time { return now }
 		rr := httptest.NewRecorder()
 		serveAuthed(h.SetupChecks, rr, httptest.NewRequest(http.MethodGet, "/v1/metrics/setup-checks?range=24h&since="+tt.since, nil))

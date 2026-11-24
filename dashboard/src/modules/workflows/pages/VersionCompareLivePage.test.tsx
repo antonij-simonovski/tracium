@@ -9,6 +9,9 @@ const api = vi.hoisted(() => ({
   getErrorSeries: vi.fn(),
   getTokenSeries: vi.fn(),
   getWorkflowVersions: vi.fn(),
+  getWorkflowAccuracy: vi.fn(),
+  getFieldAccuracy: vi.fn(),
+  getReviewedSpans: vi.fn(),
 }));
 vi.mock('../../../common/providers/APIProvider', () => ({
   useAPIClient: () => ({ metricsAPI: api }),
@@ -37,6 +40,9 @@ beforeEach(() => {
   api.getLatencySeries.mockResolvedValue(empty);
   api.getErrorSeries.mockResolvedValue(empty);
   api.getTokenSeries.mockResolvedValue(empty);
+  api.getWorkflowAccuracy.mockResolvedValue([]);
+  api.getFieldAccuracy.mockResolvedValue([]);
+  api.getReviewedSpans.mockResolvedValue([]);
   api.getWorkflowVersions.mockResolvedValue({
     ...empty,
     items: [version('v1', 0.003, 0.001), version('v2', 0.004, 0.002), version('v3', 0.006, 0.006)],
@@ -104,6 +110,35 @@ describe('version compare', () => {
     expect(api.getErrorSeries).toHaveBeenCalledWith('90d', 'checkout', undefined, 'v3');
     expect(api.getCostSeries).toHaveBeenCalledWith('90d', 'checkout', undefined, 'v2');
     expect(api.getLatencySeries).not.toHaveBeenCalled();
+  });
+
+  it('compares reviewed accuracy overall and per field', async () => {
+    api.getWorkflowAccuracy.mockResolvedValue([
+      { version: 'v2', reviewed_runs: 10, correct_runs: 8, accuracy: 0.8 },
+      { version: 'v3', reviewed_runs: 10, correct_runs: 6, accuracy: 0.6 },
+    ]);
+    api.getFieldAccuracy.mockImplementation(async (_: string, v: string) =>
+      v === 'v2' ? [{ path: 'total', reviewed: 10, wrong: 1, accuracy: 0.9 }] : [{ path: 'total', reviewed: 10, wrong: 4, accuracy: 0.6 }]);
+    show();
+    const row = await screen.findByRole('button', { name: /Accuracy/ });
+    expect(row).toHaveTextContent('80%');
+    expect(row).toHaveTextContent('60%');
+    expect(row).toHaveTextContent('-20.0 pts');
+    expect(row).toBeDisabled();
+    expect(await screen.findByRole('row', { name: /total/ })).toHaveTextContent('-30.0 pts');
+  });
+
+  it('compares accuracy of a reviewed span', async () => {
+    api.getWorkflowAccuracy.mockImplementation(async (_: string, span: string) =>
+      span === 'parse' ? [{ version: 'v2', reviewed_runs: 4, correct_runs: 2, accuracy: 0.5 }, { version: 'v3', reviewed_runs: 4, correct_runs: 4, accuracy: 1 }]
+        : [{ version: 'v3', reviewed_runs: 2, correct_runs: 1, accuracy: 0.5 }]);
+    api.getReviewedSpans.mockImplementation(async (_: string, v: string) => (v === 'v2' ? [{ name: 'parse', reviewed: 4 }] : [{ name: 'parse', reviewed: 4 }]));
+    show();
+    fireEvent.click(await screen.findByRole('button', { name: 'Accuracy of: Whole run' }));
+    fireEvent.click(await screen.findByRole('option', { name: /parse/ }));
+    const row = await screen.findByRole('button', { name: /Accuracy · parse/ });
+    expect(row).toHaveTextContent('+50.0 pts');
+    expect(api.getFieldAccuracy).toHaveBeenCalledWith('checkout', 'v3', 'parse');
   });
 
   it('explains when a version has no runs in the range', async () => {

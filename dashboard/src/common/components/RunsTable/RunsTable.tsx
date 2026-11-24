@@ -1,4 +1,5 @@
 import { StatusPill } from '../StatusPill';
+import { FlagBadge } from '../FlagBadge';
 import { fmtCost, fmtMs } from '../../utils/formatters';
 import hover from '../../styles/hover.module.css';
 
@@ -13,6 +14,7 @@ export interface RunRow {
   cost: number;
   err?: string | null;
   version?: string;
+  flags?: string[];
 }
 
 export interface RunsTableProps {
@@ -96,6 +98,11 @@ export function RunsTable({ runs, onOpen, emptyText = 'No runs in this window.',
               >
                 {run.id}
               </span>
+              {run.flags && run.flags.length > 0 && (
+                <span style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                  {run.flags.map((f) => <FlagBadge key={f} flag={f} />)}
+                </span>
+              )}
               {run.err && (
                 <span style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--error)', ...ellipsis }}>
                   {run.err}

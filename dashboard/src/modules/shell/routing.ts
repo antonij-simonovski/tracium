@@ -11,6 +11,7 @@ export function stateToPath(view: ViewId, selected: Record<string, string>, page
   const enc = (v: string) => encodeURIComponent(v);
   switch (view) {
     case 'overview':   return '/';
+    case 'incidents':  return selected.incident ? `/incidents/${enc(selected.incident)}` : '/incidents';
     case 'workflows':     return selected.workflow ? `/workflows/${enc(selected.workflow)}` : '/workflows';
     case 'compare':    return selected.workflow && selected.base && selected.candidate
       ? `/workflows/${enc(selected.workflow)}/compare/${enc(selected.base)}/${enc(selected.candidate)}`
@@ -20,7 +21,7 @@ export function stateToPath(view: ViewId, selected: Record<string, string>, page
     case 'users':    return '/clients';
     case 'user':     return selected.user ? `/clients/${enc(selected.user)}` : '/clients';
     case 'keys':       return '/api-keys';
-    case 'settings':   return '/settings';
+    case 'settings':   return selected.settingsTab ? `/settings/${enc(selected.settingsTab)}` : '/settings';
     default:           return '/';
   }
 }
@@ -34,6 +35,8 @@ export function pathToState(pathname: string, pages: readonly ExtensionPage[] = 
   if (seg.length === 0) return { view: 'overview', selected: {} };
 
   switch (seg[0]) {
+    case 'incidents':
+      return { view: 'incidents', selected: seg[1] ? { incident: seg[1] } : {} };
     case 'workflows':
       if (seg[2] === 'compare' && seg[3] && seg[4]) {
         return { view: 'compare', selected: { workflow: seg[1], base: seg[3], candidate: seg[4] } };
@@ -55,7 +58,7 @@ export function pathToState(pathname: string, pages: readonly ExtensionPage[] = 
     case 'api-keys':
       return { view: 'keys', selected: {} };
     case 'settings':
-      return { view: 'settings', selected: {} };
+      return { view: 'settings', selected: seg[1] ? { settingsTab: seg[1] } : {} };
     default:
       return null;
   }

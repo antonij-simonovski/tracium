@@ -5,4 +5,5 @@ export { WorkflowDetailDemoPage } from './pages/WorkflowDetailDemoPage';
 export { WorkflowDetailLivePage } from './pages/WorkflowDetailLivePage';
 export { VersionCompareLivePage } from './pages/VersionCompareLivePage';
 export { WORKFLOWS } from './data';
+export { releaseSignalLabel } from './components/ReleaseFindings';
 export type { Workflow, WorkflowMeta, WorkflowDetail, WorkflowVersion } from './interfaces';

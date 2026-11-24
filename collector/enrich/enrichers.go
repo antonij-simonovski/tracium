@@ -98,7 +98,7 @@ func (NormalizeModelEnricher) Name() string { return "normalize-model" }
 
 // Enrich implements Enricher.
 func (NormalizeModelEnricher) Enrich(_ context.Context, span *spanmodel.Span) error {
-	span.ModelNormalized = ingest.SanitizeIdentifier(strings.ToLower(span.Model), ingest.MaxModelNameBytes)
+	span.ModelNormalized = ingest.NormalizeModel(span.Model)
 	if span.SchemaVersion == 0 {
 		span.SchemaVersion = 1
 	}
@@ -155,12 +155,18 @@ func (e PricingEnricher) Enrich(ctx context.Context, span *spanmodel.Span) error
 	if e.Resolver == nil || span.ModelNormalized == "" {
 		return nil
 	}
-	cost, err := e.Resolver.Resolve(ctx, span.ModelNormalized, pricing.Usage{
+	usage := pricing.Usage{
 		Input:         span.InputTokens,
 		Output:        span.OutputTokens,
 		CacheRead:     span.CacheReadTokens,
 		CacheCreation: span.CacheWriteTokens,
-	})
+	}
+	if l, ok := e.Resolver.(pricing.Limiter); ok {
+		if maxInput, _, ok := l.Limits(span.ModelNormalized); ok {
+			span.ContextRatio = float32(float64(usage.PromptTokens()) / float64(maxInput))
+		}
+	}
+	cost, err := e.Resolver.Resolve(ctx, span.ModelNormalized, usage)
 	if err != nil {
 		span.CostUSD = 0
 		return nil

@@ -13,7 +13,9 @@ func TestLoadStaticFile_ParsesRatesCacheAndTiers(t *testing.T) {
 	    "gpt-4o": {
 	      "input_cost_per_token": 0.0000025,
 	      "output_cost_per_token": 0.00001,
-	      "cache_read_input_token_cost": 0.00000125
+	      "cache_read_input_token_cost": 0.00000125,
+	      "max_input_tokens": 128000,
+	      "max_output_tokens": 16384
 	    },
 	    "gemini-2.5-pro": {
 	      "input_cost_per_token": 0.00000125,
@@ -39,6 +41,9 @@ func TestLoadStaticFile_ParsesRatesCacheAndTiers(t *testing.T) {
 	gpt := prices["gpt-4o"]
 	if gpt.InputPerToken != 0.0000025 || gpt.OutputPerToken != 0.00001 || gpt.CacheReadPerToken != 0.00000125 {
 		t.Errorf("gpt-4o rates = %+v", gpt.Rates)
+	}
+	if gpt.MaxInputTokens != 128000 || gpt.MaxOutputTokens != 16384 {
+		t.Errorf("gpt-4o limits = %d/%d", gpt.MaxInputTokens, gpt.MaxOutputTokens)
 	}
 	gem := prices["gemini-2.5-pro"]
 	if len(gem.Tiers) != 1 || gem.Tiers[0].AboveInputTokens != 200000 || gem.Tiers[0].InputPerToken != 0.0000025 {

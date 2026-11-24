@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tracium/api/internal/model"
@@ -163,6 +164,15 @@ func (s *PostgresStore) AllowedIDs(ctx context.Context, userID string) ([]string
 		ids = append(ids, id)
 	}
 	return ids, rows.Err()
+}
+
+// AllIDs returns the id of every workspace, for background work across all of them.
+func (s *PostgresStore) AllIDs(ctx context.Context) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `SELECT id FROM workspaces ORDER BY id`)
+	if err != nil {
+		return nil, fmt.Errorf("workspace store: all ids: %w", err)
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[string])
 }
 
 // IsOwner reports whether userID owns the workspace.

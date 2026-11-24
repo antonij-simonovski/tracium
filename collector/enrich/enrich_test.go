@@ -219,3 +219,30 @@ func TestFilter_MatchesAllowedModelCaseInsensitively(t *testing.T) {
 		t.Errorf("got %v, want kept", err)
 	}
 }
+
+func TestPricing_ContextRatioCountsCachedPrompt(t *testing.T) {
+	r := pricing.NewStaticResolver(map[string]pricing.ModelPrice{
+		"gpt-4o":            {Rates: pricing.Rates{InputPerToken: 1e-6}, MaxInputTokens: 100_000},
+		"claude-sonnet-4-6": {Rates: pricing.Rates{InputPerToken: 1e-6}, MaxInputTokens: 200_000},
+		"no-limit":          {Rates: pricing.Rates{InputPerToken: 1e-6}},
+	})
+	chain := DefaultChain(r, nil, nil)
+	for _, tt := range []struct {
+		model              string
+		input, read, write int64
+		want               float32
+	}{
+		{"gpt-4o", 90_000, 80_000, 0, 0.9},
+		{"claude-sonnet-4-6", 10_000, 150_000, 20_000, 0.9},
+		{"no-limit", 90_000, 0, 0, 0},
+	} {
+		span := validSpan()
+		span.Model, span.InputTokens, span.CacheReadTokens, span.CacheWriteTokens = tt.model, tt.input, tt.read, tt.write
+		if err := chain.Apply(context.Background(), span); err != nil {
+			t.Fatalf("%s: %v", tt.model, err)
+		}
+		if span.ContextRatio != tt.want {
+			t.Errorf("%s: ContextRatio = %v, want %v", tt.model, span.ContextRatio, tt.want)
+		}
+	}
+}

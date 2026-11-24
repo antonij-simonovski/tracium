@@ -1,10 +1,6 @@
-package clickhousespanexporter
+package genai
 
-import (
-	"strings"
-
-	"go.opentelemetry.io/collector/pdata/pcommon"
-)
+import "strings"
 
 // Instrumentation attributes that carry an explicit span role, read in
 // precedence order to derive the normalized Span.Kind. None are gen_ai.*
@@ -16,20 +12,20 @@ const (
 	attrGenAIOperation    = "gen_ai.operation.name"
 )
 
-// spanKind derives the normalized span role from instrumentation attributes, in
+// Kind derives the normalized span role from instrumentation attributes, in
 // precedence order: OpenInference's explicit kind, Traceloop's decorator kind,
 // the OTel GenAI operation name, and finally the presence of a model or token
 // usage (which marks an LLM call). Returns "" when nothing classifies the span;
 // the API omits the empty value and the dashboard infers the role from the
 // span's position in the trace instead.
-func spanKind(attrs pcommon.Map, model string, inputTokens, outputTokens int64) string {
-	if k := fromOpenInferenceKind(strAttr(attrs, attrOpenInferenceKind)); k != "" {
+func Kind(attrs map[string]string, model string, inputTokens, outputTokens int64) string {
+	if k := fromOpenInferenceKind(attrs[attrOpenInferenceKind]); k != "" {
 		return k
 	}
-	if k := fromTraceloopKind(strAttr(attrs, attrTraceloopKind)); k != "" {
+	if k := fromTraceloopKind(attrs[attrTraceloopKind]); k != "" {
 		return k
 	}
-	if k := fromGenAIOperation(strAttr(attrs, attrGenAIOperation)); k != "" {
+	if k := fromGenAIOperation(attrs[attrGenAIOperation]); k != "" {
 		return k
 	}
 	if model != "" || inputTokens > 0 || outputTokens > 0 {

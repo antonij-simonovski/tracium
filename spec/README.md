@@ -161,6 +161,10 @@ It is a JSON object keyed by model id, with **per-token** costs:
 - `tiers` (optional): re-price the whole call once input exceeds
   `above_input_tokens` (long-context models). Ordered ascending.
 - Costs are in USD per **single** token, matching LiteLLM.
+- `max_input_tokens` / `max_output_tokens` (optional): the model's context
+  window and output limit, from LiteLLM. Not used for cost; the collector
+  divides a call's prompt tokens by `max_input_tokens` to store
+  `context_ratio`.
 
 ### Updating pricing
 

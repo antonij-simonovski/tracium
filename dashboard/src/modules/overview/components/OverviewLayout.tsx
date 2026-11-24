@@ -4,6 +4,7 @@ import { useMaxWidth, BREAKPOINTS } from '../../../common';
 interface OverviewLayoutProps {
   masthead: React.ReactNode;
   setupChecks?: React.ReactNode;
+  status?: React.ReactNode;
   kpis: React.ReactNode;
   outlierChips?: React.ReactNode;
   charts: React.ReactNode;
@@ -16,6 +17,7 @@ interface OverviewLayoutProps {
 export function OverviewLayout({
   masthead,
   setupChecks,
+  status,
   kpis,
   outlierChips,
   charts,
@@ -30,6 +32,7 @@ export function OverviewLayout({
     <div style={{ padding: 'clamp(20px, 4vw, 32px) clamp(16px, 4vw, 40px) 64px', maxWidth: 1480, margin: '0 auto' }}>
       {masthead}
       {setupChecks}
+      {status}
       {kpis}
       {outlierChips}
       {charts}

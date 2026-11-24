@@ -4,6 +4,7 @@ import {
   IconX,
   MetaRow,
   SetupIssueNote,
+  FlagBadge,
   StatTile,
   StatusPill,
   fmtCost,
@@ -24,6 +25,10 @@ export interface TraceViewProps {
   trace: TraceDetail;
   setView: (v: string) => void;
   onOpenUser?: (user: string) => void;
+  /** Content of the Review tab; the tab is hidden without it. */
+  review?: React.ReactNode;
+  /** Review box shown in the span inspector. */
+  spanReview?: (span: SpanDetail) => React.ReactNode;
 }
 
 function CodeBlock({ children, maxHeight = 220 }: { children: string; maxHeight?: number }) {
@@ -169,7 +174,16 @@ function AvailableToolsList({ tools }: { tools: AvailableTool[] }) {
   );
 }
 
-function SpanInspector({ span }: { span: SpanDetail | undefined }) {
+function silentFailureNote(span: SpanDetail): string {
+  if (span.silentFailure === 'truncated') {
+    const reason = span.attributes.finish_reason;
+    return `The model stopped at the token limit${reason ? ` (finish reason: ${reason})` : ''}.`;
+  }
+  if (span.silentFailure === 'refused') return 'The model declined to answer, though the call reported no error.';
+  return 'The tool returned an error payload, though the span reported success.';
+}
+
+function SpanInspector({ span, review }: { span: SpanDetail | undefined; review?: (span: SpanDetail) => React.ReactNode }) {
   if (!span) return null;
   const isParent = isParentSpan(span);
   const cost = displayCost(span);
@@ -180,7 +194,11 @@ function SpanInspector({ span }: { span: SpanDetail | undefined }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <SpanTypeTag type={span.type} />
           <StatusPill status={span.status === 'ok' ? 'completed' : 'failed'} />
+          {span.silentFailure && <FlagBadge flag={span.silentFailure} />}
         </div>
+        {span.silentFailure && (
+          <div style={{ fontSize: 13.5, color: 'var(--muted)', lineHeight: 1.5 }}>{silentFailureNote(span)}</div>
+        )}
         <div style={{ fontSize: 17, fontWeight: 600, color: 'var(--foreground)', letterSpacing: '-0.01em', wordBreak: 'break-word' }}>
           {span.name}
         </div>
@@ -245,6 +263,13 @@ function SpanInspector({ span }: { span: SpanDetail | undefined }) {
         </div>
       )}
 
+      {review && (
+        <div>
+          <SectionLabel>Review</SectionLabel>
+          {review(span)}
+        </div>
+      )}
+
       {span.availableTools && span.availableTools.length > 0 && (
         <AvailableToolsList tools={span.availableTools} />
       )}
@@ -295,7 +320,7 @@ function ClientChip({ id, onOpen }: { id: string; onOpen?: (id: string) => void 
     : <span style={style}>{content}</span>;
 }
 
-export function TraceView({ trace: t, setView, onOpenUser }: TraceViewProps) {
+export function TraceView({ trace: t, setView, onOpenUser, review, spanReview }: TraceViewProps) {
   // A zero-duration trace would divide by zero in the timeline math.
   const totalDuration = t.duration || 1;
   const firstFailed = t.spans.find(s => s.status === 'failed');
@@ -368,6 +393,7 @@ export function TraceView({ trace: t, setView, onOpenUser }: TraceViewProps) {
     { id: 'output', label: 'Output' },
     { id: 'metadata', label: 'Metadata' },
     { id: 'raw', label: 'Raw JSON' },
+    ...(review ? [{ id: 'review' as const, label: 'Review' }] : []),
   ];
 
   const stackInspector = useMaxWidth(BREAKPOINTS.tablet);
@@ -525,7 +551,7 @@ export function TraceView({ trace: t, setView, onOpenUser }: TraceViewProps) {
             paddingLeft: 24, borderLeft: '1px solid var(--border)',
             maxHeight: 'calc(100vh - 120px)', overflowY: 'auto',
           }}>
-            <SpanInspector span={activeSpan} />
+            <SpanInspector span={activeSpan} review={spanReview} />
           </div>
         </div>
       )}
@@ -545,6 +571,8 @@ export function TraceView({ trace: t, setView, onOpenUser }: TraceViewProps) {
             : <EmptyBlock>{t.status === 'failed' ? 'No output. The trace failed before completion.' : 'No output recorded for this trace.'}</EmptyBlock>}
         </div>
       )}
+
+      {tab === 'review' && review}
 
       {tab === 'metadata' && (
         <div style={{ display: 'grid', gridTemplateColumns: stackInspector ? '1fr' : '1fr 1fr', gap: 40, maxWidth: 1040 }}>
@@ -642,6 +670,7 @@ const SpanRow = memo(function SpanRow({ span, isLast, isActive, isCollapsed, tot
           <span style={{ display: 'inline-block', width: 7, height: 7, background: color, borderRadius: 2, flexShrink: 0 }} />
           <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--foreground)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{span.name}</span>
           <SpanTypeTag type={span.type} />
+          {span.silentFailure && <FlagBadge flag={span.silentFailure} />}
           {worstIssue && (
             <span
               title={plural(span.setupIssues!.length, 'setup issue')}

@@ -114,10 +114,31 @@ func renderIndexed(attrs map[string]string, prefix string) string {
 			b.WriteString(role)
 			b.WriteString(": ")
 		}
+		if content == "" {
+			content = indexedToolArgs(attrs, prefix+strconv.Itoa(i))
+		}
 		b.WriteString(content)
 		b.WriteByte('\n')
 	}
 	return b.String()
+}
+
+// indexedToolArgs joins the arguments of an OpenLLMetry indexed message's tool
+// calls: structured output often arrives as a tool call with no text content.
+func indexedToolArgs(attrs map[string]string, base string) string {
+	var args []string
+	for j := 0; j < maxIndex; j++ {
+		tc := base + ".tool_calls." + strconv.Itoa(j)
+		a, ok := attrs[tc+".arguments"]
+		if !ok {
+			a, ok = attrs[tc+".function.arguments"]
+		}
+		if !ok {
+			break
+		}
+		args = append(args, a)
+	}
+	return strings.Join(args, "\n")
 }
 
 // message is the subset of the OTel GenAI message schema we render. Parts carry
@@ -127,9 +148,38 @@ type message struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
 	Parts   []struct {
-		Content string `json:"content"`
-		Text    string `json:"text"`
+		Content   string          `json:"content"`
+		Text      string          `json:"text"`
+		Arguments json.RawMessage `json:"arguments"`
 	} `json:"parts"`
+	ToolCalls []struct {
+		Arguments json.RawMessage `json:"arguments"`
+		Function  struct {
+			Arguments json.RawMessage `json:"arguments"`
+		} `json:"function"`
+	} `json:"tool_calls"`
+}
+
+// toolArgs returns a message's tool-call arguments, one call per line, for a
+// message with no text: structured output often arrives that way.
+func (m message) toolArgs() string {
+	var args []string
+	add := func(raw json.RawMessage) {
+		var s string
+		if json.Unmarshal(raw, &s) == nil {
+			args = append(args, s)
+		} else if len(raw) > 0 && string(raw) != "null" {
+			args = append(args, string(raw))
+		}
+	}
+	for _, p := range m.Parts {
+		add(p.Arguments)
+	}
+	for _, tc := range m.ToolCalls {
+		add(tc.Arguments)
+		add(tc.Function.Arguments)
+	}
+	return strings.Join(args, "\n")
 }
 
 // renderMessages flattens a gen_ai.{input,output}.messages JSON array. If it
@@ -145,17 +195,21 @@ func renderMessages(jsonStr string) string {
 			b.WriteString(m.Role)
 			b.WriteString(": ")
 		}
+		text := m.Content
 		if len(m.Parts) > 0 {
+			text = ""
 			for _, p := range m.Parts {
 				if p.Content != "" {
-					b.WriteString(p.Content)
+					text += p.Content
 				} else {
-					b.WriteString(p.Text)
+					text += p.Text
 				}
 			}
-		} else {
-			b.WriteString(m.Content)
 		}
+		if text == "" {
+			text = m.toolArgs()
+		}
+		b.WriteString(text)
 		b.WriteByte('\n')
 	}
 	return b.String()

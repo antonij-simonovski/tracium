@@ -31,7 +31,7 @@ services:
       retries: 10
 
   migrate:
-    image: ghcr.io/antonij-simonovski/migrate:${TRACIUM_VERSION:-1.2.4}
+    image: ghcr.io/antonij-simonovski/migrate:${TRACIUM_VERSION:-1.3.0}
     environment:
       CLICKHOUSE_HTTP: http://clickhouse:8123
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?set CLICKHOUSE_PASSWORD in .env}
@@ -58,7 +58,7 @@ services:
     restart: "no"
 
   collector:
-    image: ghcr.io/antonij-simonovski/collector:${TRACIUM_VERSION:-1.2.4}
+    image: ghcr.io/antonij-simonovski/collector:${TRACIUM_VERSION:-1.3.0}
     ports:
       - "127.0.0.1:4317:4317"   # OTLP gRPC
       - "127.0.0.1:4318:4318"   # OTLP HTTP
@@ -82,7 +82,7 @@ services:
     restart: unless-stopped
 
   api:
-    image: ghcr.io/antonij-simonovski/api:${TRACIUM_VERSION:-1.2.4}
+    image: ghcr.io/antonij-simonovski/api:${TRACIUM_VERSION:-1.3.0}
     ports:
       - "127.0.0.1:8090:8090"   # REST API
     environment:
@@ -92,6 +92,7 @@ services:
       JWT_SECRET: "${JWT_SECRET:?required — add JWT_SECRET to .env, generate one with 'openssl rand -hex 32'}"
       LISTEN_ADDR: ":8090"
       PUBLIC_URL: "${PUBLIC_URL:-}"
+      ALERTS_ALLOW_PRIVATE_URLS: "${ALERTS_ALLOW_PRIVATE_URLS:-false}"
       # Resolve only the dashboard containers, not the whole Docker subnet.
       AUTH_TRUSTED_PROXIES: dns:dashboard
     depends_on:
@@ -100,7 +101,7 @@ services:
     restart: unless-stopped
 
   dashboard:
-    image: ghcr.io/antonij-simonovski/dashboard:${TRACIUM_VERSION:-1.2.4}
+    image: ghcr.io/antonij-simonovski/dashboard:${TRACIUM_VERSION:-1.3.0}
     ports:
       - "127.0.0.1:3000:3000"   # Dashboard UI
     depends_on:

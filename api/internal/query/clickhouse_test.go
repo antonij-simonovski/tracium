@@ -62,6 +62,16 @@ func TestTraceFilterSQLVersion(t *testing.T) {
 	}
 }
 
+func TestTraceFilterSQLAttribute(t *testing.T) {
+	clause, args := traceFilterSQL(TraceFilter{StartAfter: time.UnixMilli(100), Workflow: "extract", AttrKey: "invoice_id", AttrValue: "INV-1"})
+	if !strings.Contains(clause, "trace_id IN (SELECT trace_id FROM "+tableCalls+" WHERE start_time_ms >= ? AND attributes[?] = ?") || !strings.Contains(clause, "HAVING "+workflowExpr+" = ?") {
+		t.Errorf("clause = %q", clause)
+	}
+	if n := len(args); args[n-4] != int64(100) || args[n-3] != "invoice_id" || args[n-2] != "INV-1" || args[n-1] != "extract" {
+		t.Errorf("args = %v", args)
+	}
+}
+
 func TestTraceDetailScopeHasNoSourcePredicate(t *testing.T) {
 	clause, _ := traceDetailScope("trace", []string{"workspace"})
 	if strings.Contains(clause, "source") {
@@ -89,5 +99,28 @@ func TestTraceDetailsRequireWorkspaceScope(t *testing.T) {
 				t.Fatalf("scope argument mismatch: %v", args)
 			}
 		}
+	}
+}
+
+func TestTraceFilterSQLSilentFailure(t *testing.T) {
+	for flag, want := range map[string]string{
+		"truncated":  "HAVING countIf(silent_failure = ?) > 0",
+		"tool_error": "HAVING countIf(silent_failure = ?) > 0",
+		"any":        "HAVING countIf(silent_failure != '') > 0",
+	} {
+		f := TraceFilter{SilentFailure: flag}
+		if err := f.Validate(); err != nil {
+			t.Fatalf("%s: %v", flag, err)
+		}
+		clause, args := traceFilterSQL(f)
+		if !strings.Contains(clause, want) {
+			t.Errorf("%s: clause = %q", flag, clause)
+		}
+		if last := args[len(args)-1]; flag != "any" && last != flag {
+			t.Errorf("%s: last arg = %v", flag, last)
+		}
+	}
+	if err := (&TraceFilter{SilentFailure: "error"}).Validate(); err == nil {
+		t.Error("unknown silent_failure accepted")
 	}
 }

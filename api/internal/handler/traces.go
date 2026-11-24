@@ -28,10 +28,11 @@ func NewTraceHandler(repo query.TraceRepository, access WorkspaceAccess) *TraceH
 func (h *TraceHandler) ListTraces(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	filter := query.TraceFilter{
-		UserID:   q.Get("user_id"),
-		Model:    q.Get("model"),
-		Workflow: q.Get("workflow"),
-		Version:  q.Get("version"),
+		UserID:        q.Get("user_id"),
+		Model:         q.Get("model"),
+		Workflow:      q.Get("workflow"),
+		Version:       q.Get("version"),
+		SilentFailure: q.Get("silent_failure"),
 	}
 
 	scope, ok := resolveWorkspaceScope(w, r, h.access, q.Get("workspace_id"))

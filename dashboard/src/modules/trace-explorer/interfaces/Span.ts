@@ -1,5 +1,6 @@
 import type { TraceId, SpanId, UserId } from '../../../common/ids';
 import type { AvailableTool, SetupIssue } from '../../../common/interfaces';
+import type { SilentFailure } from '../../../common';
 
 export interface Span {
   trace_id: TraceId;
@@ -26,6 +27,7 @@ export interface Span {
   schema_version: number;
   error_type: string;
   error_message: string;
+  silent_failure?: SilentFailure;
   // Normalized span role classified by the collector from instrumentation
   // attributes. Absent when the collector couldn't classify the span; the view
   // then infers the role from the span's position in the trace tree.

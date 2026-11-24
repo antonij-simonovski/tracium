@@ -77,6 +77,7 @@ export function toTraceView(trace: LiveTrace): TraceDetail {
     output: s.output,
     availableTools: s.available_tools,
     setupIssues: s.setup_issues,
+    silentFailure: s.silent_failure,
   }));
 
   // The workflow-level Input/Output tabs mirror the root span's content. But many
