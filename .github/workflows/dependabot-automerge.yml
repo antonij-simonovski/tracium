@@ -1,0 +1,47 @@
+name: Dependabot auto-merge
+# Merges a Dependabot PR once CI has passed on it, but only when every bump in
+# it is a semver patch. Minor and major bumps stay open for a person.
+#
+# It runs after CI rather than with `gh pr merge --auto`, so it can't merge
+# ahead of CI even if main has no required status checks. It never checks out
+# the PR's code: it reads the PR through the API and merges that exact commit.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  merge:
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.actor.login == 'dependabot[bot]' &&
+      startsWith(github.event.workflow_run.head_branch, 'dependabot/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Merge if every bump is a patch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          set -euo pipefail
+          pr=$(gh pr list --head "$HEAD_BRANCH" --state open --json number,author,headRefOid \
+            --jq ".[] | select(.author.login == \"app/dependabot\" and .headRefOid == \"$HEAD_SHA\") | .number")
+          if [ -z "$pr" ]; then
+            echo "No open Dependabot PR at $HEAD_SHA (it moved on or was closed)"; exit 0
+          fi
+
+          # Dependabot lists each bump's update-type in its commit message.
+          msg=$(gh api "repos/$GH_REPO/commits/$HEAD_SHA" --jq .commit.message)
+          types=$(printf '%s\n' "$msg" | sed -n 's/^ *update-type: *//p' | sort -u)
+          if [ "$types" != "version-update:semver-patch" ]; then
+            echo "PR #$pr is not patch-only (${types:-no update-type found}); leaving it for review"; exit 0
+          fi
+
+          gh pr merge "$pr" --squash --match-head-commit "$HEAD_SHA"
