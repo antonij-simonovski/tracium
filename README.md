@@ -3,11 +3,17 @@
   <img alt="Tracium robot mascot" src="docs/assets/tracium-robot-dark.png#gh-dark-mode-only" width="400">
 </p>
 
-<h3 align="center">Open-source, self-hosted LLM observability</h3>
+<h3 align="center">LLM apps fail quietly. Tracium doesn't.</h3>
 
 <p align="center">
-  Know what every model call costs, how long it takes, and when it fails,<br>
-  per model, workflow, and end client. Built on OpenTelemetry.
+  A prompt change doubles your cost. An agent starts erroring on one step.<br>
+  Nobody notices until the bill or a customer does.
+</p>
+
+<p align="center">
+  Tracium checks every workflow against its own history, flags what changed<br>
+  and points to the release that likely caused it.<br>
+  <sub>Open-source, self-hosted LLM observability, built on OpenTelemetry.</sub>
 </p>
 
 <p align="center">
@@ -17,11 +23,27 @@
 </p>
 
 <p align="center">
+  <a href="#set-up-in-one-paste"><b>Set up in one paste</b></a> ·
   <a href="https://docs.tracium.ai">Docs</a> ·
   <a href="#quickstart">Quickstart</a> ·
   <a href="CONTRIBUTING.md">Contributing</a> ·
   <a href="CHANGELOG.md">Changelog</a>
 </p>
+
+## Set up in one paste
+
+> [!TIP]
+> **Copy this into Claude Code, Cursor, Codex or any coding agent.** It starts Tracium on your machine,
+> asks which repositories to instrument, adds OpenTelemetry next to what you already have,
+> and checks the first traces arrive.
+>
+> ```text
+> Set up Tracium LLM observability for my project. Clone
+> https://github.com/antonij-simonovski/tracium, then read and follow AGENT_SETUP.md
+> from that clone. Don't change any code until I've told you which repositories to instrument.
+> ```
+>
+> Requires Docker with Compose v2. Prefer doing it by hand? See [Quickstart](#quickstart).
 
 ![Tracium dashboard: overview, workflows, usage and clients](docs/assets/tracium-readme.gif)
 
@@ -48,14 +70,6 @@ Anthropic, Bedrock, Vertex AI, LangChain, LlamaIndex and more work out of the bo
 - **Self-hosted**: one `docker compose up` or a Helm chart; your prompts and traces never leave your infrastructure.
 
 ## Quickstart
-
-Want to try Tracium without setting up OpenTelemetry yourself? Give this prompt to your coding agent:
-
-```text
-Set up Tracium LLM observability for my project. Clone
-https://github.com/antonij-simonovski/tracium, then read and follow AGENT_SETUP.md
-from that clone. Don't change any code until I've told you which repositories to instrument.
-```
 
 Requires Docker with Compose v2.
 
