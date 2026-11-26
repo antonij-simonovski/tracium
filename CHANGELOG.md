@@ -5,6 +5,14 @@ Breaking changes require a `schema_version` bump. Additive changes do not.
 
 ---
 
+## [Unreleased]
+
+### Added
+- The collector prices Claude Code and Claude Agent SDK telemetry. Spans read `gen_ai.usage.cache_write.input_tokens` (Claude Code 2.1.331+) as cache-write tokens, and on an Anthropic span (`gen_ai.system=anthropic`) with no `gen_ai.usage.*`, the bare `input_tokens`, `output_tokens`, `cache_read_tokens` and `cache_creation_tokens` that earlier Claude Code versions set on `claude_code.llm_request`. The metrics pipeline also prices `claude_code.token.usage` (DELTA, Claude Code's default) by its `model` and `type` (`input`, `output`, `cacheRead`, `cacheCreation`), so Claude Code users without the traces beta get cost too
+- LiteLLM spans are priced and grouped by `litellm.provider.model`, the model LiteLLM dispatched to, ahead of `gen_ai.request.model`, which through the LiteLLM proxy holds the model group alias
+
+---
+
 ## [1.3.0] - 2026-11-23
 
 ### Added

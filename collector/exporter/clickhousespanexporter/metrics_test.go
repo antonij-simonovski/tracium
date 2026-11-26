@@ -111,3 +111,31 @@ func TestIsCumulative(t *testing.T) {
 		}
 	}
 }
+
+// claude_code.token.usage points land in the token column their "type" names.
+func TestUsageRows_ClaudeCodeTokenClasses(t *testing.T) {
+	m := pmetric.NewMetric()
+	m.SetName(genai.ClaudeCodeTokenUsageMetric)
+	sum := m.SetEmptySum()
+	sum.SetAggregationTemporality(pmetric.AggregationTemporalityDelta)
+	for _, typ := range []string{"input", "output", "cacheRead", "cacheCreation"} {
+		dp := sum.DataPoints().AppendEmpty()
+		dp.SetIntValue(100)
+		dp.Attributes().PutStr("model", "claude-haiku-4-5")
+		dp.Attributes().PutStr("type", typ)
+	}
+	rows := usageRows(m)
+	if len(rows) != 4 {
+		t.Fatalf("got %d rows, want 4", len(rows))
+	}
+	in, out, read, write := rows[0], rows[1], rows[2], rows[3]
+	if in.InputTokens != 100 || out.OutputTokens != 100 || read.CacheReadTokens != 100 || write.CacheWriteTokens != 100 {
+		t.Errorf("rows = %+v %+v %+v %+v", in, out, read, write)
+	}
+	if read.InputTokens != 0 || write.InputTokens != 0 {
+		t.Error("cache tokens also counted as input")
+	}
+	if in.Model != "claude-haiku-4-5" {
+		t.Errorf("model = %q", in.Model)
+	}
+}

@@ -155,3 +155,50 @@ func TestUsage_MeteredOrNonStreamingSpansAreNotFlagged(t *testing.T) {
 		})
 	}
 }
+
+// Claude Code 2.1.331+ reports gen_ai.usage.input_tokens cache-inclusive and
+// names cache writes cache_write. Counts are from a real claude-haiku-4-5 call.
+func TestUsage_ClaudeCodeCacheWrite(t *testing.T) {
+	u := Usage(map[string]string{
+		attrGenAISystem:      "anthropic",
+		attrInputTokens:      "65880",
+		attrOutputTokens:     "143",
+		attrCacheReadDotted:  "32850",
+		attrCacheWriteDotted: "33012",
+	})
+	if u.InputTokens != 65880 || u.OutputTokens != 143 || u.CacheReadTokens != 32850 || u.CacheWriteTokens != 33012 {
+		t.Errorf("got %+v", u)
+	}
+}
+
+// Older Claude Code (and the Agent SDK running it) sets only bare keys, with
+// input_tokens excluding the cache. They come back cache-inclusive.
+func TestUsage_LegacyClaudeCodeBareKeys(t *testing.T) {
+	u := Usage(map[string]string{
+		attrGenAISystem:             "anthropic",
+		attrModelRequest:            "claude-haiku-4-5",
+		attrBareInputTokens:         "18",
+		attrBareOutputTokens:        "143",
+		attrBareCacheReadTokens:     "32850",
+		attrBareCacheCreationTokens: "33012",
+	})
+	want := TokenUsage{InputTokens: 18 + 32850 + 33012, OutputTokens: 143, CacheReadTokens: 32850, CacheWriteTokens: 33012}
+	if u != want {
+		t.Errorf("got %+v, want %+v", u, want)
+	}
+}
+
+// Bare keys never meter a span that isn't an Anthropic call, or one that
+// already carries gen_ai.usage.*.
+func TestUsage_BareKeysIgnoredOutsideLegacyClaudeCode(t *testing.T) {
+	if u := Usage(map[string]string{attrBareInputTokens: "500", attrBareOutputTokens: "20"}); u.InputTokens != 0 || u.OutputTokens != 0 {
+		t.Errorf("non-Anthropic span metered from bare keys: %+v", u)
+	}
+	u := Usage(map[string]string{
+		attrGenAISystem: "anthropic", attrInputTokens: "100", attrOutputTokens: "10",
+		attrBareInputTokens: "999", attrBareOutputTokens: "999",
+	})
+	if u.InputTokens != 100 || u.OutputTokens != 10 {
+		t.Errorf("bare keys overrode gen_ai.usage.*: %+v", u)
+	}
+}

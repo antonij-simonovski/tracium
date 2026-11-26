@@ -12,7 +12,9 @@ attributes:
   - name: gen_ai.request.model
     description: >
       The model name requested by the caller (e.g. "gpt-4o", "claude-sonnet-4-6").
-      Falls back to gen_ai.response.model when absent.
+      Falls back to gen_ai.response.model when absent. LiteLLM's
+      litellm.provider.model, the model it dispatched to, takes precedence,
+      since through the LiteLLM proxy this attribute holds the model group alias.
     type: string
     required: true
 
@@ -55,7 +57,10 @@ attributes:
   - name: gen_ai.usage.cache_creation.input_tokens
     description: >
       Input tokens written to the provider's prompt cache, priced at the model's
-      cache-write rate. Also read from gen_ai.usage.cache_creation_input_tokens.
+      cache-write rate. Also read from gen_ai.usage.cache_creation_input_tokens
+      and gen_ai.usage.cache_write.input_tokens (Claude Code). On an Anthropic
+      span with no gen_ai.usage.*, older Claude Code's bare input_tokens,
+      output_tokens, cache_read_tokens and cache_creation_tokens are read.
     type: integer
     required: false
 

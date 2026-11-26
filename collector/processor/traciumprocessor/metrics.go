@@ -14,7 +14,8 @@ import (
 	"go.uber.org/zap"
 )
 
-// metricsProcessor enriches OpenLLMetry's gen_ai.client.token.usage data points
+// metricsProcessor enriches token-usage data points (OpenLLMetry's
+// gen_ai.client.token.usage and Claude Code's claude_code.token.usage)
 // with the same user resolution, model normalisation, and pricing the traces
 // chain applies to spans. It stays in pmetric form and stamps the results as
 // data-point attributes; the clickhousespan exporter turns each enriched data
@@ -42,7 +43,7 @@ func (p *metricsProcessor) processMetrics(ctx context.Context, md pmetric.Metric
 		sms := rm.ScopeMetrics()
 		for j := 0; j < sms.Len(); j++ {
 			sms.At(j).Metrics().RemoveIf(func(m pmetric.Metric) bool {
-				if m.Name() != genai.TokenUsageMetric {
+				if !genai.IsTokenUsageMetric(m.Name()) {
 					return false
 				}
 				switch {
@@ -157,15 +158,21 @@ func (p *metricsProcessor) enrichPoint(
 		userID = resolved
 	}
 	userID = ingest.SanitizeIdentifier(userID, ingest.MaxUserIDBytes)
-	model := genai.MetricModel(func(k string) string { return strAttr(attrs, k) })
+	get := func(k string) string { return strAttr(attrs, k) }
+	model := genai.MetricModel(metricName, get)
 	modelNormalized := ingest.SanitizeIdentifier(strings.ToLower(model), ingest.MaxModelNameBytes)
 
 	var cost float64
 	if p.pricing != nil && modelNormalized != "" {
 		var u pricing.Usage
-		if genai.IsOutputTokenType(strAttr(attrs, genai.AttrTokenType)) {
+		switch genai.PointTokenClass(metricName, get) {
+		case genai.TokenOutput:
 			u.Output = tokens
-		} else {
+		case genai.TokenCacheRead:
+			u.CacheRead = tokens
+		case genai.TokenCacheWrite:
+			u.CacheCreation = tokens
+		default:
 			u.Input = tokens
 		}
 		if c, err := p.pricing.Resolve(ctx, modelNormalized, u); err == nil {
