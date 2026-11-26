@@ -3,6 +3,7 @@ package traciumprocessor
 import (
 	"context"
 	"errors"
+	"math"
 	"strings"
 	"testing"
 
@@ -317,5 +318,44 @@ func assertStr(t *testing.T, dp pmetric.HistogramDataPoint, key, want string) {
 	}
 	if v.AsString() != want {
 		t.Errorf("%s = %q, want %q", key, v.AsString(), want)
+	}
+}
+
+// Claude Code's claude_code.token.usage sum points are priced per token class.
+// Counts are from a real claude-haiku-4-5 run (Claude Code 2.1.332, DELTA).
+func TestProcessMetrics_PricesClaudeCodeTokenUsage(t *testing.T) {
+	md := pmetric.NewMetrics()
+	metrics := md.ResourceMetrics().AppendEmpty().ScopeMetrics().AppendEmpty().Metrics()
+	m := metrics.AppendEmpty()
+	m.SetName(genai.ClaudeCodeTokenUsageMetric)
+	sum := m.SetEmptySum()
+	sum.SetAggregationTemporality(pmetric.AggregationTemporalityDelta)
+	points := map[string]int64{"input": 18, "output": 143, "cacheRead": 32850, "cacheCreation": 33012}
+	for _, typ := range []string{"input", "output", "cacheRead", "cacheCreation"} {
+		dp := sum.DataPoints().AppendEmpty()
+		dp.SetDoubleValue(float64(points[typ]))
+		dp.Attributes().PutStr("model", "claude-haiku-4-5")
+		dp.Attributes().PutStr("type", typ)
+	}
+
+	if _, err := newMetricsProcessor().processMetrics(metricsCtx(), md); err != nil {
+		t.Fatalf("processMetrics: %v", err)
+	}
+	if got := metrics.Len(); got != 1 {
+		t.Fatalf("claude_code.token.usage dropped: %d metrics left", got)
+	}
+	// haiku-4-5: $1/1M in, $5/1M out, $0.10/1M cache read, $1.25/1M cache write.
+	want := map[string]float64{"input": 18e-6, "output": 715e-6, "cacheRead": 3285e-6, "cacheCreation": 41265e-6}
+	dps := sum.DataPoints()
+	for i := 0; i < dps.Len(); i++ {
+		dp := dps.At(i)
+		typ, _ := dp.Attributes().Get("type")
+		cost, ok := dp.Attributes().Get(attrCostUSD)
+		if !ok || math.Abs(cost.Double()-want[typ.Str()]) > 1e-12 {
+			t.Errorf("%s cost = %v, want %v", typ.Str(), cost.Double(), want[typ.Str()])
+		}
+		if v, _ := dp.Attributes().Get(attrModelNormalized); v.Str() != "claude-haiku-4-5" {
+			t.Errorf("%s model = %q", typ.Str(), v.Str())
+		}
 	}
 }

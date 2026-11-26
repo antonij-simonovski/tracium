@@ -144,3 +144,14 @@ func TestStampContentHashes(t *testing.T) {
 		t.Error("non-LLM span and sender-supplied hash must leave no output_hash")
 	}
 }
+
+// A LiteLLM proxy span names the model group alias in gen_ai.request.model; the
+// span is priced on the model LiteLLM dispatched to.
+func TestToSpanModelPrefersLiteLLMProviderModel(t *testing.T) {
+	s := ptrace.NewSpan()
+	s.Attributes().PutStr("gen_ai.request.model", "my-gpt")
+	s.Attributes().PutStr("litellm.provider.model", "openai/gpt-4o")
+	if got := toSpanModel(s, pcommon.NewMap(), attrMap(s.Attributes())).Model; got != "openai/gpt-4o" {
+		t.Errorf("Model = %q, want openai/gpt-4o", got)
+	}
+}

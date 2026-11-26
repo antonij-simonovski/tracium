@@ -22,6 +22,9 @@ const (
 
 	attrCacheCreationDotted     = "gen_ai.usage.cache_creation.input_tokens"
 	attrCacheCreationUnderscore = "gen_ai.usage.cache_creation_input_tokens"
+	// Claude Code (2.1.331+) names cache writes cache_write rather than the
+	// semconv's cache_creation.
+	attrCacheWriteDotted = "gen_ai.usage.cache_write.input_tokens"
 
 	attrTotalTokens    = "gen_ai.usage.total_tokens"
 	attrLLMTotalTokens = "llm.usage.total_tokens"
@@ -35,6 +38,16 @@ const (
 
 	attrModelRequest  = "gen_ai.request.model"
 	attrModelResponse = "gen_ai.response.model"
+
+	// Claude Code before 2.1.331 put usage on its claude_code.llm_request spans
+	// under bare keys, with gen_ai.system=anthropic and no gen_ai.usage.*. The
+	// counts follow the Anthropic API: input_tokens excludes cached tokens.
+	attrGenAISystem             = "gen_ai.system"
+	attrBareInputTokens         = "input_tokens"
+	attrBareOutputTokens        = "output_tokens"
+	attrBareCacheReadTokens     = "cache_read_tokens"
+	attrBareCacheCreationTokens = "cache_creation_tokens"
+	genAISystemAnthropic        = "anthropic"
 )
 
 // TokenUsage is the metering Tracium reads off an incoming LLM span: token
@@ -70,10 +83,39 @@ func Usage(attrs map[string]string) TokenUsage {
 		InputTokens:      firstInt(attrs, attrInputTokens, attrPromptTokens, attrLLMPromptTokens),
 		OutputTokens:     firstInt(attrs, attrOutputTokens, attrCompletionTokens, attrLLMCompletionTokens),
 		CacheReadTokens:  firstInt(attrs, attrCacheReadDotted, attrCacheReadUnderscore),
-		CacheWriteTokens: firstInt(attrs, attrCacheCreationDotted, attrCacheCreationUnderscore),
+		CacheWriteTokens: firstInt(attrs, attrCacheCreationDotted, attrCacheCreationUnderscore, attrCacheWriteDotted),
+	}
+	if u.InputTokens == 0 && u.OutputTokens == 0 && u.CacheReadTokens == 0 && u.CacheWriteTokens == 0 {
+		u = legacyClaudeCodeUsage(attrs, u)
 	}
 	u.reconcileOutput(attrs)
 	u.Unmetered = unmetered(attrs, u)
+	return u
+}
+
+// legacyClaudeCodeUsage reads the bare token keys older Claude Code versions
+// (and so the Claude Agent SDK, which runs the CLI) set on claude_code.llm_request
+// spans. They are read only on a span that names Anthropic as its system and
+// carries no gen_ai.usage.* at all, so an unrelated custom "input_tokens"
+// attribute never meters a span. The bare input count excludes cached tokens;
+// it is returned cache-inclusive, the way current Claude Code reports
+// gen_ai.usage.input_tokens, so the pricing resolver reads it unambiguously
+// whatever the ratio of cached to uncached tokens.
+func legacyClaudeCodeUsage(attrs map[string]string, u TokenUsage) TokenUsage {
+	if attrs[attrGenAISystem] != genAISystemAnthropic {
+		return u
+	}
+	in := firstInt(attrs, attrBareInputTokens)
+	out := firstInt(attrs, attrBareOutputTokens)
+	read := firstInt(attrs, attrBareCacheReadTokens)
+	write := firstInt(attrs, attrBareCacheCreationTokens)
+	if in == 0 && out == 0 && read == 0 && write == 0 {
+		return u
+	}
+	u.InputTokens = in + read + write
+	u.OutputTokens = out
+	u.CacheReadTokens = read
+	u.CacheWriteTokens = write
 	return u
 }
 

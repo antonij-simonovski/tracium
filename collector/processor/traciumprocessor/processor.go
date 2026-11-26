@@ -150,10 +150,7 @@ const (
 // toSpanModel extracts the fields the enrichment chain needs from an OTLP span.
 // attrs is the span's attribute map, snapshotted once by the caller.
 func toSpanModel(s ptrace.Span, resourceAttrs pcommon.Map, attrs map[string]string) *spanmodel.Span {
-	model := attrs[attrModelRequest]
-	if model == "" {
-		model = attrs[attrModelResponse]
-	}
+	model := genai.SpanModel(func(k string) string { return attrs[k] })
 
 	// User may arrive on the span or on the resource.
 	userID := attrs[attrUserID]

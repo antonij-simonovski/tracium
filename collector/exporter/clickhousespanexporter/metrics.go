@@ -11,7 +11,8 @@ import (
 	"go.opentelemetry.io/collector/pdata/pmetric"
 )
 
-// pushMetrics turns each enriched gen_ai.client.token.usage data point into a
+// pushMetrics turns each enriched token-usage data point (gen_ai.client.token.usage
+// or claude_code.token.usage) into a
 // synthetic span row (source="metric") and writes them in one batch to the same
 // tracium.spans table as real spans. Each data point measures either input or
 // output tokens (per gen_ai.token.type); cost was priced accordingly upstream,
@@ -27,7 +28,7 @@ func (e *chExporter) pushMetrics(ctx context.Context, md pmetric.Metrics) error 
 			metrics := sms.At(j).Metrics()
 			for k := 0; k < metrics.Len(); k++ {
 				m := metrics.At(k)
-				if m.Name() != genai.TokenUsageMetric || isCumulative(m) {
+				if !genai.IsTokenUsageMetric(m.Name()) || isCumulative(m) {
 					continue
 				}
 				rows = append(rows, usageRows(m)...)
@@ -65,7 +66,7 @@ func usageRows(m pmetric.Metric) []*spanmodel.Span {
 		dps := m.Histogram().DataPoints()
 		for i := 0; i < dps.Len(); i++ {
 			dp := dps.At(i)
-			if row := usageRow(dp.Attributes(), int64(dp.Sum()), dp.Timestamp()); row != nil {
+			if row := usageRow(m.Name(), dp.Attributes(), int64(dp.Sum()), dp.Timestamp()); row != nil {
 				rows = append(rows, row)
 			}
 		}
@@ -73,7 +74,7 @@ func usageRows(m pmetric.Metric) []*spanmodel.Span {
 		dps := m.Sum().DataPoints()
 		for i := 0; i < dps.Len(); i++ {
 			dp := dps.At(i)
-			if row := usageRow(dp.Attributes(), numberValue(dp), dp.Timestamp()); row != nil {
+			if row := usageRow(m.Name(), dp.Attributes(), numberValue(dp), dp.Timestamp()); row != nil {
 				rows = append(rows, row)
 			}
 		}
@@ -90,13 +91,14 @@ func usageRows(m pmetric.Metric) []*spanmodel.Span {
 // Returns nil (the point is skipped) when the token count is out of range, and
 // length-caps the client-controlled identifiers, so a row written by the
 // exporter is bounded the same way a span row is regardless of what ran upstream.
-func usageRow(attrs pcommon.Map, tokens int64, ts pcommon.Timestamp) *spanmodel.Span {
+func usageRow(metric string, attrs pcommon.Map, tokens int64, ts pcommon.Timestamp) *spanmodel.Span {
 	if !ingest.TokensInRange(tokens) {
 		return nil
 	}
 
 	bucketMs := ts.AsTime().UnixMilli()
-	model := genai.MetricModel(func(k string) string { return strAttr(attrs, k) })
+	get := func(k string) string { return strAttr(attrs, k) }
+	model := genai.MetricModel(metric, get)
 
 	span := &spanmodel.Span{
 		Source:          "metric",
@@ -109,9 +111,14 @@ func usageRow(attrs pcommon.Map, tokens int64, ts pcommon.Timestamp) *spanmodel.
 		WorkspaceID:     ingest.SanitizeIdentifier(strAttr(attrs, attrWorkspaceID), ingest.MaxUserIDBytes),
 		SchemaVersion:   1,
 	}
-	if genai.IsOutputTokenType(strAttr(attrs, genai.AttrTokenType)) {
+	switch genai.PointTokenClass(metric, get) {
+	case genai.TokenOutput:
 		span.OutputTokens = tokens
-	} else {
+	case genai.TokenCacheRead:
+		span.CacheReadTokens = tokens
+	case genai.TokenCacheWrite:
+		span.CacheWriteTokens = tokens
+	default:
 		span.InputTokens = tokens
 	}
 	return span

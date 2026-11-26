@@ -90,10 +90,7 @@ const (
 
 func fromOTLP(s ptrace.Span, serviceName string, resourceAttrs pcommon.Map) *spanmodel.Span {
 	attrs := s.Attributes()
-	model := strAttr(attrs, attrModelRequest)
-	if model == "" {
-		model = strAttr(attrs, attrModelResponse)
-	}
+	model := genai.SpanModel(func(k string) string { return strAttr(attrs, k) })
 	am := attrMap(attrs)
 	usage := genai.Usage(am)
 	startMs := s.StartTimestamp().AsTime().UnixMilli()
